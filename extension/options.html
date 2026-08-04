@@ -104,6 +104,19 @@
     }
     textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
     .reset-btn { margin-top: 4px; padding: 4px 10px; font-size: 12px; font-weight: 400; }
+
+    /* 哈希库 */
+    #hash-list { max-height: 200px; overflow: auto; margin-top: 8px; }
+    .hash-item {
+      display: flex; align-items: center; gap: 8px; padding: 4px 10px;
+      font-size: 12px; border-radius: 6px;
+    }
+    .hash-item:nth-child(odd) { background: #fafbfc; }
+    .hash-item .h { font-family: var(--mono); color: var(--muted); }
+    .hash-item .del {
+      margin-left: auto; border: none; background: none; color: #dc2626;
+      cursor: pointer; padding: 0 4px; font-size: 13px;
+    }
   </style>
 </head>
 <body>
@@ -126,6 +139,19 @@
       <button id="clear-rules" class="danger">清空规则</button>
       <div id="rule-stats" class="muted"></div>
       <div id="rule-list"></div>
+    </div>
+
+    <div class="card">
+      <h2>🎯 favicon 哈希库</h2>
+      <p class="muted">
+        内置 956 条（<a href="https://github.com/BishopFox/Favicons" target="_blank">BishopFox 数据集</a>）。
+        自定义条目优先于内置同名哈希，适合补充公司内部系统。
+      </p>
+      <textarea id="hash-input" rows="3" placeholder='每行一条：哈希 名称（如 -1010568750 Phpmyadmin）&#10;或者直接贴 JSON：{"-1010568750": "Phpmyadmin"}'></textarea>
+      <button id="hash-import" class="primary">导入</button>
+      <button id="hash-clear" class="danger">清空自定义</button>
+      <div id="hash-stats" class="muted"></div>
+      <div id="hash-list"></div>
     </div>
 
     <div class="card">

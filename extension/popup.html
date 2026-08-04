@@ -38,6 +38,9 @@
       padding: 10px 12px; margin-bottom: 12px;
     }
     .page-info .title { font-weight: 600; font-size: 13px; word-break: break-all; }
+    .page-info .title-row { display: flex; align-items: center; gap: 8px; }
+    .favicon { width: 18px; height: 18px; border-radius: 4px; flex-shrink: 0; }
+    .favicon.matched { box-shadow: 0 0 0 2px var(--green), 0 0 6px rgba(22, 163, 74, .4); }
     .page-info .url {
       color: var(--muted); font-size: 11px; font-family: var(--mono);
       word-break: break-all; margin-top: 2px;
@@ -135,7 +138,10 @@
 
   <div class="container">
     <div class="page-info" id="page-info" style="display:none">
-      <div class="title" id="page-title"></div>
+      <div class="title-row">
+        <img id="page-favicon" class="favicon" alt="" style="display:none">
+        <div class="title" id="page-title"></div>
+      </div>
       <div class="url" id="page-url"></div>
       <div class="meta-row" id="meta-row"></div>
     </div>

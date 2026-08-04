@@ -107,5 +107,14 @@ pass &&= norm.rules?.length === 2
   && norm.rules[0].matchers.length === 1
   && norm.rules[1].id === 'native-nginx';
 
+// goHashLookup：内置库命中 + 自定义覆盖
+const builtin = JSON.parse(globalThis.goHashLookup(-1010568750, '{}'));
+const custom = JSON.parse(globalThis.goHashLookup(-1010568750, JSON.stringify({ '-1010568750': '公司内部 PMA' })));
+const miss = JSON.parse(globalThis.goHashLookup(42, '{}'));
+console.log('hashLookup =', JSON.stringify({ builtin, custom, miss }));
+pass &&= builtin.name === 'Phpmyadmin'
+  && custom.name === '公司内部 PMA'
+  && !miss.name;
+
 console.log(pass ? '✅ 冒烟测试通过' : '❌ 结果不符合预期');
 process.exit(pass ? 0 : 1);

@@ -64,6 +64,75 @@ document.getElementById('clear-rules').addEventListener('click', async () => {
   showMsg('规则已清空');
 });
 
+// --- favicon 哈希库：自定义条目存 storage，查库时传给 wasm，覆盖内置 ---
+
+async function loadCustomHashes() {
+  const { customHashes = {} } = await chrome.storage.local.get('customHashes');
+  return customHashes;
+}
+
+async function refreshHashList() {
+  const hashes = await loadCustomHashes();
+  const entries = Object.entries(hashes);
+  document.getElementById('hash-stats').textContent = `自定义 ${entries.length} 条（内置 956 条）`;
+  const list = document.getElementById('hash-list');
+  list.innerHTML = '';
+  for (const [h, name] of entries) {
+    const row = document.createElement('div');
+    row.className = 'hash-item';
+    row.innerHTML = `<span class="h"></span><span class="n"></span><button class="del" title="删除">✕</button>`;
+    row.querySelector('.h').textContent = h;
+    row.querySelector('.n').textContent = name;
+    row.querySelector('.del').addEventListener('click', async () => {
+      const cur = await loadCustomHashes();
+      delete cur[h];
+      await chrome.storage.local.set({ customHashes: cur });
+      refreshHashList();
+    });
+    list.appendChild(row);
+  }
+}
+
+document.getElementById('hash-import').addEventListener('click', async () => {
+  const text = document.getElementById('hash-input').value.trim();
+  if (!text) return;
+  const parsed = {};
+
+  // 先试 JSON，不行再按行解析（哈希 名称）
+  try {
+    const obj = JSON.parse(text);
+    for (const [h, name] of Object.entries(obj)) {
+      if (/^-?\d+$/.test(h) && name) parsed[h] = String(name);
+    }
+  } catch {
+    for (const line of text.split('\n')) {
+      const m = line.trim().match(/^(-?\d+)\s+(.+)$/);
+      if (m) parsed[m[1]] = m[2].trim();
+    }
+  }
+
+  const n = Object.keys(parsed).length;
+  if (!n) {
+    showMsg('没解析出有效条目，格式：哈希 名称（每行一条）或 JSON', true);
+    return;
+  }
+  const cur = await loadCustomHashes();
+  Object.assign(cur, parsed);
+  await chrome.storage.local.set({ customHashes: cur });
+  document.getElementById('hash-input').value = '';
+  await refreshHashList();
+  showMsg(`导入 ${n} 条自定义哈希`);
+});
+
+document.getElementById('hash-clear').addEventListener('click', async () => {
+  if (!confirm('确定清空自定义哈希？内置库不受影响。')) return;
+  await chrome.storage.local.set({ customHashes: {} });
+  refreshHashList();
+  showMsg('自定义哈希已清空');
+});
+
+refreshHashList();
+
 // --- 书签整理：勾选哪些就处理哪些，没勾的一律不动 ---
 
 const bmPanel = document.getElementById('bm-panel');

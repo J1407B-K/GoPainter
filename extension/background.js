@@ -116,6 +116,26 @@ async function runMatch(features) {
   return JSON.parse(globalThis.goMatch(JSON.stringify(rules), JSON.stringify(features)));
 }
 
+// favicon 哈希库命中也当成一个指纹，并进 hits（规则命中优先，同名的不重复加）
+async function appendHashHit(features, result) {
+  if (!features.faviconHash) return result;
+  try {
+    await ensureWasm();
+    const { customHashes = {} } = await chrome.storage.local.get('customHashes');
+    const hit = JSON.parse(globalThis.goHashLookup(features.faviconHash, JSON.stringify(customHashes)));
+    if (hit.name && !(result.hits || []).some((h) => h.name === hit.name)) {
+      result.hits = result.hits || [];
+      result.hits.push({
+        id: `icon-${features.faviconHash}`,
+        name: hit.name,
+        evidence: [{ type: 'icon_hash', detail: `mmh3 ${features.faviconHash}（哈希库）` }],
+      });
+      delete result.note;
+    }
+  } catch { /* 查库失败不影响规则结果 */ }
+  return result;
+}
+
 // --- AI：提示词支持自定义，没配就用默认 ---
 
 const DEFAULT_PROMPTS = {
@@ -290,7 +310,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           headers: net.headers,
           faviconHash: await faviconHash(msg.features.favicon),
         });
-        const result = await runMatch(features);
+        const result = await appendHashHit(features, await runMatch(features));
         await chrome.storage.session.set({
           [`result:${tabId}`]: { features, result, at: Date.now() },
         });

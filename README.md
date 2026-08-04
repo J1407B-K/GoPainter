@@ -129,8 +129,10 @@ popup        结果与证据展示 / AI 按钮
 │   └── lib/                  # js-yaml（唯一的第三方 JS）
 ├── scripts/
 │   ├── generate-icons.mjs    # 图标生成器（纯 Node，零依赖）
+│   ├── generate-hashdb.mjs   # favicon 哈希库生成器（data/ → wasm/hashdb.go）
 │   ├── smoke-test.mjs        # wasm 冒烟测试
 │   └── build.ps1             # Windows 构建脚本
+├── data/favicon-hashes.json  # 哈希库源数据（BishopFox/Favicons）
 ├── rules/examples.yaml       # 示例规则
 ├── Makefile                  # macOS/Linux 构建
 └── build.ps1（scripts/）     # Windows 构建
@@ -147,14 +149,14 @@ popup        结果与证据展示 / AI 按钮
 - [x] AI 反向生成规则（未识别页面 → AI 写 YAML → 确认入库）
 - [x] 书签自动分类（勾选想整理的书签，按指纹命中挪入「🎨 指纹分类」文件夹，可开 AI 兜底）
 - [x] mmh3 / HTML 特征提取 / nuclei 转换收编进 Go（新增 meta、script 匹配维度）
+- [x] 内置 favicon 哈希库（956 条，BishopFox 数据集）+ 自定义哈希导入
 
 **进行中 / 计划** 🚧
 - [ ] SPA 路由变化监听（pushState / popstate 触发重新分析）
 - [ ] matcher 支持 dsl 表达式子集（`contains(body, "x") && status == 200`）
 - [ ] 规则集管理：分组启用/禁用、远程规则源订阅与自动更新
 - [ ] 扫描历史与报告导出（JSON/CSV）
-- [ ] 内置常见 favicon 哈希库（fofa 公开数据）
-- [ ] wasm 体积进一步优化（当前 ~620KB，目标 < 300KB）
+- [ ] wasm 体积进一步优化（当前 ~750KB，目标 < 300KB）
 ## License
 
 [MIT](LICENSE)

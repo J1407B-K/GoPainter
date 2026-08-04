@@ -31,6 +31,15 @@ function render({ features, result }) {
   document.getElementById('page-title').textContent = features.title || '（无标题）';
   document.getElementById('page-url').textContent = features.url;
 
+  // favicon：命中时加绿圈
+  const faviconEl = document.getElementById('page-favicon');
+  if (features.favicon) {
+    faviconEl.src = features.favicon;
+    faviconEl.style.display = 'block';
+    faviconEl.onerror = () => { faviconEl.style.display = 'none'; };
+    faviconEl.classList.toggle('matched', !!result.hits?.length);
+  }
+
   const metaRow = document.getElementById('meta-row');
   metaRow.innerHTML = '';
   if (features.status) {

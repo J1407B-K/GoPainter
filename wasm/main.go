@@ -5,6 +5,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"syscall/js"
 )
 
@@ -70,11 +71,33 @@ func jsNormalize(_ js.Value, args []js.Value) any {
 	return string(out)
 }
 
+// goHashLookup(hash, customJSON) -> {"name":"..."} 或 {}，自定义（{"hash":"name"}）覆盖内置
+func jsHashLookup(_ js.Value, args []js.Value) any {
+	if len(args) < 2 {
+		return jsError("hashLookup(hash, customJSON) 需要两个参数")
+	}
+	hash := int32(args[0].Int())
+	var custom map[string]string
+	if err := json.Unmarshal([]byte(args[1].String()), &custom); err != nil {
+		return jsError("自定义哈希 JSON 解析失败: %s", err)
+	}
+	name := custom[strconv.Itoa(int(hash))]
+	if name == "" {
+		name = builtinHashDB[hash]
+	}
+	if name == "" {
+		return "{}"
+	}
+	out, _ := json.Marshal(map[string]string{"name": name})
+	return string(out)
+}
+
 func main() {
 	g := js.Global()
 	g.Set("goMatch", js.FuncOf(match))
 	g.Set("goMmh3", js.FuncOf(jsMmh3))
 	g.Set("goExtractFeatures", js.FuncOf(jsExtract))
 	g.Set("goNormalizeRules", js.FuncOf(jsNormalize))
+	g.Set("goHashLookup", js.FuncOf(jsHashLookup))
 	select {} // 挂着别退，等 JS 调用
 }
