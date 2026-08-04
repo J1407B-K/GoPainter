@@ -38,6 +38,8 @@ type Features struct {
 	Meta        map[string]string `json:"meta"`    // meta 标签 name/property -> content
 	Scripts     []string          `json:"scripts"` // script src 列表
 	Links       []string          `json:"links"`   // 页面链接，爬虫用，不参与匹配
+	// 一个站点可能有好几个 icon（不同尺寸/路径），每个都算哈希来匹配
+	FaviconHashes []int32 `json:"faviconHashes"`
 }
 
 // 命中证据：哪个类型、在哪个位置、命中了什么
@@ -128,8 +130,16 @@ func evalMatcher(m Matcher, f *Features) (bool, []Evidence) {
 			}
 		}
 	case "icon_hash":
+		// 页面的所有 icon 哈希都参与比对，不知道哪个图案才是指纹库里那个
+		all := append([]int32{f.FaviconHash}, f.FaviconHashes...)
 		for _, h := range m.Hash {
-			ok := f.FaviconHash == h
+			ok := false
+			for _, fh := range all {
+				if fh == h {
+					ok = true
+					break
+				}
+			}
 			results = append(results, ok)
 			if ok {
 				ev = append(ev, Evidence{Type: "icon_hash", Detail: fmt.Sprintf("mmh3 %d", h)})

@@ -44,6 +44,7 @@ chrome.webRequest.onHeadersReceived.addListener(
 
 chrome.tabs.onRemoved.addListener((tabId) => {
   responseCache.delete(tabId);
+  tabIcons.delete(tabId);
   chrome.storage.session.remove(`result:${tabId}`);
 });
 
@@ -75,7 +76,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
 
 // --- 特征补全：favicon 哈希 + HTML 提取，都在 wasm 里算 ---
 
-async function faviconHash(url) {
+async function hashIconUrl(url) {
   if (!url || !/^https?:/.test(url)) return 0;
   try {
     const resp = await fetch(url);
@@ -92,24 +93,89 @@ async function faviconHash(url) {
   }
 }
 
-// 从原始 HTML 里补 title/meta/scripts/favicon，wasm 挂了也不影响主流程
+// 一组 icon URL 全部算哈希，去重去 0。一个站点挂几个 icon 就匹配几个
+async function hashIcons(urls) {
+  const hashes = new Set();
+  const unique = [...new Set(urls)].slice(0, 8); // 防个页面满天飞 icon
+  await Promise.all(unique.map(async (u) => {
+    const h = await hashIconUrl(u);
+    if (h) hashes.add(h);
+  }));
+  return [...hashes];
+}
+
+// --- 网络包里的 icon：页面加载过程中所有带 icon/favicon 字样的图片请求都收 ---
+
+const tabIcons = new Map(); // tabId -> { seen:Set, pending:Set, timer }
+
+function trackIconRequest(tabId, url) {
+  let st = tabIcons.get(tabId);
+  if (!st) {
+    st = { seen: new Set(), pending: new Set(), timer: null };
+    tabIcons.set(tabId, st);
+  }
+  if (st.seen.has(url)) return;
+  st.seen.add(url);
+  st.pending.add(url);
+  // 页面已有的 icon 可能晚于 content script 上报，攒一批重新匹配
+  clearTimeout(st.timer);
+  st.timer = setTimeout(() => flushIcons(tabId), 800);
+}
+
+chrome.webRequest.onCompleted.addListener(
+  (d) => { if (d.tabId >= 0) trackIconRequest(d.tabId, d.url); },
+  { urls: ['*://*/*favicon*', '*://*/*icon*'], types: ['image', 'other'] }
+);
+
+async function flushIcons(tabId) {
+  const st = tabIcons.get(tabId);
+  if (!st || !st.pending.size) return;
+  const urls = [...st.pending];
+  st.pending.clear();
+
+  const key = `result:${tabId}`;
+  const data = await chrome.storage.session.get(key);
+  const stored = data[key];
+  if (!stored) return; // 页面还没上报特征，pageFeatures 流程会带上这些 icon
+
+  const newHashes = await hashIcons(urls);
+  if (!newHashes.length) return;
+
+  // 只挑出没见过的新哈希；没有就省了这次重匹配
+  const existing = new Set([...(stored.features.faviconHashes || []), stored.features.faviconHash].filter(Boolean));
+  const fresh = newHashes.filter((h) => !existing.has(h));
+  if (!fresh.length) return;
+
+  stored.features.faviconHashes = [...existing, ...fresh];
+
+  // 有新哈希就完整重跑一遍匹配（规则 + 哈希库 + 脚本），毫秒级
+  const result = await appendHashHit(stored.features, await runMatch(stored.features));
+  result.hits = await runUserScripts(stored.features, result.hits);
+  stored.result = result;
+  await chrome.storage.session.set({ [key]: stored });
+  await updateIcon(tabId, result.hits?.length || 0);
+}
+
+// 从原始 HTML 里补 title/meta/scripts/favicons，wasm 挂了也不影响主流程
 async function enrichFeatures(features) {
   try {
     await ensureWasm();
     const ex = JSON.parse(globalThis.goExtractFeatures(features.body || ''));
     if (!features.title && ex.title) features.title = ex.title;
-    if (!features.favicon && ex.favicon) {
-      // HTML 里的 href 可能是相对路径
-      try {
-        features.favicon = new URL(ex.favicon, features.url).href;
-      } catch { /* 坏的 href 就不要了 */ }
-    }
+    // HTML 里的 href 可能是相对路径，全部转绝对
+    const favicons = (ex.favicons || [])
+      .map((h) => { try { return new URL(h, features.url).href; } catch { return null; } })
+      .filter(Boolean);
+    features.favicons = [...new Set([...(features.favicons || []), ...favicons])];
+    if (!features.favicon) features.favicon = features.favicons[0] || '';
     features.meta = ex.meta || {};
     features.scripts = ex.scripts || [];
     features.links = ex.links || [];
   } catch {
     features.meta = features.meta || {};
     features.scripts = features.scripts || [];
+    features.links = features.links || [];
+    features.favicons = features.favicons || [];
   }
   return features;
 }
@@ -251,9 +317,10 @@ async function fetchFeatures(url) {
     const headers = {};
     resp.headers.forEach((v, k) => { headers[k] = v; });
     const features = await enrichFeatures({ url, title: '', body: html, headers, status: resp.status, faviconHash: 0 });
-    // 从 HTML 里找到 favicon 就补抓算哈希，icon_hash 规则和哈希库对书签也能生效。
+    // 页面里挂的 icon 全部算哈希，icon_hash 规则和哈希库对书签/爬取也能生效。
     // 注意：fetch 拿不到 Set-Cookie（API 硬限制），cookie 类指纹对书签无效
-    features.faviconHash = await faviconHash(features.favicon);
+    features.faviconHashes = await hashIcons(features.favicons || []);
+    features.faviconHash = features.faviconHashes[0] || 0;
     return features;
   } finally {
     clearTimeout(timer);
@@ -390,8 +457,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           ...msg.features,
           status: net.status,
           headers: net.headers,
-          faviconHash: await faviconHash(msg.features.favicon),
         });
+        // DOM 里的 icon + 网络包里抓到的 icon，全部算哈希
+        const netIcons = tabIcons.get(tabId)?.seen || new Set();
+        const candidates = [features.favicon, ...(features.favicons || []), ...netIcons].filter(Boolean);
+        features.faviconHashes = await hashIcons(candidates);
+        features.faviconHash = features.faviconHashes[0] || 0;
         const result = await appendHashHit(features, await runMatch(features));
         result.hits = await runUserScripts(features, result.hits);
         await chrome.storage.session.set({

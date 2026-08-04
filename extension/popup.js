@@ -7,15 +7,30 @@ const aiResult = document.getElementById('ai-result');
 const pageInfo = document.getElementById('page-info');
 
 let currentTabId = null;
+let currentTabUrl = '';
+
+function setBusy(el, busy, busyLabel) {
+  el.classList.toggle('busy', busy);
+  const label = el.querySelector('.ac-label');
+  if (busy) {
+    label.dataset.orig = label.textContent;
+    label.textContent = busyLabel;
+  } else if (label.dataset.orig) {
+    label.textContent = label.dataset.orig;
+  }
+}
 
 async function init() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab?.id || !/^https?:/.test(tab.url || '')) {
     statusEl.innerHTML = '<span class="icon">🚫</span>当前页面不支持分析（仅 http/https）';
-    aiBtn.disabled = true;
+    for (const id of ['ai-btn', 'rule-btn', 'crawl-btn']) {
+      document.getElementById(id).classList.add('disabled');
+    }
     return;
   }
   currentTabId = tab.id;
+  currentTabUrl = tab.url;
 
   const data = await chrome.runtime.sendMessage({ type: 'getResult', tabId: currentTabId });
   if (!data) {
@@ -49,7 +64,8 @@ function render({ features, result }) {
   const server = features.headers?.['server'];
   if (server) metaRow.appendChild(makeChip(`server: ${server}`));
   if (features.faviconHash) {
-    metaRow.appendChild(makeChip(`icon_hash: ${features.faviconHash}`));
+    const extra = (features.faviconHashes?.length || 1) - 1;
+    metaRow.appendChild(makeChip(`icon_hash: ${features.faviconHash}` + (extra > 0 ? ` +${extra}` : '')));
   }
 
   // 命中结果
@@ -113,8 +129,7 @@ function makeChip(text, ok = false) {
 }
 
 aiBtn.addEventListener('click', async () => {
-  aiBtn.disabled = true;
-  aiBtn.innerHTML = '<span class="spinner"></span> AI 分析中…';
+  setBusy(aiBtn, true, '分析中…');
   aiResult.style.display = 'block';
   aiResult.textContent = '';
   try {
@@ -123,9 +138,33 @@ aiBtn.addEventListener('click', async () => {
   } catch (e) {
     aiResult.textContent = `出错：${e.message}`;
   } finally {
-    aiBtn.disabled = false;
-    aiBtn.innerHTML = '✨ AI 辅助识别';
+    setBusy(aiBtn, false);
   }
+});
+
+// --- 爬取本站：用当前标签页 URL 启动，跳设置页看进度 ---
+
+document.getElementById('crawl-btn').addEventListener('click', async () => {
+  if (!currentTabUrl) return;
+  const btn = document.getElementById('crawl-btn');
+  setBusy(btn, true, '启动中…');
+  try {
+    // 最大页数沿用设置页上次填的，没填过默认 50
+    const { crawlMaxPages = '50' } = await chrome.storage.local.get('crawlMaxPages');
+    const maxPages = crawlMaxPages === '' ? null : parseInt(crawlMaxPages, 10);
+    const resp = await chrome.runtime.sendMessage({ type: 'crawlStart', url: currentTabUrl, maxPages });
+    if (!resp.ok) throw new Error(resp.error);
+    chrome.runtime.openOptionsPage(); // 进度和结果在设置页看
+  } catch (e) {
+    aiResult.style.display = 'block';
+    aiResult.textContent = `启动爬取失败：${e.message}`;
+  } finally {
+    setBusy(btn, false);
+  }
+});
+
+document.getElementById('settings-btn').addEventListener('click', () => {
+  chrome.runtime.openOptionsPage();
 });
 
 // --- AI 生成规则：生成 -> 预览 -> 确认入库 ---
@@ -137,8 +176,7 @@ const ruleSave = document.getElementById('rule-save');
 const ruleDiscard = document.getElementById('rule-discard');
 
 ruleBtn.addEventListener('click', async () => {
-  ruleBtn.disabled = true;
-  ruleBtn.innerHTML = '<span class="spinner"></span> 生成中…';
+  setBusy(ruleBtn, true, '生成中…');
   try {
     const resp = await chrome.runtime.sendMessage({ type: 'aiGenerateRule', tabId: currentTabId });
     if (!resp.ok) throw new Error(resp.error);
@@ -148,8 +186,7 @@ ruleBtn.addEventListener('click', async () => {
     aiResult.style.display = 'block';
     aiResult.textContent = `出错：${e.message}`;
   } finally {
-    ruleBtn.disabled = false;
-    ruleBtn.innerHTML = '🛠 生成规则';
+    setBusy(ruleBtn, false);
   }
 });
 

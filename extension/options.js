@@ -357,6 +357,11 @@ async function pollCrawl() {
 // 打开设置页时拉一次，把上次爬的结果（或进行中的进度）恢复出来
 pollCrawl();
 
+// 页数上限记住上次填的
+chrome.storage.local.get('crawlMaxPages').then((d) => {
+  if (d.crawlMaxPages != null) document.getElementById('crawl-max').value = d.crawlMaxPages;
+});
+
 document.getElementById('crawl-start').addEventListener('click', async () => {
   const url = document.getElementById('crawl-url').value.trim();
   if (!/^https?:/.test(url)) {
@@ -369,6 +374,7 @@ document.getElementById('crawl-start').addEventListener('click', async () => {
     showMsg('最大页数要么是空，要么是正整数', true);
     return;
   }
+  await chrome.storage.local.set({ crawlMaxPages: raw }); // popup「爬取本站」也用这个值
   const resp = await chrome.runtime.sendMessage({ type: 'crawlStart', url, maxPages });
   if (!resp.ok) {
     showMsg(resp.error, true);

@@ -8,11 +8,11 @@ import (
 )
 
 type Extracted struct {
-	Title   string            `json:"title"`
-	Meta    map[string]string `json:"meta"`
-	Scripts []string          `json:"scripts"`
-	Favicon string            `json:"favicon"` // <link rel=icon> 的 href，可能是相对路径
-	Links   []string          `json:"links"`   // <a href> 列表，爬虫用
+	Title    string            `json:"title"`
+	Meta     map[string]string `json:"meta"`
+	Scripts  []string          `json:"scripts"`
+	Favicons []string          `json:"favicons"` // 所有 <link rel=icon>，站点经常挂好几个尺寸
+	Links    []string          `json:"links"`    // <a href> 列表，爬虫用
 }
 
 var (
@@ -65,8 +65,7 @@ func extractFeatures(html string) Extracted {
 	for _, tag := range linkRe.FindAllString(html, -1) {
 		attrs := parseAttrs(tag)
 		if strings.Contains(attrs["rel"], "icon") && attrs["href"] != "" {
-			out.Favicon = attrs["href"]
-			break
+			out.Favicons = append(out.Favicons, attrs["href"])
 		}
 	}
 	for _, tag := range anchorRe.FindAllString(html, -1) {

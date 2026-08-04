@@ -86,8 +86,15 @@ pass &&= ex.title === 'Test Page'
   && ex.meta?.generator === 'WordPress 6.5'
   && ex.meta?.['og:site_name'] === 'Example'
   && ex.scripts?.length === 2
-  && ex.favicon === '/static/favicon.ico'
+  && ex.favicons?.length === 1 && ex.favicons[0] === '/static/favicon.ico'
   && ex.links?.length === 1 && ex.links[0] === '/about';
+
+// 多 icon 哈希：faviconHashes 里任意一个命中规则的 icon_hash 都算
+const multiIcon = JSON.parse(globalThis.goMatch(JSON.stringify(rules), JSON.stringify({
+  ...features, faviconHash: 0, faviconHashes: [111, -1234567890],
+})));
+console.log('multiIcon hits =', multiIcon.hits.map((h) => h.id).join(','));
+pass &&= multiIcon.hits.some((h) => h.id === 'gitea');
 
 // goNormalizeRules：nuclei 模板 + 原生规则数组都要转对
 const docs = [

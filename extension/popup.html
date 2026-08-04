@@ -87,15 +87,24 @@
     }
     .empty .icon { font-size: 26px; display: block; margin-bottom: 6px; }
 
-    /* 底部操作区 */
-    .footer { display: flex; gap: 8px; margin-top: 12px; align-items: center; }
+    /* 底部操作小卡片 */
+    .footer { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 12px; }
+    .action-card {
+      display: flex; flex-direction: column; align-items: center; gap: 4px;
+      padding: 10px 0 8px; background: var(--card); border: 1px solid var(--border);
+      border-radius: 10px; cursor: pointer; transition: all .15s; user-select: none;
+    }
+    .action-card:hover { border-color: var(--accent); background: var(--accent-soft); transform: translateY(-1px); }
+    .action-card.disabled { opacity: .5; pointer-events: none; }
+    .ac-icon { font-size: 17px; }
+    .ac-label { font-size: 11px; color: var(--text); font-weight: 600; }
+    .action-card.busy .ac-icon { animation: pulse .8s ease-in-out infinite; }
+    @keyframes pulse { 50% { opacity: .3; } }
+
     button {
       flex: 1; padding: 8px 0; border: none; border-radius: 8px; cursor: pointer;
       font-size: 12px; font-weight: 600; transition: all .15s;
     }
-    #ai-btn { background: var(--accent); color: #fff; }
-    #ai-btn:hover:not(:disabled) { background: #4f46e5; transform: translateY(-1px); }
-    #ai-btn:disabled { opacity: .6; cursor: wait; }
     button.ghost { background: var(--card); border: 1px solid var(--border); color: var(--text); }
     button.ghost:hover:not(:disabled) { background: #f0f1f5; }
     button.ghost:disabled { opacity: .6; cursor: wait; }
@@ -150,9 +159,18 @@
     <div id="hits"></div>
 
     <div class="footer">
-      <button id="ai-btn">✨ AI 辅助识别</button>
-      <button id="rule-btn" class="ghost">🛠 生成规则</button>
-      <a class="link-btn" href="options.html" target="_blank">⚙️ 规则</a>
+      <div class="action-card" id="ai-btn" role="button">
+        <span class="ac-icon">✨</span><span class="ac-label">AI 识别</span>
+      </div>
+      <div class="action-card" id="rule-btn" role="button">
+        <span class="ac-icon">🛠</span><span class="ac-label">生成规则</span>
+      </div>
+      <div class="action-card" id="crawl-btn" role="button">
+        <span class="ac-icon">🕷</span><span class="ac-label">爬取本站</span>
+      </div>
+      <div class="action-card" id="settings-btn" role="button">
+        <span class="ac-icon">⚙️</span><span class="ac-label">设置</span>
+      </div>
     </div>
     <div id="ai-result"></div>
     <div id="rule-area">
