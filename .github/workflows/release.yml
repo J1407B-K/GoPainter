@@ -1,0 +1,49 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write # 建 release 要这个
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install TinyGo
+        run: |
+          wget -q https://github.com/tinygo-org/tinygo/releases/download/v0.41.1/tinygo0.41.1.linux-amd64.tar.gz
+          sudo tar -C /usr/local -xzf tinygo0.41.1.linux-amd64.tar.gz
+          echo "/usr/local/tinygo/bin" >> "$GITHUB_PATH"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Build wasm
+        run: make build-tinygo
+
+      - name: Smoke test
+        run: node scripts/smoke-test.mjs
+
+      - name: Package extension
+        run: |
+          cd extension
+          zip -r ../gopainter-${{ github.ref_name }}.zip . -x 'wasm/matcher.wasm.map'
+          cd ..
+          sha256sum gopainter-${{ github.ref_name }}.zip > gopainter-${{ github.ref_name }}.zip.sha256
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            gopainter-${{ github.ref_name }}.zip
+            gopainter-${{ github.ref_name }}.zip.sha256
+          generate_release_notes: true

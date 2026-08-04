@@ -147,8 +147,17 @@ popup        结果与证据展示 / AI 识别按钮
 - [ ] 扫描历史与报告导出（JSON/CSV）
 - [ ] 内置常见 favicon 哈希库（fofa 公开数据）
 - [ ] wasm 体积进一步优化（当前 ~620KB，目标 < 300KB）
-- [ ] CI 自动构建 + 发布 zip 包
+- [x] CI 自动构建 + tag 触发发布 zip 包
 - [ ] Firefox 适配（MV2/MV3 兼容层）
+
+## 发布
+
+打 tag 即自动发 Release（构建 → 测试 → 打包 `extension/` → 上传 zip 和 sha256）：
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
 
 ## 开发提示
 
