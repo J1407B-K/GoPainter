@@ -99,5 +99,9 @@ func main() {
 	g.Set("goExtractFeatures", js.FuncOf(jsExtract))
 	g.Set("goNormalizeRules", js.FuncOf(jsNormalize))
 	g.Set("goHashLookup", js.FuncOf(jsHashLookup))
+	g.Set("goCrawlStart", js.FuncOf(jsCrawlStart))
+	g.Set("goCrawlBatch", js.FuncOf(jsCrawlBatch))
+	g.Set("goCrawlFeed", js.FuncOf(jsCrawlFeed))
+	g.Set("goCrawlStatus", js.FuncOf(jsCrawlStatus))
 	select {} // 挂着别退，等 JS 调用
 }

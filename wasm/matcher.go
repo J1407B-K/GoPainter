@@ -37,6 +37,7 @@ type Features struct {
 	FaviconHash int32             `json:"faviconHash"`
 	Meta        map[string]string `json:"meta"`    // meta 标签 name/property -> content
 	Scripts     []string          `json:"scripts"` // script src 列表
+	Links       []string          `json:"links"`   // 页面链接，爬虫用，不参与匹配
 }
 
 // 命中证据：哪个类型、在哪个位置、命中了什么

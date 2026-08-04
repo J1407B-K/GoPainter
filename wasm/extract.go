@@ -12,6 +12,7 @@ type Extracted struct {
 	Meta    map[string]string `json:"meta"`
 	Scripts []string          `json:"scripts"`
 	Favicon string            `json:"favicon"` // <link rel=icon> 的 href，可能是相对路径
+	Links   []string          `json:"links"`   // <a href> 列表，爬虫用
 }
 
 var (
@@ -19,6 +20,7 @@ var (
 	metaTagRe = regexp.MustCompile(`(?is)<meta\s[^>]*>`)
 	scriptRe  = regexp.MustCompile(`(?is)<script\s[^>]*>`)
 	linkRe    = regexp.MustCompile(`(?is)<link\s[^>]*>`)
+	anchorRe  = regexp.MustCompile(`(?is)<a\s[^>]*>`)
 	attrRe    = regexp.MustCompile(`(?is)([\w-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))`)
 	spaceRe   = regexp.MustCompile(`\s+`)
 )
@@ -65,6 +67,11 @@ func extractFeatures(html string) Extracted {
 		if strings.Contains(attrs["rel"], "icon") && attrs["href"] != "" {
 			out.Favicon = attrs["href"]
 			break
+		}
+	}
+	for _, tag := range anchorRe.FindAllString(html, -1) {
+		if href := parseAttrs(tag)["href"]; href != "" {
+			out.Links = append(out.Links, href)
 		}
 	}
 	return out

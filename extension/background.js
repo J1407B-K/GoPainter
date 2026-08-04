@@ -106,6 +106,7 @@ async function enrichFeatures(features) {
     }
     features.meta = ex.meta || {};
     features.scripts = ex.scripts || [];
+    features.links = ex.links || [];
   } catch {
     features.meta = features.meta || {};
     features.scripts = features.scripts || [];
@@ -140,6 +141,29 @@ async function appendHashHit(features, result) {
     }
   } catch { /* 查库失败不影响规则结果 */ }
   return result;
+}
+
+// --- 外接脚本：规则匹配之后执行，脚本返回要追加的指纹 ---
+// 脚本体 = 函数体，参数 (features, hits)，返回 [{id, name, evidence?}, ...] 或空
+
+async function runUserScripts(features, hits) {
+  const { userScripts = [] } = await chrome.storage.local.get('userScripts');
+  const out = [...(hits || [])];
+  for (const s of userScripts) {
+    if (!s.enabled) continue;
+    try {
+      const fn = new Function('features', 'hits', s.code);
+      const extra = fn(features, out);
+      if (Array.isArray(extra)) {
+        for (const h of extra) {
+          if (h?.id && h?.name) out.push(h);
+        }
+      }
+    } catch (e) {
+      console.warn(`用户脚本「${s.name}」执行失败:`, e);
+    }
+  }
+  return out;
 }
 
 // --- AI：提示词支持自定义，没配就用默认 ---
@@ -306,6 +330,54 @@ async function organizeBookmarks(onlyIds, useAI) {
   return summary;
 }
 
+// --- 站点爬取：BFS/去重/过滤都在 wasm（crawl.go），这里只 fetch 和存结果 ---
+// 结果持久化在 storage.session：SW 被杀结果也不丢，重开设置页还能看到
+
+const crawl = { active: false, stop: false }; // 内存只管当前任务
+const CRAWL_KEY = 'crawl:state';
+
+async function saveCrawlState(state) {
+  await chrome.storage.session.set({ [CRAWL_KEY]: state });
+}
+
+async function loadCrawlState() {
+  const data = await chrome.storage.session.get(CRAWL_KEY);
+  return data[CRAWL_KEY] || { running: false, results: [] };
+}
+
+async function crawlSite(seed, maxPages) {
+  await ensureWasm();
+  const start = JSON.parse(globalThis.goCrawlStart(seed, maxPages || 0));
+  if (start.error) throw new Error(start.error);
+
+  crawl.active = true;
+  crawl.stop = false;
+  const results = [];
+  await saveCrawlState({ running: true, results });
+  try {
+    for (;;) {
+      if (crawl.stop) break;
+      const batch = JSON.parse(globalThis.goCrawlBatch(5));
+      if (batch.error) throw new Error(batch.error);
+      if (!batch.urls?.length) break; // 没 URL 可取了（队列空或到上限）
+      await Promise.all(batch.urls.map(async (url) => {
+        try {
+          const features = await fetchFeatures(url);
+          const result = await appendHashHit(features, await runMatch(features));
+          const hits = await runUserScripts(features, result.hits);
+          results.push({ url, title: features.title || url, status: features.status, hits });
+          // 页面里发现的链接喂回 wasm，过滤去重它管
+          globalThis.goCrawlFeed(url, JSON.stringify(features.links || []));
+        } catch { /* 抓不动就跳过 */ }
+      }));
+      await saveCrawlState({ running: true, results }); // 每批落一次盘
+    }
+  } finally {
+    crawl.active = false;
+    await saveCrawlState({ running: false, results });
+  }
+}
+
 // --- 消息路由 ---
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
@@ -321,6 +393,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           faviconHash: await faviconHash(msg.features.favicon),
         });
         const result = await appendHashHit(features, await runMatch(features));
+        result.hits = await runUserScripts(features, result.hits);
         await chrome.storage.session.set({
           [`result:${tabId}`]: { features, result, at: Date.now() },
         });
@@ -377,6 +450,46 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       case 'organizeBookmarks': {
         const summary = await organizeBookmarks(msg.ids, msg.useAI);
         sendResponse({ ok: true, summary });
+        break;
+      }
+      case 'crawlStart': {
+        if (crawl.active) throw new Error('已有爬取任务在跑');
+        // maxPages 为空 = null = 不限，爬到没有新链接为止
+        const maxPages = Number.isInteger(msg.maxPages) && msg.maxPages > 0 ? msg.maxPages : null;
+        crawlSite(msg.url, maxPages).catch(async (e) => {
+          console.warn('爬取出错:', e);
+          crawl.active = false;
+          const st = await loadCrawlState();
+          await saveCrawlState({ ...st, running: false });
+        });
+        sendResponse({ ok: true });
+        break;
+      }
+      case 'crawlStop': {
+        crawl.stop = true;
+        sendResponse({ ok: true });
+        break;
+      }
+      case 'crawlStatus': {
+        const st = await loadCrawlState();
+        // storage 说在跑但内存里没任务 = SW 被杀过，任务中断了
+        const interrupted = st.running && !crawl.active;
+        let visited = st.results.length, queued = 0;
+        if (crawl.active) {
+          try {
+            const s = JSON.parse(globalThis.goCrawlStatus());
+            visited = s.visited;
+            queued = s.queued;
+          } catch { /* wasm 还没起 */ }
+        }
+        sendResponse({
+          ok: true,
+          running: st.running && crawl.active,
+          interrupted,
+          visited,
+          queued,
+          results: st.results,
+        });
         break;
       }
       default:

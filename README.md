@@ -117,8 +117,10 @@ popup        结果与证据展示 / AI 按钮
 │   ├── main.go               #   JS 导出 + JSON 进出
 │   ├── matcher.go            #   匹配引擎（核心）
 │   ├── mmh3.go               #   favicon 哈希
-│   ├── extract.go            #   HTML 特征提取
-│   └── normalize.go          #   规则规范化（nuclei 转换）
+│   ├── extract.go            #   HTML 特征提取（title/meta/scripts/favicon/links）
+│   ├── normalize.go          #   规则规范化（nuclei 转换）
+│   ├── crawl.go              #   爬虫调度（BFS/去重/同站过滤/上限）
+│   └── hashdb.go             #   favicon 哈希库（生成）
 ├── extension/                # Chrome 扩展（MV3）
 │   ├── manifest.json
 │   ├── background.js         # service worker：wasm 加载、webRequest、favicon、AI、图标、书签
@@ -152,13 +154,15 @@ popup        结果与证据展示 / AI 按钮
 - [x] 内置 favicon 哈希库（956 条，BishopFox 数据集）+ 自定义哈希导入
 - [x] 内置 Top 130 常用指纹规则库（options 页一键导入）
 - [x] 书签扫描补全 favicon 哈希（icon_hash 规则与哈希库对书签生效）
+- [x] 外接脚本（自定义 JS 挂钩匹配管线，追加指纹）
+- [x] 站点递归爬取（BFS/去重/同站过滤在 Go 侧，最大页数可配、留空不限）
 
 **进行中 / 计划** 🚧
 - [ ] SPA 路由变化监听（pushState / popstate 触发重新分析）
 - [ ] matcher 支持 dsl 表达式子集（`contains(body, "x") && status == 200`）
 - [ ] 规则集管理：分组启用/禁用、远程规则源订阅与自动更新
 - [ ] 扫描历史与报告导出（JSON/CSV）
-- [ ] wasm 体积进一步优化（当前 ~750KB，目标 < 300KB）
+- [ ] wasm 体积进一步优化（当前 ~750KB，目标 < 300KB，暂搁置）
 ## License
 
 [MIT](LICENSE)

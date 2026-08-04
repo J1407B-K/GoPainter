@@ -255,6 +255,134 @@ organizeBtn.addEventListener('click', async () => {
   }
 });
 
+// --- 外接脚本 ---
+
+async function loadScripts() {
+  const { userScripts = [] } = await chrome.storage.local.get('userScripts');
+  return userScripts;
+}
+
+async function refreshScriptList() {
+  const scripts = await loadScripts();
+  const list = document.getElementById('script-list');
+  list.innerHTML = scripts.length ? '' : '<div class="muted">（空）</div>';
+  for (const s of scripts) {
+    const row = document.createElement('div');
+    row.className = 'script-item';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = s.enabled;
+    cb.title = '启用/停用';
+    cb.addEventListener('change', async () => {
+      const cur = await loadScripts();
+      const target = cur.find((x) => x.id === s.id);
+      if (target) target.enabled = cb.checked;
+      await chrome.storage.local.set({ userScripts: cur });
+    });
+    const name = document.createElement('span');
+    name.textContent = s.name;
+    const del = document.createElement('button');
+    del.className = 'del';
+    del.textContent = '✕';
+    del.addEventListener('click', async () => {
+      const cur = (await loadScripts()).filter((x) => x.id !== s.id);
+      await chrome.storage.local.set({ userScripts: cur });
+      refreshScriptList();
+    });
+    row.append(cb, name, del);
+    list.appendChild(row);
+  }
+}
+
+document.getElementById('script-add').addEventListener('click', async () => {
+  const name = document.getElementById('script-name').value.trim();
+  const code = document.getElementById('script-code').value.trim();
+  if (!name || !code) {
+    showMsg('脚本名和代码都要填', true);
+    return;
+  }
+  // 先语法检查一下，别存个跑不起来的
+  try {
+    new Function('features', 'hits', code);
+  } catch (e) {
+    showMsg(`脚本语法错误：${e.message}`, true);
+    return;
+  }
+  const scripts = await loadScripts();
+  scripts.push({ id: `s-${Date.now()}`, name, code, enabled: true });
+  await chrome.storage.local.set({ userScripts: scripts });
+  document.getElementById('script-name').value = '';
+  document.getElementById('script-code').value = '';
+  await refreshScriptList();
+  showMsg(`脚本「${name}」已添加并启用`);
+});
+
+refreshScriptList();
+
+// --- 站点爬取 ---
+
+let crawlTimer = null;
+
+async function pollCrawl() {
+  const resp = await chrome.runtime.sendMessage({ type: 'crawlStatus' });
+  if (!resp?.ok) return;
+  const statusEl = document.getElementById('crawl-status');
+  if (resp.running) {
+    statusEl.textContent = `爬取中：已扫 ${resp.visited} 页，队列 ${resp.queued}，发现链接去重中…`;
+  } else if (resp.interrupted) {
+    statusEl.textContent = `任务被系统中断（service worker 被回收）：已保留 ${resp.results.length} 页结果`;
+  } else if (resp.results.length) {
+    statusEl.textContent = `结束：共 ${resp.results.length} 页`;
+  } else {
+    statusEl.textContent = '';
+  }
+  const list = document.getElementById('crawl-results');
+  list.innerHTML = '';
+  for (const r of resp.results) {
+    const row = document.createElement('div');
+    row.className = 'crawl-item';
+    const names = (r.hits || []).map((h) => h.name).join('、');
+    row.innerHTML = `<div class="t"></div><div class="u"></div><div class="hits"></div>`;
+    row.querySelector('.t').textContent = r.title;
+    row.querySelector('.u').textContent = `${r.url}（HTTP ${r.status}）`;
+    row.querySelector('.hits').textContent = names ? `🎯 ${names}` : '— 未识别';
+    list.appendChild(row);
+  }
+  if (!resp.running && crawlTimer) {
+    clearInterval(crawlTimer);
+    crawlTimer = null;
+  }
+}
+
+// 打开设置页时拉一次，把上次爬的结果（或进行中的进度）恢复出来
+pollCrawl();
+
+document.getElementById('crawl-start').addEventListener('click', async () => {
+  const url = document.getElementById('crawl-url').value.trim();
+  if (!/^https?:/.test(url)) {
+    showMsg('起始 URL 得是 http/https', true);
+    return;
+  }
+  const raw = document.getElementById('crawl-max').value.trim();
+  const maxPages = raw === '' ? null : parseInt(raw, 10);
+  if (raw !== '' && (!Number.isInteger(maxPages) || maxPages <= 0)) {
+    showMsg('最大页数要么是空，要么是正整数', true);
+    return;
+  }
+  const resp = await chrome.runtime.sendMessage({ type: 'crawlStart', url, maxPages });
+  if (!resp.ok) {
+    showMsg(resp.error, true);
+    return;
+  }
+  if (!crawlTimer) crawlTimer = setInterval(pollCrawl, 1000);
+  pollCrawl();
+});
+
+document.getElementById('crawl-stop').addEventListener('click', async () => {
+  await chrome.runtime.sendMessage({ type: 'crawlStop' });
+  pollCrawl();
+});
+
 // --- AI 配置 ---
 
 // 三个场景的提示词分开存，空着就用默认（默认从 background 拿，不在前端抄一份）

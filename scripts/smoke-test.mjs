@@ -76,6 +76,7 @@ const html = `<html><head>
 <meta name="generator" content="WordPress 6.5">
 <meta property="og:site_name" content="Example">
 <link rel="shortcut icon" href="/static/favicon.ico">
+<a href="/about">关于</a>
 <script src="/wp-content/themes/x.js"></script>
 <script async src='https://cdn.example.com/a.js'></script>
 </head><body></body></html>`;
@@ -85,7 +86,8 @@ pass &&= ex.title === 'Test Page'
   && ex.meta?.generator === 'WordPress 6.5'
   && ex.meta?.['og:site_name'] === 'Example'
   && ex.scripts?.length === 2
-  && ex.favicon === '/static/favicon.ico';
+  && ex.favicon === '/static/favicon.ico'
+  && ex.links?.length === 1 && ex.links[0] === '/about';
 
 // goNormalizeRules：nuclei 模板 + 原生规则数组都要转对
 const docs = [
@@ -117,6 +119,34 @@ console.log('hashLookup =', JSON.stringify({ builtin, custom, miss }));
 pass &&= builtin.name === 'Phpmyadmin'
   && custom.name === '公司内部 PMA'
   && !miss.name;
+
+// 爬虫调度：同站过滤 + 去重 + 页数上限
+globalThis.goCrawlStart('https://www.example.com/', 3);
+let b1 = JSON.parse(globalThis.goCrawlBatch(5));
+// 注意 done 是"取完这批后队列空了"，不代表该停——urls 为空才是停
+pass &&= b1.urls?.length === 1;
+
+// 喂链接：相对/绝对/子域名该收，外站/静态资源/重复（含 # 和尾 / 变体）该丢
+const feed = JSON.parse(globalThis.goCrawlFeed('https://www.example.com/', JSON.stringify([
+  '/about',                                    // 相对 → 收
+  'https://docs.example.com/api',              // 子域名 → 收
+  'https://other.com/x',                       // 外站 → 丢
+  '/about#section',                            // 和 /about 重复（去 fragment）→ 丢
+  '/about/',                                   // 尾斜杠变体 → 丢
+  'https://www.example.com/static/app.js',     // 静态资源 → 丢
+  'mailto:a@example.com',                      // 非 http → 丢
+])));
+console.log('crawlFeed =', JSON.stringify(feed));
+pass &&= feed.added === 2;
+
+// maxPages=3：seed 已占 1，这批只能再取 2；再取就该空了
+let b2 = JSON.parse(globalThis.goCrawlBatch(5));
+console.log('crawlBatch =', JSON.stringify(b2));
+pass &&= b2.urls?.length === 2;
+let b3 = JSON.parse(globalThis.goCrawlBatch(5));
+pass &&= (b3.urls?.length || 0) === 0 && b3.done === true;
+const st = JSON.parse(globalThis.goCrawlStatus());
+pass &&= st.visited === 3;
 
 console.log(pass ? '✅ 冒烟测试通过' : '❌ 结果不符合预期');
 process.exit(pass ? 0 : 1);
