@@ -92,6 +92,52 @@ powershell -ExecutionPolicy Bypass -File scripts/build.ps1
 | 通义千问 | `https://dashscope.aliyuncs.com/compatible-mode/v1` | `qwen-plus` |
 | Ollama（本地） | `http://localhost:11434/v1` | `qwen2.5` |
 
+### AI 安全提示
+
+- GoPainter 不内置、不代管、不上传你的 API Key；API Key 只保存在浏览器扩展本地存储里，由扩展直接请求你填写的 Base URL。
+- 使用云端 LLM 时，页面特征会发送给你配置的模型服务：URL、标题、响应头、meta、script 路径、favicon 哈希，以及截断后的页面 HTML。不要在敏感站点上启用 AI，除非你确认这些信息可以交给对应服务商处理。
+- AI 辅助识别、AI 生成规则、书签 AI 兜底分类都可能出错或编造结果。请人工确认后再把 AI 生成的规则加入长期规则库；本项目不对 AI 输出的准确性、合规性或外部服务费用负责。
+- 外接脚本会以扩展权限执行。只添加自己编写或完全信任的脚本，不要粘贴来源不明的代码。
+
+## 外接脚本
+
+设置页「外接脚本」允许在规则匹配和 favicon 哈希库命中之后追加自定义识别逻辑。脚本体会被当作函数体执行：
+
+```js
+// 参数：features, hits
+// 返回：追加的指纹数组；不追加可以不 return
+if (features.body.includes('hello-world-cta')) {
+  return [{
+    id: 'my-product',
+    name: 'My Product',
+    evidence: [{ type: 'script', detail: 'hello-world-cta' }],
+  }];
+}
+```
+
+可用输入：
+
+- `features.url` / `features.title` / `features.body`
+- `features.headers` / `features.status`
+- `features.meta` / `features.scripts` / `features.links`
+- `features.faviconHash` / `features.faviconHashes`
+- `hits`：前置规则和哈希库已经命中的结果
+
+脚本返回项至少需要 `id` 和 `name`。同一个 `id` 已存在时会跳过，避免重复追加。
+
+## 自定义脚本命令
+
+| 命令 | 说明 |
+|---|---|
+| `make build` | macOS/Linux 构建 WASM。优先 TinyGo，未安装 TinyGo 时回退标准 Go |
+| `make test` | 运行 WASM 冒烟测试（需先构建） |
+| `make icons` | 重新生成扩展图标 |
+| `make clean` | 删除 `extension/wasm/matcher.wasm` 和 `wasm_exec.js` |
+| `node scripts/generate-icons.mjs` | 直接运行图标生成器 |
+| `node scripts/generate-hashdb.mjs` | 从 `data/favicon-hashes.json` 生成 `wasm/hashdb.go` |
+| `node scripts/smoke-test.mjs` | 直接运行 WASM 冒烟测试 |
+| `powershell -ExecutionPolicy Bypass -File scripts/build.ps1` | Windows 构建 WASM |
+
 ## 架构
 
 ```

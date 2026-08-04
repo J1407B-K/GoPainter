@@ -190,20 +190,29 @@ async function runMatch(features) {
 }
 
 // favicon 哈希库命中也当成一个指纹，并进 hits（规则命中优先，同名的不重复加）
+function faviconHashValues(features) {
+  return [...new Set([features.faviconHash, ...(features.faviconHashes || [])].filter(Boolean))];
+}
+
 async function appendHashHit(features, result) {
-  if (!features.faviconHash) return result;
+  const hashes = faviconHashValues(features);
+  if (!hashes.length) return result;
   try {
     await ensureWasm();
     const { customHashes = {} } = await chrome.storage.local.get('customHashes');
-    const hit = JSON.parse(globalThis.goHashLookup(features.faviconHash, JSON.stringify(customHashes)));
-    if (hit.name && !(result.hits || []).some((h) => h.name === hit.name)) {
-      result.hits = result.hits || [];
-      result.hits.push({
-        id: `icon-${features.faviconHash}`,
-        name: hit.name,
-        evidence: [{ type: 'icon_hash', detail: `mmh3 ${features.faviconHash}（哈希库）` }],
-      });
-      delete result.note;
+    result.hits = result.hits || [];
+    const seenNames = new Set(result.hits.map((h) => h.name).filter(Boolean));
+    for (const hash of hashes) {
+      const hit = JSON.parse(globalThis.goHashLookup(hash, JSON.stringify(customHashes)));
+      if (hit.name && !seenNames.has(hit.name)) {
+        result.hits.push({
+          id: `icon-${hash}`,
+          name: hit.name,
+          evidence: [{ type: 'icon_hash', detail: `mmh3 ${hash}（哈希库）` }],
+        });
+        seenNames.add(hit.name);
+        delete result.note;
+      }
     }
   } catch { /* 查库失败不影响规则结果 */ }
   return result;
@@ -215,6 +224,7 @@ async function appendHashHit(features, result) {
 async function runUserScripts(features, hits) {
   const { userScripts = [] } = await chrome.storage.local.get('userScripts');
   const out = [...(hits || [])];
+  const seen = new Set(out.map((h) => h.id || h.name).filter(Boolean));
   for (const s of userScripts) {
     if (!s.enabled) continue;
     try {
@@ -222,7 +232,11 @@ async function runUserScripts(features, hits) {
       const extra = fn(features, out);
       if (Array.isArray(extra)) {
         for (const h of extra) {
-          if (h?.id && h?.name) out.push(h);
+          const key = h?.id || h?.name;
+          if (h?.id && h?.name && !seen.has(key)) {
+            out.push(h);
+            seen.add(key);
+          }
         }
       }
     } catch (e) {
@@ -296,8 +310,14 @@ async function callAI(systemPrompt, features) {
 }
 
 async function customPrompt(key) {
-  const cfg = await chrome.storage.local.get(key);
-  return cfg[key] || DEFAULT_PROMPTS[key];
+  const storageKeys = {
+    identify: 'aiPromptIdentify',
+    rule: 'aiPromptRule',
+    bookmark: 'aiPromptBookmark',
+  };
+  const storageKey = storageKeys[key];
+  const cfg = await chrome.storage.local.get(storageKey);
+  return cfg[storageKey] || DEFAULT_PROMPTS[key];
 }
 
 // 从 AI 回复里抠出 YAML（AI 爱包 ```yaml ... ```）
