@@ -16,12 +16,53 @@ async function loadRules() {
 
 async function refreshRuleList() {
   const rules = await loadRules();
-  document.getElementById('rule-stats').textContent = `当前共 ${rules.length} 条规则`;
+  document.getElementById('rule-stats').textContent = `当前共 ${rules.length} 条规则（点击查看详情）`;
   const list = document.getElementById('rule-list');
   list.innerHTML = rules.length
-    ? rules.map((r) => `<div class="rule-item"><span class="name">${escapeHtml(r.name)}</span><span class="id">${escapeHtml(r.id)}</span></div>`).join('')
+    ? rules.map((r) => `<div class="rule-item" data-id="${escapeHtml(r.id)}" title="点击查看该规则"><span class="name">${escapeHtml(r.name)}</span><span class="id">${escapeHtml(r.id)}</span></div>`).join('')
     : '<div class="muted">（空）</div>';
 }
+
+// --- 规则详情：点击列表项实时查看单条规则的完整 YAML ---
+
+const ruleModal = document.getElementById('rule-modal');
+const ruleModalTitle = document.getElementById('rule-modal-title');
+const ruleModalBody = document.getElementById('rule-modal-body');
+let currentRuleYaml = '';
+
+function openRuleDetail(rule) {
+  ruleModalTitle.textContent = `${rule.name}（${rule.id}）`;
+  currentRuleYaml = jsyaml.dump(rule);
+  ruleModalBody.textContent = currentRuleYaml;
+  ruleModal.classList.add('open');
+}
+
+// 点击列表项时从 storage 重新读一次，保证看到的是最新规则
+document.getElementById('rule-list').addEventListener('click', (e) => {
+  const el = e.target.closest('.rule-item');
+  if (!el) return;
+  loadRules().then((rules) => {
+    const rule = rules.find((r) => r.id === el.dataset.id);
+    if (rule) openRuleDetail(rule);
+  });
+});
+
+document.getElementById('rule-modal-close').addEventListener('click', () => ruleModal.classList.remove('open'));
+ruleModal.addEventListener('click', (e) => {
+  if (e.target === ruleModal) ruleModal.classList.remove('open'); // 点遮罩关闭
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') ruleModal.classList.remove('open');
+});
+
+document.getElementById('rule-copy').addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText(currentRuleYaml);
+    showMsg('规则 YAML 已复制');
+  } catch {
+    showMsg('复制失败，请手动选择复制', true);
+  }
+});
 
 document.getElementById('file-input').addEventListener('change', async (e) => {
   const files = [...e.target.files];
@@ -326,6 +367,8 @@ let crawlTimer = null;
 async function pollCrawl() {
   const resp = await chrome.runtime.sendMessage({ type: 'crawlStatus' });
   if (!resp?.ok) return;
+  // 爬取中禁用「开始爬取」，防止开第二个任务（后台也只会报错）
+  document.getElementById('crawl-start').disabled = !!resp.running;
   const statusEl = document.getElementById('crawl-status');
   if (resp.running) {
     statusEl.textContent = `爬取中：已扫 ${resp.visited} 页，队列 ${resp.queued}，失败 ${resp.failed?.length || 0}，发现链接去重中…`;

@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>GoPainter 爬取</title>
+  <style>
+    :root {
+      --bg: #f6f7f9; --card: #fff; --text: #1f2329; --muted: #8a919e;
+      --accent: #6366f1; --accent-soft: #eef0ff; --green: #16a34a;
+      --red: #dc2626; --border: #e8eaef;
+      --mono: "SF Mono", Consolas, "Courier New", monospace;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--text);
+      font: 13px/1.55 -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+    .banner {
+      padding: 12px 14px;
+      background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 60%, #a855f7 100%);
+      color: #fff; display: flex; align-items: center; gap: 8px;
+    }
+    .banner h1 { font-size: 14px; margin: 0; }
+    .banner .badge {
+      font-size: 11px; font-weight: 600; padding: 1px 8px; border-radius: 999px;
+      background: rgba(255,255,255,.22);
+    }
+    .banner .badge.running { animation: pulse 1.2s ease-in-out infinite; }
+    @keyframes pulse { 50% { opacity: .45; } }
+
+    .container { padding: 12px 14px 20px; }
+    .card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 12px; padding: 12px 14px; margin-bottom: 12px;
+    }
+    label { display: block; margin: 8px 0 3px; font-weight: 600; font-size: 12px; }
+    input[type=text] {
+      width: 100%; padding: 7px 9px; border: 1px solid var(--border); border-radius: 8px;
+      font-size: 12px; font-family: var(--mono);
+    }
+    input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+    .btn-row { display: flex; gap: 8px; margin-top: 10px; }
+    button {
+      flex: 1; padding: 8px 0; border: 1px solid var(--border); border-radius: 8px;
+      background: var(--card); cursor: pointer; font-size: 12px; font-weight: 600;
+      transition: all .15s;
+    }
+    button:hover:not(:disabled) { background: #f0f1f5; }
+    button:disabled { opacity: .5; cursor: not-allowed; }
+    button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+    button.primary:hover:not(:disabled) { background: #4f46e5; }
+    button.danger { color: var(--red); border-color: #fecaca; }
+    button.danger:hover:not(:disabled) { background: #fef2f2; }
+
+    #crawl-status { margin-top: 10px; font-size: 12px; color: var(--muted); }
+    #crawl-status .highlight { color: var(--accent); font-weight: 700; }
+
+    #crawl-results { margin-top: 4px; }
+    .section-label {
+      font-size: 11px; color: var(--muted); text-transform: uppercase;
+      letter-spacing: .5px; margin: 10px 2px 6px;
+    }
+    .crawl-item { padding: 6px 10px; border-radius: 6px; font-size: 12px; }
+    .crawl-item:nth-child(odd) { background: #fafbfc; }
+    .crawl-item .u { font-family: var(--mono); color: var(--muted); word-break: break-all; }
+    .crawl-item .hits { color: var(--accent); font-weight: 600; }
+    .crawl-item.failed .t { color: var(--red); font-weight: 700; }
+    .crawl-item.failed .hits { color: var(--red); }
+    .empty { text-align: center; color: var(--muted); padding: 14px 0; font-size: 12px; }
+    .res-list { max-height: 50vh; overflow: auto; }
+  </style>
+</head>
+<body>
+  <div class="banner">
+    <h1>🎨 GoPainter 爬取</h1>
+    <span class="badge" id="crawl-badge">未运行</span>
+  </div>
+
+  <div class="container">
+    <div class="card">
+      <label for="crawl-url">起始 URL</label>
+      <input type="text" id="crawl-url" placeholder="https://example.com/">
+      <label for="crawl-max">最大页数</label>
+      <input type="text" id="crawl-max" placeholder="留空 = 不限">
+      <div class="btn-row">
+        <button id="crawl-start" class="primary">🕷 开始爬取</button>
+        <button id="crawl-stop" class="danger">停止</button>
+      </div>
+      <div id="crawl-status"></div>
+    </div>
+
+    <div class="section-label">爬取结果</div>
+    <div class="res-list" id="crawl-results">
+      <div class="empty">尚未爬取</div>
+    </div>
+  </div>
+
+  <script src="sidepanel.js"></script>
+</body>
+</html>

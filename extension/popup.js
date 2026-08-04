@@ -43,6 +43,12 @@ async function init() {
   currentTabId = tab.id;
   currentTabUrl = tab.url;
 
+  // 有爬虫在跑就把「爬取本站」置灰，点了变成打开侧栏看进度
+  const st = await chrome.runtime.sendMessage({ type: 'crawlStatus' });
+  if (st?.ok && st.running) {
+    document.getElementById('crawl-btn').classList.add('running');
+  }
+
   const data = await chrome.runtime.sendMessage({ type: 'getResult', tabId: currentTabId });
   if (!data) {
     statusEl.innerHTML = '<span class="icon">🔄</span>尚未采集到页面特征<br>请刷新页面后重试';
@@ -165,6 +171,12 @@ function closeCrawlModal() {
 }
 
 document.getElementById('crawl-btn').addEventListener('click', async () => {
+  const crawlBtn = document.getElementById('crawl-btn');
+  // 正在爬取：点了直接打开侧栏看进度，不再弹配置框
+  if (crawlBtn.classList.contains('running')) {
+    await chrome.sidePanel?.open({ tabId: currentTabId }).catch(() => {});
+    return;
+  }
   if (!currentTabUrl) return;
   const { crawlMaxPages = '50' } = await chrome.storage.local.get('crawlMaxPages');
   crawlUrlInput.value = currentTabUrl;
@@ -200,8 +212,9 @@ crawlStartPopup.addEventListener('click', async () => {
     const resp = await chrome.runtime.sendMessage({ type: 'crawlStart', url, maxPages });
     if (!resp.ok) throw new Error(resp.error);
     closeCrawlModal();
-    aiResult.style.display = 'block';
-    aiResult.textContent = '已开始爬取。需要看实时进度和失败原因时，打开设置页的「站点爬取」。';
+    // 按钮置灰 + 打开侧栏看实时进度
+    document.getElementById('crawl-btn').classList.add('running');
+    await chrome.sidePanel?.open({ tabId: currentTabId }).catch(() => {});
   } catch (e) {
     aiResult.style.display = 'block';
     aiResult.textContent = `启动爬取失败：${e.message}`;

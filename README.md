@@ -65,6 +65,15 @@ powershell -ExecutionPolicy Bypass -File scripts/build.ps1
 2. 访问任意网站，图标变彩色即表示命中，点击图标查看详情与证据
 3. 未命中时可点「✨ AI 辅助识别」（需先在设置页配置 API）
 
+### 5. 爬取站点（Side Panel）
+
+1. 点击工具栏 GoPainter 图标 → 「🕷 爬取本站」，确认起始 URL 与最大页数后启动
+2. 右侧自动滑出**爬取侧边栏**（Side Panel），与页面并存，实时显示：已扫页数 / 队列 / 失败数，以及每个页面的命中指纹
+3. 爬取中工具栏的「爬取本站」会置灰，再次点击直接回到侧栏看进度
+4. 也可以在设置页「🕷 站点爬取」从任意 URL 发起爬取
+
+> 侧栏依赖 Chrome 126+ 的 `chrome.sidePanel` API；早版本浏览器不会自动弹侧栏，但仍可在设置页查看进度。
+
 ## 规则格式
 
 见 [`rules/examples.yaml`](rules/examples.yaml)。支持四种 matcher：
@@ -150,6 +159,7 @@ background   采集响应头/状态码    │     goMatch            规则匹�
              图标状态切换        │     goNormalizeRules   YAML 文档 → 原生规则
 options      YAML 解析(js-yaml) ─┘    ←  全部进 JSON 出 JSON
 popup        结果与证据展示 / AI 按钮
+sidepanel    爬取进度实时展示 / 启停（Side Panel，与页面并存）
 ```
 
 核心边界：**WASM 只做纯计算**（进 JSON 出 JSON，不碰网络/YAML/DOM），
@@ -173,6 +183,7 @@ popup        结果与证据展示 / AI 按钮
 │   ├── content.js            # 页面特征采集
 │   ├── popup.*               # 结果与证据展示 / AI 识别 / AI 生成规则
 │   ├── options.*             # 规则导入 / AI 配置 / 提示词 / 书签整理
+│   ├── sidepanel.*           # 爬取进度实时展示 / 启停（Side Panel）
 │   ├── icons/                # 彩色/灰色两套图标（脚本生成）
 │   └── lib/                  # js-yaml（唯一的第三方 JS）
 ├── scripts/
@@ -202,6 +213,7 @@ popup        结果与证据展示 / AI 按钮
 - [x] 书签扫描补全 favicon 哈希（icon_hash 规则与哈希库对书签生效）
 - [x] 外接脚本（自定义 JS 挂钩匹配管线，追加指纹）
 - [x] 站点递归爬取（BFS/去重/同站过滤在 Go 侧，最大页数可配、留空不限，popup 一键爬本站）
+- [x] 爬取进度侧边栏（Side Panel 实时展示已扫/队列/失败 + 命中指纹，爬取中按钮置灰）
 - [x] 多 favicon 持续匹配（DOM + 网络包里所有 icon 都算哈希，晚到的 icon 触发重匹配）
 
 **进行中 / 计划** 🚧

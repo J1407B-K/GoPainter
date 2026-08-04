@@ -96,6 +96,9 @@
     }
     .action-card:hover { border-color: var(--accent); background: var(--accent-soft); transform: translateY(-1px); }
     .action-card.disabled { opacity: .5; pointer-events: none; }
+    /* 爬取中：置灰但仍可点击（点了打开侧栏看进度） */
+    .action-card.running { opacity: .5; }
+    .action-card.running .ac-icon { animation: pulse .8s ease-in-out infinite; }
     .ac-icon { font-size: 17px; }
     .ac-label { font-size: 11px; color: var(--text); font-weight: 600; }
     .action-card.busy .ac-icon { animation: pulse .8s ease-in-out infinite; }
