@@ -155,3 +155,6 @@ popup        结果与证据展示 / AI 按钮
 - [ ] 扫描历史与报告导出（JSON/CSV）
 - [ ] 内置常见 favicon 哈希库（fofa 公开数据）
 - [ ] wasm 体积进一步优化（当前 ~620KB，目标 < 300KB）
+## License
+
+[MIT](LICENSE)
