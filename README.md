@@ -150,6 +150,8 @@ popup        结果与证据展示 / AI 按钮
 - [x] 书签自动分类（勾选想整理的书签，按指纹命中挪入「🎨 指纹分类」文件夹，可开 AI 兜底）
 - [x] mmh3 / HTML 特征提取 / nuclei 转换收编进 Go（新增 meta、script 匹配维度）
 - [x] 内置 favicon 哈希库（956 条，BishopFox 数据集）+ 自定义哈希导入
+- [x] 内置 Top 130 常用指纹规则库（options 页一键导入）
+- [x] 书签扫描补全 favicon 哈希（icon_hash 规则与哈希库对书签生效）
 
 **进行中 / 计划** 🚧
 - [ ] SPA 路由变化监听（pushState / popstate 触发重新分析）

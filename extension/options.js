@@ -57,6 +57,36 @@ document.getElementById('file-input').addEventListener('change', async (e) => {
   e.target.value = '';
 });
 
+// 规则导入（文件或内置库）共用的合并逻辑
+async function importRules(rulesToAdd) {
+  const rules = await loadRules();
+  const byId = new Map(rules.map((r) => [r.id, r]));
+  for (const rule of rulesToAdd) {
+    byId.set(rule.id, rule); // 同 id 覆盖，便于更新规则
+  }
+  await chrome.storage.local.set({ rules: [...byId.values()] });
+  await refreshRuleList();
+  return rulesToAdd.length;
+}
+
+document.getElementById('import-builtin').addEventListener('click', async (e) => {
+  const btn = e.target;
+  btn.disabled = true;
+  try {
+    const text = await (await fetch(chrome.runtime.getURL('rules/builtin.yaml'))).text();
+    const docs = [];
+    jsyaml.loadAll(text, (d) => docs.push(d));
+    const resp = await chrome.runtime.sendMessage({ type: 'normalizeRules', docsJSON: JSON.stringify(docs) });
+    if (!resp.ok) throw new Error(resp.error);
+    const n = await importRules(resp.rules);
+    showMsg(`内置规则库导入完成：${n} 条`);
+  } catch (err) {
+    showMsg(`内置规则导入失败：${err.message}`, true);
+  } finally {
+    btn.disabled = false;
+  }
+});
+
 document.getElementById('clear-rules').addEventListener('click', async () => {
   if (!confirm('确定清空所有规则？')) return;
   await chrome.storage.local.set({ rules: [] });

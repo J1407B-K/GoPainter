@@ -92,12 +92,18 @@ async function faviconHash(url) {
   }
 }
 
-// 从原始 HTML 里补 title/meta/scripts，wasm 挂了也不影响主流程
+// 从原始 HTML 里补 title/meta/scripts/favicon，wasm 挂了也不影响主流程
 async function enrichFeatures(features) {
   try {
     await ensureWasm();
     const ex = JSON.parse(globalThis.goExtractFeatures(features.body || ''));
     if (!features.title && ex.title) features.title = ex.title;
+    if (!features.favicon && ex.favicon) {
+      // HTML 里的 href 可能是相对路径
+      try {
+        features.favicon = new URL(ex.favicon, features.url).href;
+      } catch { /* 坏的 href 就不要了 */ }
+    }
     features.meta = ex.meta || {};
     features.scripts = ex.scripts || [];
   } catch {
@@ -220,7 +226,11 @@ async function fetchFeatures(url) {
     const html = (await resp.text()).slice(0, 200_000);
     const headers = {};
     resp.headers.forEach((v, k) => { headers[k] = v; });
-    return enrichFeatures({ url, title: '', body: html, headers, status: resp.status, faviconHash: 0 });
+    const features = await enrichFeatures({ url, title: '', body: html, headers, status: resp.status, faviconHash: 0 });
+    // 从 HTML 里找到 favicon 就补抓算哈希，icon_hash 规则和哈希库对书签也能生效。
+    // 注意：fetch 拿不到 Set-Cookie（API 硬限制），cookie 类指纹对书签无效
+    features.faviconHash = await faviconHash(features.favicon);
+    return features;
   } finally {
     clearTimeout(timer);
   }
@@ -257,7 +267,7 @@ async function organizeBookmarks(onlyIds, useAI) {
       const bm = queue.shift();
       try {
         const features = await fetchFeatures(bm.url);
-        const result = await runMatch(features);
+        const result = await appendHashHit(features, await runMatch(features));
         let name = result.hits?.[0]?.name; // 多个命中取第一个，书签只能待一个文件夹
         if (name) {
           summary.matched++;

@@ -1,0 +1,1020 @@
+# GoPainter 内置规则库：Top 100 常见指纹
+# 覆盖：Web 服务器 / 语言框架 / CMS / DevOps / 监控 / 自托管应用 / 网络设备
+# 更新后不用重新构建，options 页一键导入即可
+
+# ---------- Web 服务器 / 中间件 ----------
+
+- id: nginx
+  name: Nginx
+  matchers:
+    - type: word
+      part: header
+      words: ["server: nginx"]
+
+- id: tengine
+  name: Tengine
+  matchers:
+    - type: word
+      part: header
+      words: ["server: tengine"]
+
+- id: openresty
+  name: OpenResty
+  matchers:
+    - type: word
+      part: header
+      words: ["openresty"]
+
+- id: apache
+  name: Apache HTTP Server
+  matchers:
+    - type: word
+      part: header
+      words: ["server: apache"]
+
+- id: iis
+  name: Microsoft IIS
+  matchers:
+    - type: word
+      part: header
+      words: ["microsoft-iis"]
+
+- id: tomcat
+  name: Apache Tomcat
+  matchers-condition: or
+  matchers:
+    - type: word
+      part: header
+      words: ["apache-coyote"]
+    - type: word
+      part: title
+      words: ["Apache Tomcat"]
+
+- id: jetty
+  name: Jetty
+  matchers:
+    - type: word
+      part: header
+      words: ["server: jetty"]
+
+- id: caddy
+  name: Caddy
+  matchers:
+    - type: word
+      part: header
+      words: ["server: caddy"]
+
+- id: lighttpd
+  name: Lighttpd
+  matchers:
+    - type: word
+      part: header
+      words: ["server: lighttpd"]
+
+- id: varnish
+  name: Varnish
+  matchers:
+    - type: word
+      part: header
+      words: ["x-varnish"]
+
+- id: haproxy
+  name: HAProxy
+  matchers:
+    - type: word
+      part: body
+      words: ["HAProxy"]
+
+- id: traefik
+  name: Traefik
+  matchers:
+    - type: word
+      part: title
+      words: ["Traefik"]
+
+- id: kong
+  name: Kong Gateway
+  matchers:
+    - type: word
+      part: header
+      words: ["x-kong", "via: kong"]
+
+- id: apisix
+  name: Apache APISIX
+  matchers:
+    - type: word
+      part: header
+      words: ["server: apisix"]
+
+- id: squid
+  name: Squid
+  matchers:
+    - type: word
+      part: header
+      words: ["x-squid"]
+
+- id: weblogic
+  name: WebLogic
+  matchers:
+    - type: word
+      part: header
+      words: ["weblogic"]
+
+- id: jboss
+  name: JBoss / WildFly
+  matchers:
+    - type: word
+      part: title
+      words: ["JBoss", "WildFly"]
+
+# ---------- 语言 / 框架 ----------
+
+- id: php
+  name: PHP
+  matchers:
+    - type: word
+      part: header
+      words: ["x-powered-by: php"]
+
+- id: aspnet
+  name: ASP.NET
+  matchers-condition: or
+  matchers:
+    - type: word
+      part: header
+      words: ["x-powered-by: asp.net", "x-aspnet-version"]
+    - type: word
+      part: body
+      words: ["__VIEWSTATE"]
+
+- id: express
+  name: Express
+  matchers:
+    - type: word
+      part: header
+      words: ["x-powered-by: express"]
+
+- id: flask
+  name: Flask / Werkzeug
+  matchers:
+    - type: word
+      part: header
+      words: ["werkzeug"]
+
+- id: django
+  name: Django
+  matchers:
+    - type: word
+      part: body
+      words: ["csrfmiddlewaretoken"]
+
+- id: laravel
+  name: Laravel
+  matchers:
+    - type: word
+      part: header
+      words: ["laravel_session"]
+
+- id: thinkphp
+  name: ThinkPHP
+  matchers:
+    - type: word
+      part: header
+      words: ["thinkphp"]
+
+- id: spring-boot
+  name: Spring Boot
+  matchers:
+    - type: word
+      part: body
+      condition: and
+      words: ["Whitelabel Error Page", "timestamp"]
+
+- id: nextjs
+  name: Next.js
+  matchers:
+    - type: word
+      part: body
+      words: ["__NEXT_DATA__"]
+
+- id: nuxtjs
+  name: Nuxt
+  matchers:
+    - type: word
+      part: body
+      words: ["__NUXT__"]
+
+- id: rails
+  name: Ruby on Rails
+  matchers-condition: and
+  matchers:
+    - type: word
+      part: header
+      words: ["x-runtime"]
+    - type: word
+      part: body
+      words: ["csrf-param"]
+
+# ---------- 前端库 ----------
+
+- id: jquery
+  name: jQuery
+  matchers:
+    - type: word
+      part: script
+      words: ["jquery"]
+
+- id: vue
+  name: Vue.js
+  matchers-condition: or
+  matchers:
+    - type: word
+      part: script
+      words: ["vue.min.js", "vue.js", "vue@"]
+    - type: regex
+      part: body
+      regex: ["data-v-[0-9a-f]{8}"]
+
+- id: react
+  name: React
+  matchers-condition: or
+  matchers:
+    - type: word
+      part: script
+      words: ["react", "react-dom"]
+    - type: word
+      part: body
+      words: ["data-reactroot", "__REACT"]
+
+- id: bootstrap
+  name: Bootstrap
+  matchers:
+    - type: word
+      part: body
+      words: ["bootstrap.min.css", "bootstrap.css"]
+
+- id: element-ui
+  name: Element UI
+  matchers:
+    - type: word
+      part: script
+      words: ["element-ui", "element-plus"]
+
+- id: ant-design
+  name: Ant Design
+  matchers:
+    - type: word
+      part: script
+      words: ["antd"]
+
+- id: layui
+  name: Layui
+  matchers:
+    - type: word
+      part: script
+      words: ["layui"]
+
+- id: echarts
+  name: ECharts
+  matchers:
+    - type: word
+      part: script
+      words: ["echarts"]
+
+# ---------- CMS / 建站 ----------
+
+- id: wordpress
+  name: WordPress
+  matchers-condition: or
+  matchers:
+    - type: word
+      part: body
+      words: ["/wp-content/", "/wp-includes/"]
+    - type: word
+      part: meta
+      words: ["generator: wordpress"]
+
+- id: joomla
+  name: Joomla
+  matchers-condition: or
+  matchers:
+    - type: word
+      part: meta
+      words: ["generator: joomla"]
+    - type: word
+      part: body
+      words: ["/media/system/js/", "/components/com_"]
+
+- id: drupal
+  name: Drupal
+  matchers-condition: or
+  matchers:
+    - type: word
+      part: header
+      words: ["x-generator: drupal"]
+    - type: word
+      part: body
+      words: ["/sites/default/files"]
+
+- id: discuz
+  name: Discuz!
+  matchers-condition: or
+  matchers:
+    - type: word
+      part: meta
+      words: ["generator: discuz"]
+    - type: word
+      part: body
+      words: ["discuz_uid"]
+
+- id: typecho
+  name: Typecho
+  matchers:
+    - type: word
+      part: meta
+      words: ["generator: typecho"]
+
+- id: halo
+  name: Halo
+  matchers:
+    - type: word
+      part: meta
+      words: ["generator: halo"]
+
+- id: hexo
+  name: Hexo
+  matchers:
+    - type: word
+      part: meta
+      words: ["generator: hexo"]
+
+- id: hugo
+  name: Hugo
+  matchers:
+    - type: word
+      part: meta
+      words: ["generator: hugo"]
+
+- id: jekyll
+  name: Jekyll
+  matchers:
+    - type: word
+      part: meta
+      words: ["generator: jekyll"]
+
+- id: ghost
+  name: Ghost
+  matchers:
+    - type: word
+      part: meta
+      words: ["generator: ghost"]
+
+- id: mediawiki
+  name: MediaWiki
+  matchers:
+    - type: word
+      part: meta
+      words: ["generator: mediawiki"]
+
+- id: dokuwiki
+  name: DokuWiki
+  matchers:
+    - type: word
+      part: meta
+      words: ["generator: dokuwiki"]
+
+- id: magento
+  name: Magento
+  matchers:
+    - type: word
+      part: body
+      words: ["Mage.Cookies", "/skin/frontend/"]
+
+- id: prestashop
+  name: PrestaShop
+  matchers:
+    - type: word
+      part: meta
+      words: ["generator: prestashop"]
+
+- id: opencart
+  name: OpenCart
+  matchers:
+    - type: word
+      part: body
+      words: ["catalog/view/theme"]
+
+- id: moodle
+  name: Moodle
+  matchers:
+    - type: word
+      part: body
+      words: ["moodle"]
+
+# ---------- 国产系统 ----------
+
+- id: zentao
+  name: 禅道
+  matchers:
+    - type: word
+      part: body
+      words: ["zentao"]
+
+- id: ruoyi
+  name: 若依 RuoYi
+  matchers-condition: or
+  matchers:
+    - type: word
+      part: title
+      words: ["若依"]
+    - type: word
+      part: body
+      words: ["ruoyi"]
+
+- id: jeecg
+  name: JeecgBoot
+  matchers:
+    - type: word
+      part: body
+      words: ["jeecg"]
+
+- id: kodbox
+  name: 可道云 KodBox
+  matchers:
+    - type: word
+      part: body
+      words: ["kodbox"]
+
+# ---------- DevOps / 代码托管 ----------
+
+- id: jenkins
+  name: Jenkins
+  matchers-condition: or
+  matchers:
+    - type: word
+      part: header
+      words: ["x-jenkins"]
+    - type: word
+      part: title
+      words: ["Jenkins"]
+
+- id: gitlab
+  name: GitLab
+  matchers:
+    - type: word
+      part: meta
+      words: ["og:site_name: gitlab"]
+
+- id: gitea
+  name: Gitea
+  matchers:
+    - type: word
+      part: body
+      words: ["Powered by Gitea", "Gitea: Git with a cup of tea"]
+
+- id: gogs
+  name: Gogs
+  matchers:
+    - type: word
+      part: body
+      words: ["Powered by Gogs"]
+
+- id: gitblit
+  name: Gitblit
+  matchers:
+    - type: word
+      part: title
+      words: ["Gitblit"]
+
+- id: harbor
+  name: Harbor
+  matchers:
+    - type: word
+      part: title
+      words: ["Harbor"]
+
+- id: nexus
+  name: Nexus Repository
+  matchers:
+    - type: word
+      part: title
+      words: ["Nexus Repository"]
+
+- id: sonarqube
+  name: SonarQube
+  matchers:
+    - type: word
+      part: title
+      words: ["SonarQube"]
+
+- id: jira
+  name: Jira
+  matchers-condition: or
+  matchers:
+    - type: word
+      part: header
+      words: ["x-seraph-loginreason"]
+    - type: word
+      part: meta
+      words: ["application-name: jira"]
+
+- id: confluence
+  name: Confluence
+  matchers:
+    - type: word
+      part: meta
+      words: ["confluence"]
+
+- id: yapi
+  name: YApi
+  matchers:
+    - type: word
+      part: title
+      words: ["YApi"]
+
+- id: showdoc
+  name: ShowDoc
+  matchers:
+    - type: word
+      part: title
+      words: ["ShowDoc"]
+
+# ---------- 监控 / 可观测 ----------
+
+- id: zabbix
+  name: Zabbix
+  matchers:
+    - type: word
+      part: title
+      words: ["Zabbix"]
+
+- id: grafana
+  name: Grafana
+  matchers-condition: or
+  matchers:
+    - type: word
+      part: title
+      words: ["Grafana"]
+    - type: word
+      part: body
+      words: ["grafana-app"]
+
+- id: prometheus
+  name: Prometheus
+  matchers:
+    - type: word
+      part: title
+      words: ["Prometheus Time Series"]
+
+- id: alertmanager
+  name: Alertmanager
+  matchers:
+    - type: word
+      part: title
+      words: ["Alertmanager"]
+
+- id: kibana
+  name: Kibana
+  matchers-condition: or
+  matchers:
+    - type: word
+      part: header
+      words: ["kbn-name"]
+    - type: word
+      part: title
+      words: ["Kibana"]
+
+- id: elasticsearch
+  name: Elasticsearch
+  matchers:
+    - type: word
+      part: body
+      words: ["You Know, for Search"]
+
+- id: skywalking
+  name: SkyWalking
+  matchers:
+    - type: word
+      part: title
+      words: ["SkyWalking"]
+
+- id: pinpoint
+  name: Pinpoint
+  matchers:
+    - type: word
+      part: title
+      words: ["Pinpoint"]
+
+- id: zipkin
+  name: Zipkin
+  matchers:
+    - type: word
+      part: title
+      words: ["Zipkin"]
+
+- id: uptime-kuma
+  name: Uptime Kuma
+  matchers:
+    - type: word
+      part: title
+      words: ["Uptime Kuma"]
+
+# ---------- 中间件控制台 / 微服务 ----------
+
+- id: rabbitmq
+  name: RabbitMQ Management
+  matchers:
+    - type: word
+      part: title
+      words: ["RabbitMQ Management"]
+
+- id: nacos
+  name: Nacos
+  matchers:
+    - type: word
+      part: title
+      words: ["Nacos"]
+
+- id: eureka
+  name: Eureka
+  matchers:
+    - type: word
+      part: body
+      words: ["Eureka"]
+
+- id: apollo
+  name: Apollo 配置中心
+  matchers:
+    - type: word
+      part: title
+      words: ["Apollo"]
+
+- id: sentinel
+  name: Sentinel
+  matchers:
+    - type: word
+      part: title
+      words: ["Sentinel"]
+
+- id: xxl-job
+  name: XXL-JOB
+  matchers-condition: or
+  matchers:
+    - type: word
+      part: title
+      words: ["XXL-JOB", "分布式任务调度平台"]
+    - type: word
+      part: body
+      words: ["xxl-job"]
+
+- id: dubbo-admin
+  name: Dubbo Admin
+  matchers:
+    - type: word
+      part: title
+      words: ["Dubbo"]
+
+- id: solr
+  name: Apache Solr
+  matchers:
+    - type: word
+      part: title
+      words: ["Solr Admin"]
+
+- id: airflow
+  name: Apache Airflow
+  matchers:
+    - type: word
+      part: title
+      words: ["Airflow"]
+
+- id: rundeck
+  name: Rundeck
+  matchers:
+    - type: word
+      part: title
+      words: ["Rundeck"]
+
+# ---------- 容器 / 云原生 ----------
+
+- id: portainer
+  name: Portainer
+  matchers:
+    - type: word
+      part: title
+      words: ["Portainer"]
+
+- id: rancher
+  name: Rancher
+  matchers:
+    - type: word
+      part: title
+      words: ["Rancher"]
+
+- id: argocd
+  name: Argo CD
+  matchers:
+    - type: word
+      part: title
+      words: ["Argo CD"]
+
+- id: vault
+  name: HashiCorp Vault
+  matchers:
+    - type: word
+      part: body
+      words: ["vault-ui"]
+
+- id: consul
+  name: HashiCorp Consul
+  matchers:
+    - type: word
+      part: title
+      words: ["Consul"]
+
+- id: k8s-dashboard
+  name: Kubernetes Dashboard
+  matchers:
+    - type: word
+      part: body
+      words: ["kubernetes-dashboard"]
+
+- id: minio
+  name: MinIO
+  matchers-condition: or
+  matchers:
+    - type: word
+      part: title
+      words: ["MinIO"]
+    - type: word
+      part: header
+      words: ["server: minio"]
+
+# ---------- 数据库 / 管理工具 ----------
+
+- id: phpmyadmin
+  name: phpMyAdmin
+  matchers-condition: or
+  matchers:
+    - type: word
+      part: title
+      words: ["phpMyAdmin"]
+    - type: word
+      part: header
+      words: ["phpmyadmin"]
+
+- id: adminer
+  name: Adminer
+  matchers:
+    - type: word
+      part: title
+      words: ["Adminer"]
+
+- id: phpinfo
+  name: phpinfo()
+  matchers:
+    - type: word
+      part: title
+      words: ["phpinfo()"]
+
+- id: swagger
+  name: Swagger UI
+  matchers:
+    - type: word
+      part: title
+      words: ["Swagger UI"]
+
+# ---------- BI / 数据 ----------
+
+- id: superset
+  name: Apache Superset
+  matchers:
+    - type: word
+      part: title
+      words: ["Superset"]
+
+- id: metabase
+  name: Metabase
+  matchers:
+    - type: word
+      part: title
+      words: ["Metabase"]
+
+- id: redash
+  name: Redash
+  matchers:
+    - type: word
+      part: title
+      words: ["Redash"]
+
+# ---------- 云存储 / 协作 ----------
+
+- id: nextcloud
+  name: Nextcloud
+  matchers:
+    - type: word
+      part: meta
+      words: ["generator: nextcloud"]
+
+- id: owncloud
+  name: ownCloud
+  matchers:
+    - type: word
+      part: meta
+      words: ["generator: owncloud"]
+
+- id: seafile
+  name: Seafile
+  matchers:
+    - type: word
+      part: title
+      words: ["Seafile"]
+
+# ---------- 邮件 ----------
+
+- id: roundcube
+  name: Roundcube Webmail
+  matchers:
+    - type: word
+      part: title
+      words: ["Roundcube"]
+
+- id: zimbra
+  name: Zimbra
+  matchers:
+    - type: word
+      part: body
+      words: ["zimbra"]
+
+- id: owa
+  name: Outlook Web App
+  matchers:
+    - type: word
+      part: body
+      words: ["/owa/auth"]
+
+# ---------- 自托管 / 家庭服务 ----------
+
+- id: jellyfin
+  name: Jellyfin
+  matchers:
+    - type: word
+      part: title
+      words: ["Jellyfin"]
+
+- id: plex
+  name: Plex
+  matchers:
+    - type: word
+      part: title
+      words: ["Plex"]
+
+- id: emby
+  name: Emby
+  matchers:
+    - type: word
+      part: title
+      words: ["Emby"]
+
+- id: home-assistant
+  name: Home Assistant
+  matchers:
+    - type: word
+      part: title
+      words: ["Home Assistant"]
+
+- id: node-red
+  name: Node-RED
+  matchers:
+    - type: word
+      part: title
+      words: ["Node-RED"]
+
+- id: octoprint
+  name: OctoPrint
+  matchers:
+    - type: word
+      part: title
+      words: ["OctoPrint"]
+
+- id: pihole
+  name: Pi-hole
+  matchers:
+    - type: word
+      part: title
+      words: ["Pi-hole"]
+
+- id: adguard-home
+  name: AdGuard Home
+  matchers:
+    - type: word
+      part: title
+      words: ["AdGuard Home"]
+
+- id: qbittorrent
+  name: qBittorrent
+  matchers:
+    - type: word
+      part: title
+      words: ["qBittorrent"]
+
+- id: transmission
+  name: Transmission
+  matchers:
+    - type: word
+      part: title
+      words: ["Transmission"]
+
+- id: ariang
+  name: AriaNg
+  matchers:
+    - type: word
+      part: title
+      words: ["AriaNg"]
+
+- id: vaultwarden
+  name: Vaultwarden
+  matchers:
+    - type: word
+      part: body
+      words: ["vaultwarden"]
+
+- id: freshrss
+  name: FreshRSS
+  matchers:
+    - type: word
+      part: title
+      words: ["FreshRSS"]
+
+# ---------- 网络设备 / 虚拟化 ----------
+
+- id: synology
+  name: Synology DSM
+  matchers-condition: or
+  matchers:
+    - type: word
+      part: title
+      words: ["Synology"]
+    - type: word
+      part: body
+      words: ["SYNO."]
+
+- id: routeros
+  name: MikroTik RouterOS
+  matchers:
+    - type: word
+      part: title
+      words: ["RouterOS"]
+
+- id: openwrt
+  name: OpenWrt / LuCI
+  matchers-condition: or
+  matchers:
+    - type: word
+      part: title
+      words: ["LuCI"]
+    - type: word
+      part: body
+      words: ["/luci-static/"]
+
+- id: pfsense
+  name: pfSense
+  matchers:
+    - type: word
+      part: title
+      words: ["pfSense"]
+
+- id: esxi
+  name: VMware ESXi
+  matchers:
+    - type: word
+      part: body
+      words: ["VMware ESXi"]
+
+- id: vsphere
+  name: VMware vSphere
+  matchers:
+    - type: word
+      part: body
+      words: ["vSphere Client"]
+
+- id: proxmox
+  name: Proxmox VE
+  matchers:
+    - type: word
+      part: title
+      words: ["Proxmox"]
+
+- id: webmin
+  name: Webmin
+  matchers:
+    - type: word
+      part: title
+      words: ["Webmin"]
+
+- id: jumpserver
+  name: JumpServer
+  matchers:
+    - type: word
+      part: title
+      words: ["JumpServer"]

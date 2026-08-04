@@ -75,6 +75,7 @@ const html = `<html><head>
 <title>  Test   Page </title>
 <meta name="generator" content="WordPress 6.5">
 <meta property="og:site_name" content="Example">
+<link rel="shortcut icon" href="/static/favicon.ico">
 <script src="/wp-content/themes/x.js"></script>
 <script async src='https://cdn.example.com/a.js'></script>
 </head><body></body></html>`;
@@ -83,7 +84,8 @@ console.log('extract =', JSON.stringify(ex));
 pass &&= ex.title === 'Test Page'
   && ex.meta?.generator === 'WordPress 6.5'
   && ex.meta?.['og:site_name'] === 'Example'
-  && ex.scripts?.length === 2;
+  && ex.scripts?.length === 2
+  && ex.favicon === '/static/favicon.ico';
 
 // goNormalizeRules：nuclei 模板 + 原生规则数组都要转对
 const docs = [
