@@ -328,11 +328,13 @@ async function pollCrawl() {
   if (!resp?.ok) return;
   const statusEl = document.getElementById('crawl-status');
   if (resp.running) {
-    statusEl.textContent = `爬取中：已扫 ${resp.visited} 页，队列 ${resp.queued}，发现链接去重中…`;
+    statusEl.textContent = `爬取中：已扫 ${resp.visited} 页，队列 ${resp.queued}，失败 ${resp.failed?.length || 0}，发现链接去重中…`;
   } else if (resp.interrupted) {
-    statusEl.textContent = `任务被系统中断（service worker 被回收）：已保留 ${resp.results.length} 页结果`;
+    statusEl.textContent = `任务被系统中断（service worker 被回收）：已保留 ${resp.results.length} 页结果，失败 ${resp.failed?.length || 0} 页`;
   } else if (resp.results.length) {
-    statusEl.textContent = `结束：共 ${resp.results.length} 页`;
+    statusEl.textContent = `结束：成功 ${resp.results.length} 页，失败 ${resp.failed?.length || 0} 页`;
+  } else if (resp.failed?.length) {
+    statusEl.textContent = `结束：没有成功页面，失败 ${resp.failed.length} 页`;
   } else {
     statusEl.textContent = '';
   }
@@ -346,6 +348,14 @@ async function pollCrawl() {
     row.querySelector('.t').textContent = r.title;
     row.querySelector('.u').textContent = `${r.url}（HTTP ${r.status}）`;
     row.querySelector('.hits').textContent = names ? `🎯 ${names}` : '— 未识别';
+    list.appendChild(row);
+  }
+  for (const r of (resp.failed || []).slice(-20)) {
+    const row = document.createElement('div');
+    row.className = 'crawl-item failed';
+    row.innerHTML = `<div class="t">抓取失败</div><div class="u"></div><div class="hits"></div>`;
+    row.querySelector('.u').textContent = r.url;
+    row.querySelector('.hits').textContent = r.error || '未知错误';
     list.appendChild(row);
   }
   if (!resp.running && crawlTimer) {

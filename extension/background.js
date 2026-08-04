@@ -45,6 +45,7 @@ chrome.webRequest.onHeadersReceived.addListener(
 chrome.tabs.onRemoved.addListener((tabId) => {
   responseCache.delete(tabId);
   tabIcons.delete(tabId);
+  iconJobs.delete(tabId);
   chrome.storage.session.remove(`result:${tabId}`);
 });
 
@@ -57,7 +58,9 @@ const ICONS = (state) => ({
   128: `icons/icon128${state}.png`,
 });
 
-async function updateIcon(tabId, hitCount) {
+const iconJobs = new Map(); // tabId -> { pendingHitCount, running }
+
+async function applyIcon(tabId, hitCount) {
   if (tabId == null || tabId < 0) return;
   const matched = hitCount > 0;
   await chrome.action.setIcon({ tabId, path: ICONS(matched ? '' : '-gray') });
@@ -67,10 +70,50 @@ async function updateIcon(tabId, hitCount) {
   }
 }
 
-// 开始跳新页面先回灰色，等 content script 报特征过来再更新
+function updateIcon(tabId, hitCount) {
+  if (tabId == null || tabId < 0) return Promise.resolve();
+  let job = iconJobs.get(tabId);
+  if (!job) {
+    job = { pendingHitCount: hitCount, running: false };
+    iconJobs.set(tabId, job);
+  }
+  job.pendingHitCount = hitCount;
+  if (job.running) return Promise.resolve();
+
+  job.running = true;
+  return (async () => {
+    while (job.pendingHitCount != null) {
+      const next = job.pendingHitCount;
+      job.pendingHitCount = null;
+      await applyIcon(tabId, next);
+    }
+  })().finally(() => {
+    job.running = false;
+    if (job.pendingHitCount != null) {
+      updateIcon(tabId, job.pendingHitCount).catch(() => {});
+    }
+  });
+}
+
+async function shouldKeepExistingHitIcon(tabId) {
+  try {
+    const [tab, data] = await Promise.all([
+      chrome.tabs.get(tabId),
+      chrome.storage.session.get(`result:${tabId}`),
+    ]);
+    const stored = data[`result:${tabId}`];
+    return stored?.features?.url === tab.url && (stored.result?.hits?.length || 0) > 0;
+  } catch {
+    return false;
+  }
+}
+
+// 开始跳新页面先回灰色；同 URL 已命中时不抢着置灰，避免命中图标一闪后被 loading 事件盖掉
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   if (changeInfo.status === 'loading') {
-    updateIcon(tabId, 0).catch(() => {});
+    shouldKeepExistingHitIcon(tabId).then((keep) => {
+      if (!keep) updateIcon(tabId, 0).catch(() => {});
+    });
   }
 });
 
@@ -429,7 +472,7 @@ async function saveCrawlState(state) {
 
 async function loadCrawlState() {
   const data = await chrome.storage.session.get(CRAWL_KEY);
-  return data[CRAWL_KEY] || { running: false, results: [] };
+  return data[CRAWL_KEY] || { running: false, results: [], failed: [] };
 }
 
 async function crawlSite(seed, maxPages) {
@@ -440,7 +483,9 @@ async function crawlSite(seed, maxPages) {
   crawl.active = true;
   crawl.stop = false;
   const results = [];
-  await saveCrawlState({ running: true, results });
+  const failed = [];
+  const state = () => ({ running: true, results, failed });
+  await saveCrawlState(state());
   try {
     for (;;) {
       if (crawl.stop) break;
@@ -455,13 +500,15 @@ async function crawlSite(seed, maxPages) {
           results.push({ url, title: features.title || url, status: features.status, hits });
           // 页面里发现的链接喂回 wasm，过滤去重它管
           globalThis.goCrawlFeed(url, JSON.stringify(features.links || []));
-        } catch { /* 抓不动就跳过 */ }
+        } catch (e) {
+          failed.push({ url, error: String(e.message || e) });
+        }
       }));
-      await saveCrawlState({ running: true, results }); // 每批落一次盘
+      await saveCrawlState(state()); // 每批落一次盘
     }
   } finally {
     crawl.active = false;
-    await saveCrawlState({ running: false, results });
+    await saveCrawlState({ running: false, results, failed });
   }
 }
 
@@ -580,6 +627,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           visited,
           queued,
           results: st.results,
+          failed: st.failed || [],
         });
         break;
       }

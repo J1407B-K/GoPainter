@@ -12,6 +12,17 @@ let currentTabUrl = '';
 function setBusy(el, busy, busyLabel) {
   el.classList.toggle('busy', busy);
   const label = el.querySelector('.ac-label');
+  if (!label) {
+    if (busy) {
+      el.dataset.orig = el.textContent;
+      el.textContent = busyLabel;
+      el.disabled = true;
+    } else {
+      if (el.dataset.orig) el.textContent = el.dataset.orig;
+      el.disabled = false;
+    }
+    return;
+  }
   if (busy) {
     label.dataset.orig = label.textContent;
     label.textContent = busyLabel;
@@ -142,24 +153,60 @@ aiBtn.addEventListener('click', async () => {
   }
 });
 
-// --- 爬取本站：用当前标签页 URL 启动，跳设置页看进度 ---
+// --- 爬取本站：在 popup 内确认页数后启动 ---
+
+const crawlModal = document.getElementById('crawl-modal');
+const crawlUrlInput = document.getElementById('crawl-url-popup');
+const crawlMaxInput = document.getElementById('crawl-max-popup');
+const crawlStartPopup = document.getElementById('crawl-start-popup');
+
+function closeCrawlModal() {
+  crawlModal.style.display = 'none';
+}
 
 document.getElementById('crawl-btn').addEventListener('click', async () => {
   if (!currentTabUrl) return;
-  const btn = document.getElementById('crawl-btn');
-  setBusy(btn, true, '启动中…');
+  const { crawlMaxPages = '50' } = await chrome.storage.local.get('crawlMaxPages');
+  crawlUrlInput.value = currentTabUrl;
+  crawlMaxInput.value = crawlMaxPages;
+  crawlModal.style.display = 'flex';
+  crawlMaxInput.focus();
+  crawlMaxInput.select();
+});
+
+document.getElementById('crawl-cancel-popup').addEventListener('click', closeCrawlModal);
+crawlModal.addEventListener('click', (e) => {
+  if (e.target === crawlModal) closeCrawlModal();
+});
+
+crawlStartPopup.addEventListener('click', async () => {
+  const url = crawlUrlInput.value.trim();
+  const raw = crawlMaxInput.value.trim();
+  const maxPages = raw === '' ? null : parseInt(raw, 10);
+  if (!/^https?:/.test(url)) {
+    aiResult.style.display = 'block';
+    aiResult.textContent = '起始 URL 得是 http/https';
+    return;
+  }
+  if (raw !== '' && (!Number.isInteger(maxPages) || maxPages <= 0)) {
+    aiResult.style.display = 'block';
+    aiResult.textContent = '最大页数要么留空，要么填正整数';
+    return;
+  }
+
+  setBusy(crawlStartPopup, true, '启动中…');
   try {
-    // 最大页数沿用设置页上次填的，没填过默认 50
-    const { crawlMaxPages = '50' } = await chrome.storage.local.get('crawlMaxPages');
-    const maxPages = crawlMaxPages === '' ? null : parseInt(crawlMaxPages, 10);
-    const resp = await chrome.runtime.sendMessage({ type: 'crawlStart', url: currentTabUrl, maxPages });
+    await chrome.storage.local.set({ crawlMaxPages: raw });
+    const resp = await chrome.runtime.sendMessage({ type: 'crawlStart', url, maxPages });
     if (!resp.ok) throw new Error(resp.error);
-    chrome.runtime.openOptionsPage(); // 进度和结果在设置页看
+    closeCrawlModal();
+    aiResult.style.display = 'block';
+    aiResult.textContent = '已开始爬取。需要看实时进度和失败原因时，打开设置页的「站点爬取」。';
   } catch (e) {
     aiResult.style.display = 'block';
     aiResult.textContent = `启动爬取失败：${e.message}`;
   } finally {
-    setBusy(btn, false);
+    setBusy(crawlStartPopup, false);
   }
 });
 

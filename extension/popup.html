@@ -131,6 +131,24 @@
       background: var(--card); border: 1px solid var(--border); border-radius: 10px;
       white-space: pre-wrap; font-size: 12px; max-height: 240px; overflow: auto;
     }
+    .modal-backdrop {
+      position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
+      padding: 16px; background: rgba(31, 35, 41, .35); z-index: 10;
+    }
+    .modal {
+      width: 100%; background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+      padding: 14px; box-shadow: 0 12px 30px rgba(31, 35, 41, .18);
+    }
+    .modal h2 { margin: 0 0 8px; font-size: 14px; }
+    .modal label { display: block; margin: 10px 0 4px; font-weight: 700; font-size: 12px; }
+    .modal input {
+      width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px;
+      font-size: 12px; font-family: var(--mono);
+    }
+    .modal input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+    .modal-actions { display: flex; gap: 8px; margin-top: 12px; }
+    .modal-actions button { flex: 1; }
+    #crawl-start-popup { background: var(--accent); color: #fff; }
     .spinner {
       display: inline-block; width: 12px; height: 12px;
       border: 2px solid rgba(255,255,255,.4); border-top-color: #fff;
@@ -178,6 +196,20 @@
       <div class="rule-actions">
         <button id="rule-save">✅ 加入规则库</button>
         <button id="rule-discard" class="ghost">丢弃</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="crawl-modal">
+    <div class="modal" role="dialog" aria-labelledby="crawl-modal-title">
+      <h2 id="crawl-modal-title">爬取本站</h2>
+      <label for="crawl-url-popup">起始 URL</label>
+      <input type="text" id="crawl-url-popup">
+      <label for="crawl-max-popup">最大页数</label>
+      <input type="text" id="crawl-max-popup" placeholder="留空 = 不限">
+      <div class="modal-actions">
+        <button id="crawl-start-popup">开始爬取</button>
+        <button id="crawl-cancel-popup" class="ghost">取消</button>
       </div>
     </div>
   </div>

@@ -96,8 +96,9 @@ func evalMatcher(m Matcher, f *Features) (bool, []Evidence) {
 	switch m.Type {
 	case "word":
 		text := partText(m, f)
+		cmpText := strings.ToLower(text)
 		for _, w := range m.Words {
-			ok := strings.Contains(text, w)
+			ok := strings.Contains(cmpText, strings.ToLower(w))
 			results = append(results, ok)
 			if ok {
 				ev = append(ev, Evidence{Type: "word", Part: part, Detail: w})
@@ -106,7 +107,10 @@ func evalMatcher(m Matcher, f *Features) (bool, []Evidence) {
 	case "regex":
 		text := partText(m, f)
 		for _, r := range m.Regex {
-			re, err := regexp.Compile(r)
+			re, err := regexp.Compile("(?i)" + r)
+			if err != nil {
+				re, err = regexp.Compile(r)
+			}
 			if err != nil {
 				results = append(results, false)
 				continue
