@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>GoPainter 设置</title>
+  <style>
+    :root {
+      --bg: #f6f7f9; --card: #fff; --text: #1f2329; --muted: #8a919e;
+      --accent: #6366f1; --accent-soft: #eef0ff; --border: #e8eaef;
+      --mono: "SF Mono", Consolas, "Courier New", monospace;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--text);
+      font: 14px/1.6 -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+    .banner {
+      padding: 20px 24px; color: #fff;
+      background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 60%, #a855f7 100%);
+    }
+    .banner h1 { font-size: 18px; margin: 0; }
+    .banner .sub { font-size: 12px; opacity: .85; margin-top: 2px; }
+    .container { max-width: 720px; margin: 0 auto; padding: 20px 24px 40px; }
+
+    .card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 12px; padding: 16px 18px; margin-bottom: 16px;
+    }
+    .card h2 { font-size: 14px; margin: 0 0 4px; display: flex; align-items: center; gap: 6px; }
+    .muted { color: var(--muted); font-size: 12px; }
+
+    label { display: block; margin: 12px 0 4px; font-weight: 600; font-size: 13px; }
+    input[type=text], input[type=password] {
+      width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px;
+      font-size: 13px; font-family: var(--mono); transition: border-color .15s;
+    }
+    input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+
+    button {
+      padding: 8px 16px; border: 1px solid var(--border); border-radius: 8px;
+      background: var(--card); cursor: pointer; font-size: 13px; font-weight: 600;
+      margin-top: 10px; transition: all .15s;
+    }
+    button:hover { background: #f0f1f5; }
+    button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+    button.primary:hover { background: #4f46e5; }
+    button.danger { color: #dc2626; border-color: #fecaca; }
+    button.danger:hover { background: #fef2f2; }
+
+    .file-drop {
+      margin-top: 10px; padding: 22px; text-align: center; cursor: pointer;
+      border: 2px dashed var(--border); border-radius: 10px; color: var(--muted);
+      transition: all .15s; font-size: 13px;
+    }
+    .file-drop:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+    .file-drop input { display: none; }
+
+    #msg { margin-top: 12px; font-size: 13px; color: #16a34a; }
+    #msg.error { color: #dc2626; }
+
+    #rule-stats { margin: 12px 0 6px; }
+    #rule-list { max-height: 280px; overflow: auto; }
+    .rule-item {
+      display: flex; justify-content: space-between; align-items: baseline;
+      padding: 6px 10px; border-radius: 6px;
+    }
+    .rule-item:nth-child(odd) { background: #fafbfc; }
+    .rule-item .name { font-weight: 600; font-size: 13px; }
+    .rule-item .id { color: var(--muted); font-size: 11px; font-family: var(--mono); }
+  </style>
+</head>
+<body>
+  <div class="banner">
+    <h1>🎨 GoPainter 设置</h1>
+    <div class="sub">指纹规则管理 · AI 配置</div>
+  </div>
+
+  <div class="container">
+    <div class="card">
+      <h2>📋 指纹规则</h2>
+      <p class="muted">
+        支持 GoPainter 原生格式（见 rules/examples.yaml）和 nuclei 模板（自动提取 http matchers 子集）。
+        可多选文件，同 id 规则会被覆盖更新。
+      </p>
+      <label class="file-drop">
+        <input type="file" id="file-input" accept=".yaml,.yml" multiple>
+        📂 点击选择 YAML 文件导入（支持多选）
+      </label>
+      <button id="clear-rules" class="danger">清空规则</button>
+      <div id="rule-stats" class="muted"></div>
+      <div id="rule-list"></div>
+    </div>
+
+    <div class="card">
+      <h2>✨ AI 辅助识别</h2>
+      <p class="muted">任意 OpenAI 兼容接口：OpenAI / DeepSeek / 通义 / 本地 Ollama 均可。</p>
+      <label for="ai-base-url">Base URL</label>
+      <input type="text" id="ai-base-url" placeholder="https://api.openai.com/v1 或 http://localhost:11434/v1">
+      <label for="ai-api-key">API Key</label>
+      <input type="password" id="ai-api-key" placeholder="sk-...">
+      <label for="ai-model">模型</label>
+      <input type="text" id="ai-model" placeholder="gpt-4o-mini / deepseek-chat / qwen2.5 ...">
+      <button id="save-ai" class="primary">保存 AI 配置</button>
+    </div>
+
+    <div id="msg"></div>
+  </div>
+
+  <script src="lib/js-yaml.min.js"></script>
+  <script src="options.js"></script>
+</body>
+</html>

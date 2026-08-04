@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <style>
+    :root {
+      --bg: #f6f7f9;
+      --card: #ffffff;
+      --text: #1f2329;
+      --muted: #8a919e;
+      --accent: #6366f1;
+      --accent-soft: #eef0ff;
+      --green: #16a34a;
+      --green-soft: #f0fdf4;
+      --border: #e8eaef;
+      --mono: "SF Mono", Consolas, "Courier New", monospace;
+    }
+    * { box-sizing: border-box; }
+    body {
+      width: 380px; margin: 0; background: var(--bg); color: var(--text);
+      font: 13px/1.55 -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+
+    /* 顶部横幅 */
+    .banner {
+      padding: 14px 16px 12px;
+      background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 60%, #a855f7 100%);
+      color: #fff;
+    }
+    .banner h1 { font-size: 15px; margin: 0; display: flex; align-items: center; gap: 6px; }
+    .banner .sub { font-size: 11px; opacity: .8; margin-top: 2px; }
+
+    .container { padding: 12px 14px 14px; }
+
+    /* 页面信息卡 */
+    .page-info {
+      background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+      padding: 10px 12px; margin-bottom: 12px;
+    }
+    .page-info .title { font-weight: 600; font-size: 13px; word-break: break-all; }
+    .page-info .url {
+      color: var(--muted); font-size: 11px; font-family: var(--mono);
+      word-break: break-all; margin-top: 2px;
+    }
+    .meta-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .chip {
+      display: inline-flex; align-items: center; gap: 4px;
+      font-size: 11px; font-family: var(--mono);
+      padding: 2px 8px; border-radius: 999px;
+      background: #f1f2f6; color: #555; border: 1px solid var(--border);
+    }
+    .chip.ok { background: var(--green-soft); color: var(--green); border-color: #bbf7d0; }
+
+    /* 命中卡片 */
+    .section-label {
+      font-size: 11px; color: var(--muted); text-transform: uppercase;
+      letter-spacing: .5px; margin: 4px 2px 6px;
+    }
+    .hit {
+      background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+      padding: 10px 12px; margin-bottom: 8px;
+      border-left: 3px solid var(--green);
+      animation: slide-in .18s ease-out;
+    }
+    @keyframes slide-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; } }
+    .hit .head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+    .hit .name { font-weight: 700; font-size: 13px; }
+    .hit .id { color: var(--muted); font-size: 10px; font-family: var(--mono); }
+    .hit .evidence { margin-top: 8px; display: flex; flex-direction: column; gap: 4px; }
+    .ev {
+      display: flex; gap: 6px; align-items: baseline;
+      font-size: 11px; padding: 4px 8px; border-radius: 6px;
+      background: var(--accent-soft);
+    }
+    .ev .tag {
+      flex-shrink: 0; font-family: var(--mono); font-size: 10px; font-weight: 700;
+      color: var(--accent); background: #fff; border: 1px solid #dfe2ff;
+      padding: 1px 6px; border-radius: 4px;
+    }
+    .ev .detail { font-family: var(--mono); color: #444; word-break: break-all; }
+
+    .empty {
+      text-align: center; color: var(--muted); padding: 18px 0 10px; font-size: 12px;
+    }
+    .empty .icon { font-size: 26px; display: block; margin-bottom: 6px; }
+
+    /* 底部操作区 */
+    .footer { display: flex; gap: 8px; margin-top: 12px; align-items: center; }
+    button {
+      flex: 1; padding: 8px 0; border: none; border-radius: 8px; cursor: pointer;
+      font-size: 12px; font-weight: 600; transition: all .15s;
+    }
+    #ai-btn { background: var(--accent); color: #fff; }
+    #ai-btn:hover:not(:disabled) { background: #4f46e5; transform: translateY(-1px); }
+    #ai-btn:disabled { opacity: .6; cursor: wait; }
+    .link-btn {
+      flex: none; padding: 8px 12px; background: var(--card);
+      border: 1px solid var(--border); color: var(--text); text-decoration: none;
+      text-align: center; font-size: 12px; font-weight: 600; border-radius: 8px;
+    }
+    .link-btn:hover { background: #f0f1f5; }
+
+    #ai-result {
+      display: none; margin-top: 10px; padding: 10px 12px;
+      background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+      white-space: pre-wrap; font-size: 12px; max-height: 240px; overflow: auto;
+    }
+    .spinner {
+      display: inline-block; width: 12px; height: 12px;
+      border: 2px solid rgba(255,255,255,.4); border-top-color: #fff;
+      border-radius: 50%; animation: spin .7s linear infinite; vertical-align: -2px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div class="banner">
+    <h1>🎨 GoPainter</h1>
+    <div class="sub">Web 指纹测绘 · Go WASM 引擎</div>
+  </div>
+
+  <div class="container">
+    <div class="page-info" id="page-info" style="display:none">
+      <div class="title" id="page-title"></div>
+      <div class="url" id="page-url"></div>
+      <div class="meta-row" id="meta-row"></div>
+    </div>
+
+    <div id="status" class="empty"><span class="icon">⏳</span>加载中…</div>
+    <div id="hits"></div>
+
+    <div class="footer">
+      <button id="ai-btn">✨ AI 辅助识别</button>
+      <a class="link-btn" href="options.html" target="_blank">⚙️ 规则</a>
+    </div>
+    <div id="ai-result"></div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

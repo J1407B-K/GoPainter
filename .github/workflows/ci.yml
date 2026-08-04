@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      # 跟本地对齐的版本，不用第三方 action，直接下官方包
+      - name: Install TinyGo
+        run: |
+          wget -q https://github.com/tinygo-org/tinygo/releases/download/v0.41.1/tinygo0.41.1.linux-amd64.tar.gz
+          sudo tar -C /usr/local -xzf tinygo0.41.1.linux-amd64.tar.gz
+          echo "/usr/local/tinygo/bin" >> "$GITHUB_PATH"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Build wasm
+        run: make build-tinygo
+
+      - name: JS syntax check
+        run: |
+          for f in extension/*.js extension/lib/mmh3.js scripts/*.mjs; do
+            node --check "$f"
+          done
+
+      - name: Smoke test
+        run: node scripts/smoke-test.mjs

@@ -1,0 +1,62 @@
+# GoPainter 规则示例
+# type: word / regex / status / icon_hash
+# part: body / title / url / header / raw（默认 body）
+# condition 控制多条件组合（and/or，默认 or），negative 取反
+# matchers-condition 控制规则内多个 matcher 的组合
+
+- id: wordpress
+  name: WordPress
+  matchers:
+    - type: word
+      part: body
+      words:
+        - /wp-content/
+        - /wp-includes/
+    - type: word
+      part: header
+      words:
+        - "x-pingback:"
+
+- id: jenkins
+  name: Jenkins
+  matchers-condition: or
+  matchers:
+    - type: word
+      part: header
+      words:
+        - "x-jenkins:"
+    - type: regex
+      part: title
+      regex:
+        - "Jenkins"
+
+- id: spring-boot
+  name: Spring Boot
+  matchers:
+    - type: word
+      part: body
+      condition: and
+      words:
+        - "Whitelabel Error Page"
+        - "timestamp"
+
+- id: nginx-server
+  name: Nginx
+  matchers:
+    - type: word
+      part: header
+      words:
+        - "server: nginx"
+
+- id: gitea
+  name: Gitea
+  matchers-condition: or
+  matchers:
+    - type: word
+      part: body
+      words:
+        - "Gitea: Git with a cup of tea"
+    # fofa 语法中的 icon_hash 即此处的 hash（mmh3 int32）
+    - type: icon_hash
+      hash:
+        - -1234567890  # 示例值，请替换为真实 gitea favicon 的 mmh3
