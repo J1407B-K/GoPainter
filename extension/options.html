@@ -67,6 +67,43 @@
     .rule-item:nth-child(odd) { background: #fafbfc; }
     .rule-item .name { font-weight: 600; font-size: 13px; }
     .rule-item .id { color: var(--muted); font-size: 11px; font-family: var(--mono); }
+
+    /* 书签选择 */
+    #bm-panel { display: none; margin-top: 10px; }
+    .bm-toolbar {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 4px 2px 8px;
+    }
+    .bm-all-label { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; margin: 0; }
+    .bm-all-label input { margin: 0; }
+    #bm-list {
+      max-height: 320px; overflow: auto; margin-bottom: 10px;
+      border: 1px solid var(--border); border-radius: 8px;
+    }
+    .bm-group {
+      position: sticky; top: 0; padding: 5px 10px;
+      font-size: 11px; color: var(--muted); background: #f1f2f6;
+      border-bottom: 1px solid var(--border);
+    }
+    .bm-item {
+      display: flex; align-items: center; gap: 8px; margin: 0;
+      padding: 5px 10px; font-weight: 400; cursor: pointer;
+    }
+    .bm-item:hover { background: var(--accent-soft); }
+    .bm-item input { flex-shrink: 0; margin: 0; }
+    .bm-item .bm-text {
+      font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+
+    /* 提示词 */
+    .prompt-h { font-size: 13px; margin: 18px 0 4px; }
+    .prompt-h .muted { font-weight: 400; }
+    textarea {
+      width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px;
+      font-size: 12px; font-family: var(--mono); resize: vertical;
+    }
+    textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+    .reset-btn { margin-top: 4px; padding: 4px 10px; font-size: 12px; font-weight: 400; }
   </style>
 </head>
 <body>
@@ -92,6 +129,28 @@
     </div>
 
     <div class="card">
+      <h2>🗂 书签分类</h2>
+      <p class="muted">
+        加载书签列表后勾选想整理的，抓页面跑指纹匹配，命中的挪进书签栏「🎨 指纹分类」下以系统命名的子文件夹（比如命中 nginx 的挪到「Nginx」）。
+        没勾选的一律不动；需要登录或已失效的书签会抓取失败，跳过不影响。
+      </p>
+      <button id="load-bm-btn">📋 加载书签列表</button>
+      <div id="bm-panel">
+        <div class="bm-toolbar">
+          <label class="bm-all-label"><input type="checkbox" id="bm-all"> 全选</label>
+          <span id="bm-count" class="muted"></span>
+        </div>
+        <div id="bm-list"></div>
+        <label class="bm-all-label" style="margin-bottom: 8px;">
+          <input type="checkbox" id="bm-use-ai"> 规则未命中时用 AI 判断（慢，每个书签一次 AI 调用）
+        </label>
+        <br>
+        <button id="organize-btn" class="primary" disabled>🗂 整理选中</button>
+      </div>
+      <div id="organize-result" class="muted" style="white-space: pre-wrap; margin-top: 8px;"></div>
+    </div>
+
+    <div class="card">
       <h2>✨ AI 辅助识别</h2>
       <p class="muted">任意 OpenAI 兼容接口：OpenAI / DeepSeek / 通义 / 本地 Ollama 均可。</p>
       <label for="ai-base-url">Base URL</label>
@@ -100,6 +159,18 @@
       <input type="password" id="ai-api-key" placeholder="sk-...">
       <label for="ai-model">模型</label>
       <input type="text" id="ai-model" placeholder="gpt-4o-mini / deepseek-chat / qwen2.5 ...">
+
+      <h3 class="prompt-h">提示词 <span class="muted">（留空则用默认，三个场景互不影响）</span></h3>
+      <label for="prompt-identify">AI 辅助识别</label>
+      <textarea id="prompt-identify" rows="4"></textarea>
+      <button data-prompt-reset="identify" class="reset-btn">恢复默认</button>
+      <label for="prompt-rule">AI 生成规则</label>
+      <textarea id="prompt-rule" rows="4"></textarea>
+      <button data-prompt-reset="rule" class="reset-btn">恢复默认</button>
+      <label for="prompt-bookmark">书签 AI 兜底分类</label>
+      <textarea id="prompt-bookmark" rows="4"></textarea>
+      <button data-prompt-reset="bookmark" class="reset-btn">恢复默认</button>
+      <br>
       <button id="save-ai" class="primary">保存 AI 配置</button>
     </div>
 

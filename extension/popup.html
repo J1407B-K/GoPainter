@@ -93,6 +93,20 @@
     #ai-btn { background: var(--accent); color: #fff; }
     #ai-btn:hover:not(:disabled) { background: #4f46e5; transform: translateY(-1px); }
     #ai-btn:disabled { opacity: .6; cursor: wait; }
+    button.ghost { background: var(--card); border: 1px solid var(--border); color: var(--text); }
+    button.ghost:hover:not(:disabled) { background: #f0f1f5; }
+    button.ghost:disabled { opacity: .6; cursor: wait; }
+
+    #rule-area { display: none; margin-top: 10px; }
+    #rule-yaml {
+      margin: 0; padding: 10px 12px; font-size: 11px; font-family: var(--mono);
+      background: #1f2329; color: #e6e6e6; border-radius: 10px;
+      max-height: 200px; overflow: auto; white-space: pre-wrap; word-break: break-all;
+    }
+    .rule-actions { display: flex; gap: 8px; margin-top: 8px; }
+    .rule-actions button { flex: 1; }
+    #rule-save { background: var(--green); color: #fff; }
+    #rule-save:hover:not(:disabled) { background: #15803d; }
     .link-btn {
       flex: none; padding: 8px 12px; background: var(--card);
       border: 1px solid var(--border); color: var(--text); text-decoration: none;
@@ -131,9 +145,17 @@
 
     <div class="footer">
       <button id="ai-btn">✨ AI 辅助识别</button>
+      <button id="rule-btn" class="ghost">🛠 生成规则</button>
       <a class="link-btn" href="options.html" target="_blank">⚙️ 规则</a>
     </div>
     <div id="ai-result"></div>
+    <div id="rule-area">
+      <pre id="rule-yaml"></pre>
+      <div class="rule-actions">
+        <button id="rule-save">✅ 加入规则库</button>
+        <button id="rule-discard" class="ghost">丢弃</button>
+      </div>
+    </div>
   </div>
 
   <script src="popup.js"></script>

@@ -31,7 +31,7 @@ jobs:
 
       - name: JS syntax check
         run: |
-          for f in extension/*.js extension/lib/mmh3.js scripts/*.mjs; do
+          for f in extension/*.js extension/lib/*.js scripts/*.mjs; do
             node --check "$f"
           done
 

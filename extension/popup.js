@@ -119,4 +119,49 @@ aiBtn.addEventListener('click', async () => {
   }
 });
 
+// --- AI 生成规则：生成 -> 预览 -> 确认入库 ---
+
+const ruleBtn = document.getElementById('rule-btn');
+const ruleArea = document.getElementById('rule-area');
+const ruleYaml = document.getElementById('rule-yaml');
+const ruleSave = document.getElementById('rule-save');
+const ruleDiscard = document.getElementById('rule-discard');
+
+ruleBtn.addEventListener('click', async () => {
+  ruleBtn.disabled = true;
+  ruleBtn.innerHTML = '<span class="spinner"></span> 生成中…';
+  try {
+    const resp = await chrome.runtime.sendMessage({ type: 'aiGenerateRule', tabId: currentTabId });
+    if (!resp.ok) throw new Error(resp.error);
+    ruleYaml.textContent = resp.yaml;
+    ruleArea.style.display = 'block';
+  } catch (e) {
+    aiResult.style.display = 'block';
+    aiResult.textContent = `出错：${e.message}`;
+  } finally {
+    ruleBtn.disabled = false;
+    ruleBtn.innerHTML = '🛠 生成规则';
+  }
+});
+
+ruleSave.addEventListener('click', async () => {
+  ruleSave.disabled = true;
+  try {
+    const resp = await chrome.runtime.sendMessage({ type: 'addRule', yaml: ruleYaml.textContent });
+    if (!resp.ok) throw new Error(resp.error);
+    ruleArea.style.display = 'none';
+    aiResult.style.display = 'block';
+    aiResult.textContent = `已加入 ${resp.added} 条规则，刷新页面即可生效`;
+  } catch (e) {
+    aiResult.style.display = 'block';
+    aiResult.textContent = `入库失败：${e.message}`;
+  } finally {
+    ruleSave.disabled = false;
+  }
+});
+
+ruleDiscard.addEventListener('click', () => {
+  ruleArea.style.display = 'none';
+});
+
 init();

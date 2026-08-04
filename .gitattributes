@@ -1,0 +1,5 @@
+# 第三方/生成产物不算语言统计
+extension/lib/js-yaml.min.js linguist-vendored
+extension/wasm/wasm_exec.js linguist-vendored
+*.wasm linguist-vendored binary
+extension/icons/** linguist-generated

@@ -58,12 +58,54 @@ const names = (out.hits || []).map((h) => h.name);
 const wp = (out.hits || []).find((h) => h.id === 'wordpress');
 const evidenceOk = wp?.evidence?.some((e) => e.type === 'word' && e.detail === '/wp-content/');
 
-const pass =
+let pass =
   names.includes('WordPress') &&
   names.includes('Nginx') &&
   !names.includes('Jenkins') &&
   !names.includes('Gitea') &&
   evidenceOk;
+
+// goMmh3：python mmh3.hash("foo") == -156908512
+const hash = globalThis.goMmh3('foo');
+console.log('goMmh3("foo") =', hash);
+pass &&= hash === -156908512;
+
+// goExtractFeatures：从 HTML 里提 title/meta/scripts
+const html = `<html><head>
+<title>  Test   Page </title>
+<meta name="generator" content="WordPress 6.5">
+<meta property="og:site_name" content="Example">
+<script src="/wp-content/themes/x.js"></script>
+<script async src='https://cdn.example.com/a.js'></script>
+</head><body></body></html>`;
+const ex = JSON.parse(globalThis.goExtractFeatures(html));
+console.log('extract =', JSON.stringify(ex));
+pass &&= ex.title === 'Test Page'
+  && ex.meta?.generator === 'WordPress 6.5'
+  && ex.meta?.['og:site_name'] === 'Example'
+  && ex.scripts?.length === 2;
+
+// goNormalizeRules：nuclei 模板 + 原生规则数组都要转对
+const docs = [
+  {
+    id: 'nuclei-jenkins',
+    info: { name: 'Jenkins Detect' },
+    http: [{
+      matchers: [
+        { type: 'word', part: 'header', words: ['x-jenkins'] },
+        { type: 'dsl', dsl: ['true'] }, // 不支持的类型要跳过
+      ],
+    }],
+  },
+  [{ id: 'native-nginx', name: 'Nginx', matchers: [{ type: 'word', part: 'header', words: ['nginx'] }] }],
+  { id: 'bad-no-matchers' }, // 无效的要被过滤
+];
+const norm = JSON.parse(globalThis.goNormalizeRules(JSON.stringify(docs)));
+console.log('normalize =', JSON.stringify(norm));
+pass &&= norm.rules?.length === 2
+  && norm.rules[0].id === 'nuclei-jenkins'
+  && norm.rules[0].matchers.length === 1
+  && norm.rules[1].id === 'native-nginx';
 
 console.log(pass ? '✅ 冒烟测试通过' : '❌ 结果不符合预期');
 process.exit(pass ? 0 : 1);

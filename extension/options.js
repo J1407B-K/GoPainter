@@ -1,63 +1,10 @@
-// options：规则导入（原生格式 / nuclei 模板）和 AI 配置。
+// options：规则导入和 AI 配置。YAML 解析用 js-yaml，规范化在 wasm 里（走 background）。
 
 const msgEl = document.getElementById('msg');
 
 function showMsg(text, isError = false) {
   msgEl.textContent = text;
   msgEl.className = isError ? 'error' : '';
-}
-
-// 把一份 YAML 文档转成规则数组。
-// 支持原生格式（单条或数组）和 nuclei 模板（抽 http matchers 里能用的部分）。
-function normalizeRules(doc, sourceName) {
-  if (!doc || typeof doc !== 'object') return [];
-
-  // nuclei 模板：有 id + info + http/requests 字段
-  if (doc.id && doc.info && (doc.http || doc.requests)) {
-    const blocks = doc.http || doc.requests || [];
-    const matchers = [];
-    let condition = 'or';
-    for (const b of blocks) {
-      for (const m of b.matchers || []) {
-        const converted = convertNucleiMatcher(m);
-        if (converted) matchers.push(converted);
-      }
-      if (b['matchers-condition']) condition = b['matchers-condition'];
-    }
-    if (matchers.length === 0) return [];
-    return [{
-      id: String(doc.id),
-      name: doc.info.name || String(doc.id),
-      'matchers-condition': condition,
-      matchers,
-    }];
-  }
-
-  // 原生格式：数组或单条
-  const list = Array.isArray(doc) ? doc : [doc];
-  return list
-    .filter((r) => r && r.id && Array.isArray(r.matchers) && r.matchers.length > 0)
-    .map((r) => ({
-      id: String(r.id),
-      name: r.name || String(r.id),
-      'matchers-condition': r['matchers-condition'] === 'and' ? 'and' : 'or',
-      matchers: r.matchers,
-    }));
-}
-
-// nuclei matcher -> 原生 matcher；dsl 这类不支持的返回 null 跳过
-function convertNucleiMatcher(m) {
-  const part = ['body', 'title', 'url', 'header', 'raw'].includes(m.part) ? m.part : 'body';
-  switch (m.type) {
-    case 'word':
-      return { type: 'word', part, words: m.words || [], condition: m.condition || 'or', negative: !!m.negative };
-    case 'regex':
-      return { type: 'regex', part, regex: m.regex || [], condition: m.condition || 'or', negative: !!m.negative };
-    case 'status':
-      return { type: 'status', status: m.status || [], negative: !!m.negative };
-    default:
-      return null; // dsl / binary / xpath 等暂不支持
-  }
 }
 
 // --- 规则存取 ---
@@ -86,14 +33,14 @@ document.getElementById('file-input').addEventListener('change', async (e) => {
   for (const f of files) {
     try {
       const text = await f.text();
-      // js-yaml 支持多文档（--- 分隔），逐份解析
+      // js-yaml 支持多文档（--- 分隔），逐份解析，规范化交给 wasm
       const docs = [];
       jsyaml.loadAll(text, (d) => docs.push(d));
-      for (const doc of docs) {
-        for (const rule of normalizeRules(doc, f.name)) {
-          byId.set(rule.id, rule); // 同 id 覆盖，便于更新规则
-          added++;
-        }
+      const resp = await chrome.runtime.sendMessage({ type: 'normalizeRules', docsJSON: JSON.stringify(docs) });
+      if (!resp.ok) throw new Error(resp.error);
+      for (const rule of resp.rules) {
+        byId.set(rule.id, rule); // 同 id 覆盖，便于更新规则
+        added++;
       }
     } catch (err) {
       failed.push(`${f.name}: ${err.message}`);
@@ -117,13 +64,121 @@ document.getElementById('clear-rules').addEventListener('click', async () => {
   showMsg('规则已清空');
 });
 
+// --- 书签整理：勾选哪些就处理哪些，没勾的一律不动 ---
+
+const bmPanel = document.getElementById('bm-panel');
+const bmList = document.getElementById('bm-list');
+const bmAll = document.getElementById('bm-all');
+const bmCount = document.getElementById('bm-count');
+const organizeBtn = document.getElementById('organize-btn');
+
+document.getElementById('load-bm-btn').addEventListener('click', async () => {
+  const tree = await chrome.bookmarks.getTree();
+  // 按所在文件夹分组，路径拼成 "书签栏 / 开发 / 前端" 这种
+  const groups = new Map();
+  const walk = (nodes, path) => {
+    for (const n of nodes) {
+      if (n.url) {
+        if (!/^https?:/.test(n.url)) continue;
+        if (!groups.has(path)) groups.set(path, []);
+        groups.get(path).push(n);
+      } else if (n.children) {
+        const name = n.title || (n.id === '1' ? '书签栏' : n.id === '2' ? '其他书签' : '');
+        walk(n.children, path && name ? `${path} / ${name}` : name || path);
+      }
+    }
+  };
+  walk(tree[0].children, '');
+
+  bmList.innerHTML = '';
+  for (const [path, items] of groups) {
+    const head = document.createElement('div');
+    head.className = 'bm-group';
+    head.textContent = path || '（根目录）';
+    bmList.appendChild(head);
+    for (const bm of items) {
+      const row = document.createElement('label');
+      row.className = 'bm-item';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.value = bm.id;
+      const text = document.createElement('span');
+      text.className = 'bm-text';
+      text.textContent = bm.title || bm.url;
+      text.title = bm.url;
+      row.append(cb, text);
+      bmList.appendChild(row);
+    }
+  }
+  bmPanel.style.display = 'block';
+  bmAll.checked = false;
+  updateBmCount();
+});
+
+function checkedIds() {
+  return [...bmList.querySelectorAll('input:checked')].map((c) => c.value);
+}
+
+function updateBmCount() {
+  const n = checkedIds().length;
+  bmCount.textContent = `已选 ${n} 个`;
+  organizeBtn.disabled = n === 0;
+}
+
+bmList.addEventListener('change', updateBmCount);
+bmAll.addEventListener('change', () => {
+  bmList.querySelectorAll('input[type=checkbox]').forEach((c) => { c.checked = bmAll.checked; });
+  updateBmCount();
+});
+
+organizeBtn.addEventListener('click', async () => {
+  const ids = checkedIds();
+  if (!ids.length) return;
+  const useAI = document.getElementById('bm-use-ai').checked;
+  const out = document.getElementById('organize-result');
+  organizeBtn.disabled = true;
+  organizeBtn.textContent = '整理中…（选得多的话要等一会）';
+  out.textContent = '';
+  try {
+    const resp = await chrome.runtime.sendMessage({ type: 'organizeBookmarks', ids, useAI });
+    if (!resp.ok) throw new Error(resp.error);
+    const r = resp.summary;
+    const groups = Object.entries(r.groups)
+      .map(([name, n]) => `${name}（${n}）`).join('、') || '无';
+    const aiPart = r.aiMatched ? `，其中 AI 判断 ${r.aiMatched}` : '';
+    out.textContent = `共扫描 ${r.total} 个书签：命中 ${r.matched}${aiPart}，已挪入分类文件夹 ${r.moved}，抓取失败 ${r.failed}，未识别跳过 ${r.total - r.matched - r.aiMatched - r.failed}。\n分类：${groups}`;
+  } catch (err) {
+    out.textContent = `出错：${err.message}`;
+  } finally {
+    organizeBtn.disabled = false;
+    organizeBtn.textContent = '🗂 整理选中';
+    updateBmCount();
+  }
+});
+
 // --- AI 配置 ---
 
+// 三个场景的提示词分开存，空着就用默认（默认从 background 拿，不在前端抄一份）
+const PROMPT_KEYS = ['identify', 'rule', 'bookmark'];
+let defaultPrompts = {};
+
 async function loadAiConfig() {
-  const cfg = await chrome.storage.local.get(['aiBaseURL', 'aiApiKey', 'aiModel']);
+  const keys = ['aiBaseURL', 'aiApiKey', 'aiModel', 'aiPromptIdentify', 'aiPromptRule', 'aiPromptBookmark'];
+  const cfg = await chrome.storage.local.get(keys);
   document.getElementById('ai-base-url').value = cfg.aiBaseURL || '';
   document.getElementById('ai-api-key').value = cfg.aiApiKey || '';
   document.getElementById('ai-model').value = cfg.aiModel || '';
+  document.getElementById('prompt-identify').value = cfg.aiPromptIdentify || '';
+  document.getElementById('prompt-rule').value = cfg.aiPromptRule || '';
+  document.getElementById('prompt-bookmark').value = cfg.aiPromptBookmark || '';
+
+  const resp = await chrome.runtime.sendMessage({ type: 'getDefaultPrompts' });
+  if (resp?.ok) {
+    defaultPrompts = resp.prompts;
+    for (const k of PROMPT_KEYS) {
+      document.getElementById(`prompt-${k}`).placeholder = `默认提示词：\n${defaultPrompts[k]}`;
+    }
+  }
 }
 
 document.getElementById('save-ai').addEventListener('click', async () => {
@@ -131,8 +186,18 @@ document.getElementById('save-ai').addEventListener('click', async () => {
     aiBaseURL: document.getElementById('ai-base-url').value.trim(),
     aiApiKey: document.getElementById('ai-api-key').value.trim(),
     aiModel: document.getElementById('ai-model').value.trim(),
+    aiPromptIdentify: document.getElementById('prompt-identify').value.trim(),
+    aiPromptRule: document.getElementById('prompt-rule').value.trim(),
+    aiPromptBookmark: document.getElementById('prompt-bookmark').value.trim(),
   });
   showMsg('AI 配置已保存');
+});
+
+// 「恢复默认」就是清空自定义，运行时自动回退到默认提示词
+document.querySelectorAll('[data-prompt-reset]').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    document.getElementById(`prompt-${btn.dataset.promptReset}`).value = '';
+  });
 });
 
 // --- 工具 ---
