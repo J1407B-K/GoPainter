@@ -215,9 +215,9 @@ sidepanel    爬取进度实时展示 / 启停（Side Panel，与页面并存）
 - [x] 站点递归爬取（BFS/去重/同站过滤在 Go 侧，最大页数可配、留空不限，popup 一键爬本站）
 - [x] 爬取进度侧边栏（Side Panel 实时展示已扫/队列/失败 + 命中指纹，爬取中按钮置灰）
 - [x] 多 favicon 持续匹配（DOM + 网络包里所有 icon 都算哈希，晚到的 icon 触发重匹配）
+- [x] SPA 路由变化监听（main world hook pushState/replaceState，变化即重扫）
 
 **进行中 / 计划** 🚧
-- [ ] SPA 路由变化监听（pushState / popstate 触发重新分析）
 - [ ] matcher 支持 dsl 表达式子集（`contains(body, "x") && status == 200`）
 - [ ] 规则集管理：分组启用/禁用、远程规则源订阅与自动更新
 - [ ] 扫描历史与报告导出（JSON/CSV）
