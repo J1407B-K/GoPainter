@@ -622,6 +622,20 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         sendResponse({ ok: true, rules: out.rules });
         break;
       }
+      case 'convertWappalyzer': {
+        await ensureWasm();
+        const out = JSON.parse(globalThis.goConvertWappalyzer(msg.techJSON));
+        if (out.error) throw new Error(out.error);
+        sendResponse({ ok: true, rules: out.rules });
+        break;
+      }
+      case 'convertEHole': {
+        await ensureWasm();
+        const out = JSON.parse(globalThis.goConvertEHole(msg.fingerJSON));
+        if (out.error) throw new Error(out.error);
+        sendResponse({ ok: true, rules: out.rules });
+        break;
+      }
       case 'getDefaultPrompts': {
         sendResponse({ ok: true, prompts: DEFAULT_PROMPTS });
         break;

@@ -8,7 +8,8 @@
 
 - 🧩 **YAML 指纹规则**：word / regex / status / icon_hash 四种 matcher，支持 and/or 组合与 negative 取反
 - 🔁 **兼容 nuclei 模板**：导入时自动提取 http matchers 子集，社区海量规则直接可用
-- ⚡ **TinyGo WASM 引擎**：匹配逻辑用 Go 编写，编译产物仅 ~620KB，毫秒级匹配
+- 🌐 **第三方规则源**：Wappalyzer / EHole / nuclei-templates 一键拉取转换，是否下载由你决定，仓库本身不含任何规则数据
+- ⚡ **TinyGo WASM 引擎**：匹配逻辑用 Go 编写，编译产物仅 ~750KB，毫秒级匹配
 - 🔍 **命中证据展示**：每个指纹附带具体命中的关键词/正则/状态码/哈希
 - 🎨 **图标状态感知**：灰色 = 未命中，彩色 + 角标数字 = 命中数
 - ✨ **AI 辅助识别**：规则未命中时一键调用 LLM 分析（任意 OpenAI 兼容接口）
@@ -84,11 +85,32 @@ powershell -ExecutionPolicy Bypass -File scripts/build.ps1
 | `regex` | 正则匹配 | `regex` |
 | `status` | HTTP 状态码 | `status` |
 | `icon_hash` | favicon mmh3 哈希（fofa 标准） | `hash` |
+| `dsl` | 表达式求值（nuclei dsl 子集） | `dsl` |
+
+dsl 表达式支持：标识符 `body` / `title` / `url` / `header` / `raw` / `meta` / `script` / `status` / `favicon_hash`，
+函数 `contains(a, "子串")` / `matches(a, "正则")`，运算符 `&&` `||` `!` `==` `!=` 和括号。
+例：`contains(body, "wp-content") && status == 200`
 
 - `part`：`body` / `title` / `url` / `header` / `raw` / `meta` / `script`（默认 `body`）
 - `condition`：matcher 内部多条件组合，`and` / `or`（默认 `or`）
 - `matchers-condition`：规则内多个 matcher 的组合方式
 - `negative: true`：取反
+
+## 第三方规则源
+
+设置页「第三方规则源」支持从你的浏览器实时拉取社区指纹库并转换入库：
+
+| 源 | 规模 | 说明 |
+|---|---|---|
+| [enthec/webappanalyzer](https://github.com/enthec/webappanalyzer) | 几千条 | Wappalyzer 社区维护版，Web 技术指纹 |
+| [EdgeSecurityTeam/EHole](https://github.com/EdgeSecurityTeam/EHole) | 958 条 | 棱洞指纹，国产系统覆盖好 |
+| [projectdiscovery/nuclei-templates](https://github.com/projectdiscovery/nuclei-templates) | 数百条 | http/technologies 技术识别模板 |
+
+感谢以上社区的长期维护 🙏 转换逻辑在 `wasm/convert.go`，均为用户侧运行时拉取。
+
+**声明**：本项目仅提供格式转换工具，不内置、不分发任何第三方规则数据。第三方规则源的内容、
+版权与合规性由其维护者负责；用户的拉取、使用行为及其后果与本项目无关。请遵守各源的许可证
+和适用法律，仅用于授权范围内的安全测试与研究。
 
 ## AI 配置
 
@@ -101,7 +123,7 @@ powershell -ExecutionPolicy Bypass -File scripts/build.ps1
 | 通义千问 | `https://dashscope.aliyuncs.com/compatible-mode/v1` | `qwen-plus` |
 | Ollama（本地） | `http://localhost:11434/v1` | `qwen2.5` |
 
-### AI 安全提示
+## AI 安全提示
 
 - GoPainter 不内置、不代管、不上传你的 API Key；API Key 只保存在浏览器扩展本地存储里，由扩展直接请求你填写的 Base URL。
 - 使用云端 LLM 时，页面特征会发送给你配置的模型服务：URL、标题、响应头、meta、script 路径、favicon 哈希，以及截断后的页面 HTML。不要在敏感站点上启用 AI，除非你确认这些信息可以交给对应服务商处理。
@@ -175,6 +197,8 @@ sidepanel    爬取进度实时展示 / 启停（Side Panel，与页面并存）
 │   ├── mmh3.go               #   favicon 哈希
 │   ├── extract.go            #   HTML 特征提取（title/meta/scripts/favicon/links）
 │   ├── normalize.go          #   规则规范化（nuclei 转换）
+│   ├── dsl.go                #   dsl 表达式求值器
+│   ├── convert.go            #   Wappalyzer 指纹转换
 │   ├── crawl.go              #   爬虫调度（BFS/去重/同站过滤/上限）
 │   └── hashdb.go             #   favicon 哈希库（生成）
 ├── extension/                # Chrome 扩展（MV3）
@@ -216,9 +240,10 @@ sidepanel    爬取进度实时展示 / 启停（Side Panel，与页面并存）
 - [x] 爬取进度侧边栏（Side Panel 实时展示已扫/队列/失败 + 命中指纹，爬取中按钮置灰）
 - [x] 多 favicon 持续匹配（DOM + 网络包里所有 icon 都算哈希，晚到的 icon 触发重匹配）
 - [x] SPA 路由变化监听（main world hook pushState/replaceState，变化即重扫）
+- [x] matcher 支持 dsl 表达式子集（自研递归下降求值器，nuclei 模板的 dsl 也可转换）
+- [x] 第三方规则源市场（Wappalyzer / EHole / nuclei-templates官方仓库地址）
 
 **进行中 / 计划** 🚧
-- [ ] matcher 支持 dsl 表达式子集（`contains(body, "x") && status == 200`）
 - [ ] 规则集管理：分组启用/禁用、远程规则源订阅与自动更新
 - [ ] 扫描历史与报告导出（JSON/CSV）
 - [ ] wasm 体积进一步优化（当前 ~750KB，目标 < 300KB，暂搁置）

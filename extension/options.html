@@ -132,6 +132,17 @@
     textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
     .reset-btn { margin-top: 4px; padding: 4px 10px; font-size: 12px; font-weight: 400; }
 
+    /* 第三方规则源 */
+    .source-item {
+      display: flex; align-items: center; gap: 12px;
+      padding: 8px 10px; border-radius: 8px;
+    }
+    .source-item:nth-child(odd) { background: #fafbfc; }
+    .source-item .src-info { flex: 1; display: flex; flex-direction: column; }
+    .source-item a { font-weight: 600; font-size: 13px; color: var(--accent); text-decoration: none; }
+    .source-item a:hover { text-decoration: underline; }
+    .source-item button { margin-top: 0; flex-shrink: 0; }
+
     /* 哈希库 */
     #hash-list { max-height: 200px; overflow: auto; margin-top: 8px; }
     .hash-item {
@@ -194,6 +205,37 @@
         <pre id="rule-modal-body"></pre>
         <button id="rule-copy" class="primary">📋 复制 YAML</button>
       </div>
+    </div>
+
+    <div class="card">
+      <h2>🌐 第三方规则源</h2>
+      <p class="muted">
+        以下规则源由各自社区维护，致敬作者 🙏。点击后由你的浏览器实时拉取并转换入库（同 id 覆盖），
+        <b>规则数据不随本扩展分发</b>。第三方源的内容、版权与合规性由其维护者和使用者自行负责，
+        你的拉取与使用行为与本项目无关。
+      </p>
+      <div class="source-item">
+        <div class="src-info">
+          <a href="https://github.com/enthec/webappanalyzer" target="_blank">Wappalyzer 社区版</a>
+          <span class="muted">几千条 Web 技术指纹（headers/meta/html/script/cookie/url）</span>
+        </div>
+        <button data-source="wappalyzer">拉取入库</button>
+      </div>
+      <div class="source-item">
+        <div class="src-info">
+          <a href="https://github.com/EdgeSecurityTeam/EHole" target="_blank">EHole 棱洞</a>
+          <span class="muted">958 条指纹，国产系统覆盖好（关键词 + faviconhash）</span>
+        </div>
+        <button data-source="ehole">拉取入库</button>
+      </div>
+      <div class="source-item">
+        <div class="src-info">
+          <a href="https://github.com/projectdiscovery/nuclei-templates" target="_blank">nuclei-templates</a>
+          <span class="muted">http/technologies 目录的技术识别模板（文件多，拉取较慢）</span>
+        </div>
+        <button data-source="nuclei">拉取入库</button>
+      </div>
+      <div id="source-status" class="muted" style="margin-top: 8px;"></div>
     </div>
 
     <div class="card">

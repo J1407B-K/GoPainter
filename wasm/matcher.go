@@ -25,6 +25,7 @@ type Matcher struct {
 	Regex     []string `json:"regex,omitempty"`
 	Status    []int    `json:"status,omitempty"`
 	Hash      []int32  `json:"hash,omitempty"`
+	Dsl       []string `json:"dsl,omitempty"` // contains(body,"x") && status==200 这种表达式
 }
 
 // 页面特征，JS 侧采集完传进来
@@ -55,23 +56,25 @@ type Hit struct {
 	Evidence []Evidence `json:"evidence"`
 }
 
-func partText(m Matcher, f *Features) string {
-	headerText := func() string {
-		var b strings.Builder
-		for k, v := range f.Headers {
-			fmt.Fprintf(&b, "%s: %s\n", k, v)
-		}
-		return b.String()
+// headerString 拼 "k: v\n" 形式的响应头文本，partText 和 dsl 都用
+func headerString(f *Features) string {
+	var b strings.Builder
+	for k, v := range f.Headers {
+		fmt.Fprintf(&b, "%s: %s\n", k, v)
 	}
+	return b.String()
+}
+
+func partText(m Matcher, f *Features) string {
 	switch m.Part {
 	case "title":
 		return f.Title
 	case "url":
 		return f.URL
 	case "header":
-		return headerText()
+		return headerString(f)
 	case "raw":
-		return headerText() + f.Body
+		return headerString(f) + f.Body
 	case "meta":
 		var b strings.Builder
 		for k, v := range f.Meta {
@@ -149,6 +152,18 @@ func evalMatcher(m Matcher, f *Features) (bool, []Evidence) {
 				ev = append(ev, Evidence{Type: "icon_hash", Detail: fmt.Sprintf("mmh3 %d", h)})
 			}
 		}
+	case "dsl":
+		for _, expr := range m.Dsl {
+			ok, err := dslEval(expr, f)
+			if err != nil {
+				results = append(results, false)
+				continue
+			}
+			results = append(results, ok)
+			if ok {
+				ev = append(ev, Evidence{Type: "dsl", Detail: expr})
+			}
+		}
 	}
 
 	matched := combine(results, m.Condition)
@@ -157,7 +172,7 @@ func evalMatcher(m Matcher, f *Features) (bool, []Evidence) {
 			return false, nil
 		}
 		// negative 命中 = 东西确实不在，证据就是"没出现"
-		terms := append(append([]string{}, m.Words...), m.Regex...)
+		terms := append(append(append([]string{}, m.Words...), m.Regex...), m.Dsl...)
 		return true, []Evidence{{Type: m.Type, Part: part, Detail: "未出现（negative）: " + strings.Join(terms, ", ")}}
 	}
 	if !matched {

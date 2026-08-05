@@ -13,6 +13,7 @@ type nucleiMatcher struct {
 	Words     []string `json:"words"`
 	Regex     []string `json:"regex"`
 	Status    []int    `json:"status"`
+	Dsl       []string `json:"dsl"`
 	Condition string   `json:"condition"`
 	Negative  bool     `json:"negative"`
 }
@@ -45,8 +46,15 @@ func convertNucleiMatcher(m nucleiMatcher) *Matcher {
 		return &Matcher{Type: "regex", Part: part, Regex: m.Regex, Condition: m.Condition, Negative: m.Negative}
 	case "status":
 		return &Matcher{Type: "status", Status: m.Status, Negative: m.Negative}
+	case "dsl":
+		// nuclei 的 dsl 变量名是 status_code，我们叫 status，别的语法基本兼容
+		exprs := make([]string, 0, len(m.Dsl))
+		for _, d := range m.Dsl {
+			exprs = append(exprs, strings.ReplaceAll(d, "status_code", "status"))
+		}
+		return &Matcher{Type: "dsl", Dsl: exprs, Condition: m.Condition, Negative: m.Negative}
 	default:
-		return nil // dsl 这类不支持的跳过
+		return nil // binary / xpath 这类不支持的跳过
 	}
 }
 

@@ -128,6 +128,87 @@ document.getElementById('import-builtin').addEventListener('click', async (e) =>
   }
 });
 
+// --- 第三方规则源：用户浏览器实时拉取 + wasm 转换，数据不随扩展分发 ---
+// 每个源的仓库链接在页面上标出，致敬社区作者
+
+const sourceStatus = (text) => { document.getElementById('source-status').textContent = text; };
+
+const RULE_SOURCES = {
+  async wappalyzer() {
+    // 指纹按字母拆成 27 个文件
+    const base = 'https://raw.githubusercontent.com/enthec/webappanalyzer/main/src/technologies';
+    const files = ['_', ...'abcdefghijklmnopqrstuvwxyz'];
+    const techs = {};
+    let done = 0;
+    await Promise.all(files.map(async (f) => {
+      const resp = await fetch(`${base}/${f}.json`);
+      if (!resp.ok) throw new Error(`拉取 ${f}.json 失败: HTTP ${resp.status}`);
+      Object.assign(techs, await resp.json());
+      sourceStatus(`Wappalyzer：拉取中… ${++done}/${files.length}`);
+    }));
+    sourceStatus('Wappalyzer：转换中…');
+    const resp = await chrome.runtime.sendMessage({ type: 'convertWappalyzer', techJSON: JSON.stringify(techs) });
+    if (!resp.ok) throw new Error(resp.error);
+    return resp.rules;
+  },
+
+  async ehole() {
+    const resp = await fetch('https://raw.githubusercontent.com/EdgeSecurityTeam/EHole/main/finger.json');
+    if (!resp.ok) throw new Error(`拉取 finger.json 失败: HTTP ${resp.status}`);
+    sourceStatus('EHole：转换中…');
+    const r = await chrome.runtime.sendMessage({ type: 'convertEHole', fingerJSON: await resp.text() });
+    if (!r.ok) throw new Error(r.error);
+    return r.rules;
+  },
+
+  async nuclei() {
+    // GitHub API 列目录（未登录限 60 次/小时，只占 1 次），文件走 raw 不限
+    const listResp = await fetch('https://api.github.com/repos/projectdiscovery/nuclei-templates/contents/http/technologies');
+    if (!listResp.ok) throw new Error(`列目录失败: HTTP ${listResp.status}（可能触发了 GitHub 限流，过会儿再试）`);
+    const entries = await listResp.json();
+    const files = entries.filter((e) => e.type === 'file' && e.name.endsWith('.yaml'));
+    const docs = [];
+    let done = 0;
+    // 8 路并发拉 yaml，解析成文档
+    const queue = [...files];
+    await Promise.all(Array.from({ length: 8 }, async () => {
+      while (queue.length) {
+        const f = queue.shift();
+        try {
+          const text = await (await fetch(f.download_url)).text();
+          jsyaml.loadAll(text, (d) => docs.push(d));
+        } catch { /* 单个文件坏了就跳过 */ }
+        sourceStatus(`nuclei-templates：拉取中… ${++done}/${files.length}`);
+      }
+    }));
+    sourceStatus('nuclei-templates：转换中…');
+    const resp = await chrome.runtime.sendMessage({ type: 'normalizeRules', docsJSON: JSON.stringify(docs) });
+    if (!resp.ok) throw new Error(resp.error);
+    return resp.rules;
+  },
+};
+
+document.querySelectorAll('[data-source]').forEach((btn) => {
+  btn.addEventListener('click', async () => {
+    const source = btn.dataset.source;
+    btn.disabled = true;
+    const orig = btn.textContent;
+    btn.textContent = '拉取中…';
+    try {
+      const rules = await RULE_SOURCES[source]();
+      const n = await importRules(rules);
+      sourceStatus('');
+      showMsg(`导入完成：${n} 条规则（同 id 已覆盖）`);
+    } catch (err) {
+      sourceStatus('');
+      showMsg(`拉取失败：${err.message}`, true);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = orig;
+    }
+  });
+});
+
 document.getElementById('clear-rules').addEventListener('click', async () => {
   if (!confirm('确定清空所有规则？')) return;
   await chrome.storage.local.set({ rules: [] });
