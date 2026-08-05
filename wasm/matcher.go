@@ -65,6 +65,27 @@ func headerString(f *Features) string {
 	return b.String()
 }
 
+// 规则库一大，每次匹配现编译正则就是灾难，编译结果缓存起来
+//（wasm 单实例常驻，JS 调用是串行的，不用加锁）
+var regexCache = make(map[string]*regexp.Regexp)
+
+// recover 兜底：RE2 遇到 {1,512} 这种大重复展开会栈溢出 panic，不能让整个 wasm 陪葬
+func compileRegex(pattern string) (re *regexp.Regexp, err error) {
+	if cached, ok := regexCache[pattern]; ok {
+		return cached, nil
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			re, err = nil, fmt.Errorf("编译崩溃: %v", r)
+		}
+	}()
+	re, err = regexp.Compile(pattern)
+	if err == nil {
+		regexCache[pattern] = re
+	}
+	return re, err
+}
+
 func partText(m Matcher, f *Features) string {
 	switch m.Part {
 	case "title":
@@ -110,9 +131,9 @@ func evalMatcher(m Matcher, f *Features) (bool, []Evidence) {
 	case "regex":
 		text := partText(m, f)
 		for _, r := range m.Regex {
-			re, err := regexp.Compile("(?i)" + r)
+			re, err := compileRegex("(?i)" + r)
 			if err != nil {
-				re, err = regexp.Compile(r)
+				re, err = compileRegex(r)
 			}
 			if err != nil {
 				results = append(results, false)

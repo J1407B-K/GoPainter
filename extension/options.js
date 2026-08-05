@@ -147,9 +147,18 @@ const RULE_SOURCES = {
       sourceStatus(`Wappalyzer：拉取中… ${++done}/${files.length}`);
     }));
     sourceStatus('Wappalyzer：转换中…');
-    const resp = await chrome.runtime.sendMessage({ type: 'convertWappalyzer', techJSON: JSON.stringify(techs) });
-    if (!resp.ok) throw new Error(resp.error);
-    return resp.rules;
+    // 一次性塞 7500+ 条进 wasm 会把 TinyGo 的堆搞崩，分批转
+    const entries = Object.entries(techs);
+    const CHUNK = 500;
+    const rules = [];
+    for (let i = 0; i < entries.length; i += CHUNK) {
+      const chunk = Object.fromEntries(entries.slice(i, i + CHUNK));
+      const resp = await chrome.runtime.sendMessage({ type: 'convertWappalyzer', techJSON: JSON.stringify(chunk) });
+      if (!resp.ok) throw new Error(resp.error);
+      rules.push(...resp.rules);
+      sourceStatus(`Wappalyzer：转换中… ${Math.min(i + CHUNK, entries.length)}/${entries.length}`);
+    }
+    return rules;
   },
 
   async ehole() {

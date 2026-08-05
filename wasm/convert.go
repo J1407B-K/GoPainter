@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"syscall/js"
 	"unicode"
@@ -50,12 +51,46 @@ func wappPatterns(v any) []string {
 	return nil
 }
 
+// RE2 编译 {1,512} 这种大重复会展开成几百份副本，栈直接爆（Livewire 踩的坑）。
+// 上界超过 64 就放宽成 {n,}，指纹场景语义几乎不变
+var bigRepeatRe = regexp.MustCompile(`\{(\d+)(?:,(\d+))?\}`)
+
+func tamePattern(p string) string {
+	return bigRepeatRe.ReplaceAllStringFunc(p, func(m string) string {
+		sub := bigRepeatRe.FindStringSubmatch(m)
+		n, _ := strconv.Atoi(sub[1])
+		if strings.Contains(m, ",") {
+			if sub[2] == "" { // {n,} 本来就没事
+				return m
+			}
+			if hi, _ := strconv.Atoi(sub[2]); hi > 64 {
+				return "{" + sub[1] + ",}"
+			}
+			return m
+		}
+		if n > 64 {
+			return "{" + sub[1] + ",}"
+		}
+		return m
+	})
+}
+
+// 编译包一层 recover，个别妖孽模式 panic 也不至于炸掉整个 wasm
+func safeCompile(p string) (re *regexp.Regexp, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			re, err = nil, fmt.Errorf("编译崩溃: %v", r)
+		}
+	}()
+	return regexp.Compile(p)
+}
+
 // Go 的 regexp 是 RE2，不支持反向引用，个别模式编译不了就丢
 func compilable(patterns []string) []string {
 	out := patterns[:0]
 	for _, p := range patterns {
-		if _, err := regexp.Compile(p); err == nil {
-			out = append(out, p)
+		if _, err := safeCompile(tamePattern(p)); err == nil {
+			out = append(out, tamePattern(p))
 		}
 	}
 	return out
@@ -68,6 +103,47 @@ func headerPattern(key, pattern string) string {
 		p += `\s*` + pattern
 	}
 	return p
+}
+
+// 不含正则元字符的模式转成纯字符串（word matcher 用 strings.Contains，比正则快几个量级）。
+// 只认 \/ 和 \\ 两种转义，其他带 \ 的都按正则处理
+func plainLiteral(p string) (string, bool) {
+	if strings.ContainsAny(p, ".+*?()|[]{}^$") {
+		return "", false
+	}
+	var b strings.Builder
+	for i := 0; i < len(p); i++ {
+		if p[i] == '\\' {
+			if i+1 < len(p) && (p[i+1] == '/' || p[i+1] == '\\') {
+				b.WriteByte(p[i+1])
+				i++
+				continue
+			}
+			return "", false
+		}
+		b.WriteByte(p[i])
+	}
+	return b.String(), true
+}
+
+// 模式列表拆成"纯字符串"和"真正则"两组，各做一个 matcher
+func splitPatterns(patterns []string, part string) []Matcher {
+	var words, regexes []string
+	for _, p := range patterns {
+		if lit, ok := plainLiteral(p); ok {
+			words = append(words, lit)
+		} else {
+			regexes = append(regexes, p)
+		}
+	}
+	var out []Matcher
+	if len(words) > 0 {
+		out = append(out, Matcher{Type: "word", Part: part, Words: words})
+	}
+	if regexes = compilable(regexes); len(regexes) > 0 {
+		out = append(out, Matcher{Type: "regex", Part: part, Regex: regexes})
+	}
+	return out
 }
 
 func convertWappTech(name string, t wappTech) *Rule {
@@ -103,13 +179,13 @@ func convertWappTech(name string, t wappTech) *Rule {
 	}
 
 	if ps := compilable(cleanAll(wappPatterns(t.HTML))); len(ps) > 0 {
-		matchers = append(matchers, Matcher{Type: "regex", Part: "body", Regex: ps})
+		matchers = append(matchers, splitPatterns(ps, "body")...)
 	}
 	if ps := compilable(cleanAll(wappPatterns(t.ScriptSrc))); len(ps) > 0 {
-		matchers = append(matchers, Matcher{Type: "regex", Part: "script", Regex: ps})
+		matchers = append(matchers, splitPatterns(ps, "script")...)
 	}
 	if ps := compilable(cleanAll(wappPatterns(t.URL))); len(ps) > 0 {
-		matchers = append(matchers, Matcher{Type: "regex", Part: "url", Regex: ps})
+		matchers = append(matchers, splitPatterns(ps, "url")...)
 	}
 
 	if len(matchers) == 0 {

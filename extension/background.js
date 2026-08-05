@@ -289,6 +289,30 @@ async function runUserScripts(features, hits) {
   return out;
 }
 
+// --- 规则/哈希库变动 → 自动重扫所有已打开的 tab ---
+// 之前导入规则后 popup 还显示旧结果，就是因为没有这个
+
+let rescanTimer = null;
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== 'local' || (!changes.rules && !changes.customHashes)) return;
+  clearTimeout(rescanTimer);
+  rescanTimer = setTimeout(rescanAllTabs, 500); // 防抖，连续导入合并成一次
+});
+
+async function rescanAllTabs() {
+  const all = await chrome.storage.session.get(null);
+  for (const [key, val] of Object.entries(all)) {
+    if (!key.startsWith('result:') || !val?.features) continue;
+    const tabId = Number(key.slice(7));
+    try {
+      const result = await appendHashHit(val.features, await runMatch(val.features));
+      result.hits = await runUserScripts(val.features, result.hits);
+      await chrome.storage.session.set({ [key]: { ...val, result } });
+      await updateIcon(tabId, result.hits?.length || 0);
+    } catch { /* 单个 tab 重扫失败就算了 */ }
+  }
+}
+
 // --- AI：提示词支持自定义，没配就用默认 ---
 
 const DEFAULT_PROMPTS = {

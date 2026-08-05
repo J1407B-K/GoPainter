@@ -9,7 +9,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"regexp"
 	"strconv"
 	"strings"
 	"syscall/js"
@@ -413,7 +412,7 @@ func dslEvalNode(n *dslNode, f *Features) (any, error) {
 		case "contains":
 			return strings.Contains(dslStr(a), dslStr(b)), nil
 		case "matches":
-			re, err := regexp.Compile(dslStr(b))
+			re, err := compileRegex(dslStr(b))
 			if err != nil {
 				return nil, fmt.Errorf("matches 的正则写错了: %s", err)
 			}
