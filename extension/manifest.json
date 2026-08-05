@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "GoPainter",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "基于 YAML 指纹规则的 Web 资产测绘（TinyGo WASM 匹配引擎 + AI 辅助识别）",
   "permissions": ["storage", "tabs", "webRequest", "bookmarks", "sidePanel"],
   "side_panel": {
