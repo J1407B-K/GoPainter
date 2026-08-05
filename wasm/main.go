@@ -33,6 +33,8 @@ func match(_ js.Value, args []js.Value) any {
 			hits = append(hits, Hit{ID: r.ID, Name: r.Name, Evidence: ev})
 		}
 	}
+	hits = applyImplies(hits, rules)
+	hits = applyExcludes(hits, rules)
 	out, _ := json.Marshal(map[string]any{"hits": hits})
 	return string(out)
 }

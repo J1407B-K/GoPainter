@@ -86,6 +86,10 @@ powershell -ExecutionPolicy Bypass -File scripts/build.ps1
 | `status` | HTTP 状态码 | `status` |
 | `icon_hash` | favicon mmh3 哈希（fofa 标准） | `hash` |
 | `dsl` | 表达式求值（nuclei dsl 子集） | `dsl` |
+| `js` | 页面运行时全局变量（MAIN world 探测） | `js: [{path, pattern?}]` |
+| `dom` | CSS 选择器存在性 | `words` 装选择器 |
+
+规则还支持 `implies: ["其他技术名"]`——命中后自动级联推导（如 Next.js → React），推导命中带「由 X 推导」证据。
 
 dsl 表达式支持：标识符 `body` / `title` / `url` / `header` / `raw` / `meta` / `script` / `status` / `favicon_hash`，
 函数 `contains(a, "子串")` / `matches(a, "正则")`，运算符 `&&` `||` `!` `==` `!=` 和括号。
@@ -242,6 +246,7 @@ sidepanel    爬取进度实时展示 / 启停（Side Panel，与页面并存）
 - [x] SPA 路由变化监听（main world hook pushState/replaceState，变化即重扫）
 - [x] matcher 支持 dsl 表达式子集（自研递归下降求值器，nuclei 模板的 dsl 也可转换）
 - [x] 第三方规则源市场（Wappalyzer / EHole / nuclei-templates官方仓库地址）
+- [x] js 运行时变量探测（MAIN world 探针）+ dom 选择器探测 + implies 级联推导
 
 **进行中 / 计划** 🚧
 - [ ] 规则集管理：分组启用/禁用、远程规则源订阅与自动更新

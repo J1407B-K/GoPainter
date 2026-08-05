@@ -14,7 +14,7 @@ import (
 )
 
 // --- Wappalyzer technologies JSON（github.com/enthec/webappanalyzer） ---
-// 我们用的字段；dom/js/implies/excludes 这些不管
+// 我们用的字段；excludes 这些不管
 type wappTech struct {
 	Headers   map[string]any `json:"headers"`
 	Cookies   map[string]any `json:"cookies"`
@@ -22,6 +22,10 @@ type wappTech struct {
 	HTML      any            `json:"html"`
 	ScriptSrc any            `json:"scriptSrc"`
 	URL       any            `json:"url"`
+	Js        map[string]any `json:"js"`  // window 全局路径 -> 值模式
+	Dom       any            `json:"dom"` // 字符串 / 数组 / {selector: {...}}
+	Implies   any            `json:"implies"`
+	Excludes  any            `json:"excludes"`
 }
 
 // wappalyzer 的模式带 "\;version:\1" / "\;confidence:50" 这种后缀，切掉
@@ -51,9 +55,12 @@ func wappPatterns(v any) []string {
 	return nil
 }
 
-// RE2 编译 {1,512} 这种大重复会展开成几百份副本，栈直接爆（Livewire 踩的坑）。
-// 上界超过 64 就放宽成 {n,}，指纹场景语义几乎不变
+// RE2 编译有界重复会按次数展开，TinyGo wasm 的栈很小，{1,512}（Livewire）直接爆，
+// 连 {0,64}（bowser）嵌在分组里也扛不住。上界超过 16 就放宽成 {n,}，指纹场景语义几乎不变。
+// 注意：栈溢出是致命 panic，recover 接不住，只能事前驯化
 var bigRepeatRe = regexp.MustCompile(`\{(\d+)(?:,(\d+))?\}`)
+
+const maxRepeat = 16
 
 func tamePattern(p string) string {
 	return bigRepeatRe.ReplaceAllStringFunc(p, func(m string) string {
@@ -63,20 +70,54 @@ func tamePattern(p string) string {
 			if sub[2] == "" { // {n,} 本来就没事
 				return m
 			}
-			if hi, _ := strconv.Atoi(sub[2]); hi > 64 {
+			if hi, _ := strconv.Atoi(sub[2]); hi > maxRepeat {
 				return "{" + sub[1] + ",}"
 			}
 			return m
 		}
-		if n > 64 {
+		if n > maxRepeat {
 			return "{" + sub[1] + ",}"
 		}
 		return m
 	})
 }
 
-// 编译包一层 recover，个别妖孽模式 panic 也不至于炸掉整个 wasm
+// 括号嵌套太深 RE2 编译递归也会爆栈（驯化只管重复次数），数一下深度提前拦掉
+const maxNestDepth = 32
+
+func nestDepth(p string) int {
+	depth, max := 0, 0
+	inClass := false
+	for i := 0; i < len(p); i++ {
+		c := p[i]
+		if c == '\\' {
+			i++ // 转义的括号不算
+			continue
+		}
+		if c == '[' {
+			inClass = true
+		} else if c == ']' {
+			inClass = false
+		} else if !inClass {
+			if c == '(' {
+				depth++
+				if depth > max {
+					max = depth
+				}
+			} else if c == ')' && depth > 0 {
+				depth--
+			}
+		}
+	}
+	return max
+}
+
+// 编译包一层 recover，个别妖孽模式 panic 也不至于炸掉整个 wasm。
+// 注意栈溢出 recover 接不住，所以嵌套深度在这里提前卡死
 func safeCompile(p string) (re *regexp.Regexp, err error) {
+	if nestDepth(p) > maxNestDepth {
+		return nil, fmt.Errorf("括号嵌套超过 %d 层，放弃", maxNestDepth)
+	}
 	defer func() {
 		if r := recover(); r != nil {
 			re, err = nil, fmt.Errorf("编译崩溃: %v", r)
@@ -96,13 +137,20 @@ func compilable(patterns []string) []string {
 	return out
 }
 
-// 响应头是 "k: v" 格式（k 小写），按行首匹配更准确
+// 响应头是 "k: v" 格式（k 小写），按行首匹配 key。
+// 值模式两种语义要区分（之前一律 \s* 接值开头，把"值里包含"类规则全弄死了）：
+//   原版以 ^ 开头 → 值的开头匹配（剥掉 ^，我们自己的行首锚定已经管了）
+//   否则           → 值里任意位置包含（补 [^\n]*）
+// 结尾的 $ 保留，(?m) 下能正确锚到行尾
 func headerPattern(key, pattern string) string {
 	p := `(?im)^` + regexp.QuoteMeta(strings.ToLower(key)) + `:`
-	if pattern != "" {
-		p += `\s*` + pattern
+	if pattern == "" {
+		return p
 	}
-	return p
+	if strings.HasPrefix(pattern, "^") {
+		return p + `\s*` + strings.TrimPrefix(pattern, "^")
+	}
+	return p + `[^\n]*` + pattern
 }
 
 // 不含正则元字符的模式转成纯字符串（word matcher 用 strings.Contains，比正则快几个量级）。
@@ -188,6 +236,69 @@ func convertWappTech(name string, t wappTech) *Rule {
 		matchers = append(matchers, splitPatterns(ps, "url")...)
 	}
 
+	// js 全局变量：path 存在即命中，模式非空则值也要匹配
+	var probes []JsProbe
+	for path, v := range t.Js {
+		pattern := ""
+		if ps := wappPatterns(v); len(ps) > 0 {
+			pattern = cleanWappPattern(ps[0])
+			if _, err := safeCompile(pattern); err != nil {
+				pattern = ""
+			}
+		}
+		probes = append(probes, JsProbe{Path: path, Pattern: tamePattern(pattern)})
+	}
+	if len(probes) > 0 {
+		matchers = append(matchers, Matcher{Type: "js", Js: probes})
+	}
+
+	// dom 选择器。
+	// 字符串/数组形态：裸"存在"语义，但要过信息量检查（*、div、body > * 这种在哪都中，丢）。
+	// 对象形态：{selector: {exists/text/attributes/properties}} —— 条件才是规则本体！
+	//
+	//	exists          → 只留选择器（但要过信息量检查）
+	//	text/attributes → 保留完整条件（content.js 能评估）
+	//	properties      → content script 摸不到页面挂在 DOM 上的 expando，丢
+	var domProbes []DomProbe
+	for _, s := range wappPatterns(t.Dom) {
+		if informativeSelector(s) {
+			domProbes = append(domProbes, DomProbe{Sel: s})
+		}
+	}
+	if domMap, ok := t.Dom.(map[string]any); ok {
+		for sel, cond := range domMap {
+			condMap, _ := cond.(map[string]any)
+			if condMap == nil { // 没条件，退化成 exists
+				if informativeSelector(sel) {
+					domProbes = append(domProbes, DomProbe{Sel: sel})
+				}
+				continue
+			}
+			if _, hasProps := condMap["properties"]; hasProps {
+				continue // 需要页面运行时属性，放弃这条
+			}
+			p := DomProbe{Sel: sel}
+			if ps := wappPatterns(condMap["text"]); len(ps) > 0 {
+				p.Text = cleanWappPattern(ps[0])
+			}
+			if attrs, ok := condMap["attributes"].(map[string]any); ok {
+				p.Attrs = make(map[string]string, len(attrs))
+				for k, v := range attrs {
+					if ps := wappPatterns(v); len(ps) > 0 {
+						p.Attrs[k] = cleanWappPattern(ps[0])
+					}
+				}
+			}
+			if p.Text == "" && len(p.Attrs) == 0 && !informativeSelector(sel) {
+				continue // 裸存在 + 无信息量
+			}
+			domProbes = append(domProbes, p)
+		}
+	}
+	if len(domProbes) > 0 {
+		matchers = append(matchers, Matcher{Type: "dom", Dom: domProbes})
+	}
+
 	if len(matchers) == 0 {
 		return nil
 	}
@@ -196,7 +307,24 @@ func convertWappTech(name string, t wappTech) *Rule {
 		Name:              name,
 		MatchersCondition: "or",
 		Matchers:          matchers,
+		Implies:           cleanAll(wappPatterns(t.Implies)),
+		Excludes:          cleanAll(wappPatterns(t.Excludes)),
 	}
+}
+
+// 裸标签/通配选择器（*、div、body > *、head > title 这种）在任何页面都命中，
+// 没有信息量，丢掉。含 class/id/属性/伪类的才保留
+func informativeSelector(sel string) bool {
+	for _, part := range strings.Split(sel, ",") {
+		p := strings.TrimSpace(part)
+		if p == "" {
+			continue
+		}
+		if strings.ContainsAny(p, ".#[:") {
+			return true
+		}
+	}
+	return false
 }
 
 func cleanAll(ps []string) []string {

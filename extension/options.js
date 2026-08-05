@@ -73,6 +73,11 @@ document.getElementById('file-input').addEventListener('change', async (e) => {
 
   for (const f of files) {
     try {
+      // 防巨型文件把 wasm 堆干爆，5MB 对指纹规则来说已经很夸张了
+      if (f.size > 5 * 1024 * 1024) {
+        failed.push(`${f.name}: 文件超过 5MB，跳过了`);
+        continue;
+      }
       const text = await f.text();
       // js-yaml 支持多文档（--- 分隔），逐份解析，规范化交给 wasm
       const docs = [];

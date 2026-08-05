@@ -13,19 +13,39 @@ type Rule struct {
 	// matcher 之间怎么组合，and / or，默认 or
 	MatchersCondition string    `json:"matchers-condition"`
 	Matchers          []Matcher `json:"matchers"`
+	// 命中后自动推导出的其他技术名（wappalyzer 的 implies）
+	Implies []string `json:"implies,omitempty"`
+	// 命中后要压制的技术名（wappalyzer 的 excludes），降噪用
+	Excludes []string `json:"excludes,omitempty"`
+}
+
+// JsProbe 检测页面运行时全局变量：path 存在即算，pattern 非空则值也要匹配
+type JsProbe struct {
+	Path    string `json:"path"`    // window 上的路径，如 React.version
+	Pattern string `json:"pattern"` // 对值的正则，可空
+}
+
+// DomProbe 检测页面结构：选择器命中元素后，还可选校验元素文本和属性
+type DomProbe struct {
+	Sel   string            `json:"sel"`
+	Text  string            `json:"text,omitempty"`  // 元素 textContent 要过的正则
+	Attrs map[string]string `json:"attrs,omitempty"` // 属性名 -> 值要过的正则
 }
 
 type Matcher struct {
-	Type string `json:"type"` // word / regex / status / icon_hash
+	Type string `json:"type"` // word / regex / status / icon_hash / dsl / js / dom
 	Part string `json:"part"` // body / title / url / header / raw / meta / script，默认 body
 	// matcher 内部多个条件（比如多个 words）的组合方式，默认 or
-	Condition string   `json:"condition"`
-	Negative  bool     `json:"negative"`
-	Words     []string `json:"words,omitempty"`
-	Regex     []string `json:"regex,omitempty"`
-	Status    []int    `json:"status,omitempty"`
-	Hash      []int32  `json:"hash,omitempty"`
-	Dsl       []string `json:"dsl,omitempty"` // contains(body,"x") && status==200 这种表达式
+	Condition string    `json:"condition"`
+	Negative  bool      `json:"negative"`
+	Words     []string  `json:"words,omitempty"`
+	Regex     []string  `json:"regex,omitempty"`
+	Status    []int     `json:"status,omitempty"`
+	Hash      []int32   `json:"hash,omitempty"`
+	Dsl       []string  `json:"dsl,omitempty"` // contains(body,"x") && status==200 这种表达式
+	Js        []JsProbe `json:"js,omitempty"`  // type=js 时用
+	// type=dom 时用；words 里的裸选择器也按"存在即命中"兼容
+	Dom []DomProbe `json:"dom,omitempty"`
 }
 
 // 页面特征，JS 侧采集完传进来
@@ -40,7 +60,9 @@ type Features struct {
 	Scripts     []string          `json:"scripts"` // script src 列表
 	Links       []string          `json:"links"`   // 页面链接，爬虫用，不参与匹配
 	// 一个站点可能有好几个 icon（不同尺寸/路径），每个都算哈希来匹配
-	FaviconHashes []int32 `json:"faviconHashes"`
+	FaviconHashes []int32           `json:"faviconHashes"`
+	Js            map[string]string `json:"js"`  // 页面运行时全局变量路径 -> 值摘要（MAIN world 探测）
+	Dom           []string          `json:"dom"` // 命中的 CSS 选择器列表（content script 探测）
 }
 
 // 命中证据：哪个类型、在哪个位置、命中了什么
@@ -66,20 +88,15 @@ func headerString(f *Features) string {
 }
 
 // 规则库一大，每次匹配现编译正则就是灾难，编译结果缓存起来
-//（wasm 单实例常驻，JS 调用是串行的，不用加锁）
+// （wasm 单实例常驻，JS 调用是串行的，不用加锁）
 var regexCache = make(map[string]*regexp.Regexp)
 
-// recover 兜底：RE2 遇到 {1,512} 这种大重复展开会栈溢出 panic，不能让整个 wasm 陪葬
+// recover 兜底接住普通 panic；栈溢出接不住，靠 safeCompile 里的驯化+深度检查事前拦
 func compileRegex(pattern string) (re *regexp.Regexp, err error) {
 	if cached, ok := regexCache[pattern]; ok {
 		return cached, nil
 	}
-	defer func() {
-		if r := recover(); r != nil {
-			re, err = nil, fmt.Errorf("编译崩溃: %v", r)
-		}
-	}()
-	re, err = regexp.Compile(pattern)
+	re, err = safeCompile(tamePattern(pattern))
 	if err == nil {
 		regexCache[pattern] = re
 	}
@@ -185,6 +202,51 @@ func evalMatcher(m Matcher, f *Features) (bool, []Evidence) {
 				ev = append(ev, Evidence{Type: "dsl", Detail: expr})
 			}
 		}
+	case "js":
+		for _, p := range m.Js {
+			val, exists := f.Js[p.Path]
+			ok := exists
+			if ok && p.Pattern != "" {
+				re, err := compileRegex(p.Pattern)
+				ok = err == nil && re.MatchString(val)
+			}
+			results = append(results, ok)
+			if ok {
+				detail := "window." + p.Path
+				if val != "" {
+					detail += " = " + val
+				}
+				ev = append(ev, Evidence{Type: "js", Detail: detail})
+			}
+		}
+	case "dom":
+		// 探测结果 f.Dom 里存的是命中的选择器
+		for _, sel := range m.Words {
+			ok := false
+			for _, hit := range f.Dom {
+				if hit == sel {
+					ok = true
+					break
+				}
+			}
+			results = append(results, ok)
+			if ok {
+				ev = append(ev, Evidence{Type: "dom", Detail: sel})
+			}
+		}
+		for _, p := range m.Dom {
+			ok := false
+			for _, hit := range f.Dom {
+				if hit == p.Sel {
+					ok = true
+					break
+				}
+			}
+			results = append(results, ok)
+			if ok {
+				ev = append(ev, Evidence{Type: "dom", Detail: p.Sel})
+			}
+		}
 	}
 
 	matched := combine(results, m.Condition)
@@ -232,4 +294,72 @@ func matchRule(r Rule, f *Features) (bool, []Evidence) {
 		ev = append(ev, sub...)
 	}
 	return combine(results, r.MatchersCondition), ev
+}
+
+// implies 级联：命中 A 就补上 A 声明的技术，一轮轮推到没有新东西为止。
+// 被推导的技术不需要有自己的规则，直接给一条裸命中
+func applyImplies(hits []Hit, rules []Rule) []Hit {
+	byName := make(map[string]*Rule, len(rules))
+	for i := range rules {
+		byName[strings.ToLower(rules[i].Name)] = &rules[i]
+		byName[strings.ToLower(rules[i].ID)] = &rules[i]
+	}
+	have := make(map[string]bool, len(hits))
+	for _, h := range hits {
+		have[strings.ToLower(h.Name)] = true
+	}
+	queue := append([]Hit{}, hits...)
+	for len(queue) > 0 {
+		h := queue[0]
+		queue = queue[1:]
+		r, ok := byName[strings.ToLower(h.Name)]
+		if !ok {
+			continue
+		}
+		for _, imp := range r.Implies {
+			key := strings.ToLower(imp)
+			if have[key] {
+				continue
+			}
+			have[key] = true
+			nh := Hit{
+				ID:       slugify(imp),
+				Name:     imp,
+				Evidence: []Evidence{{Type: "implies", Detail: "由 " + h.Name + " 推导"}},
+			}
+			hits = append(hits, nh)
+			queue = append(queue, nh) // 推导出来的还能再推导
+		}
+	}
+	return hits
+}
+
+// excludes 排除：命中的规则声明了排除谁，就把谁从结果里踢掉。
+// 在 implies 之后跑，推导出来的也能被排掉
+func applyExcludes(hits []Hit, rules []Rule) []Hit {
+	byName := make(map[string]*Rule, len(rules))
+	for i := range rules {
+		byName[strings.ToLower(rules[i].Name)] = &rules[i]
+		byName[strings.ToLower(rules[i].ID)] = &rules[i]
+	}
+	banned := make(map[string]bool)
+	for _, h := range hits {
+		r, ok := byName[strings.ToLower(h.Name)]
+		if !ok {
+			continue
+		}
+		for _, ex := range r.Excludes {
+			banned[strings.ToLower(ex)] = true
+		}
+	}
+	if len(banned) == 0 {
+		return hits
+	}
+	out := hits[:0]
+	for _, h := range hits {
+		if !banned[strings.ToLower(h.Name)] {
+			out = append(out, h)
+		}
+	}
+	return out
 }

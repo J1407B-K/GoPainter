@@ -293,8 +293,10 @@ async function runUserScripts(features, hits) {
 // 之前导入规则后 popup 还显示旧结果，就是因为没有这个
 
 let rescanTimer = null;
+let probeCache = null; // 规则里的 js/dom 探测清单，规则变了就失效
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== 'local' || (!changes.rules && !changes.customHashes)) return;
+  probeCache = null;
   clearTimeout(rescanTimer);
   rescanTimer = setTimeout(rescanAllTabs, 500); // 防抖，连续导入合并成一次
 });
@@ -658,6 +660,25 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const out = JSON.parse(globalThis.goConvertEHole(msg.fingerJSON));
         if (out.error) throw new Error(out.error);
         sendResponse({ ok: true, rules: out.rules });
+        break;
+      }
+      case 'getProbes': {
+        // content.js 问：规则里要探哪些 js 全局路径和 dom 选择器
+        if (!probeCache) {
+          const { rules = [] } = await chrome.storage.local.get('rules');
+          const paths = new Set(), domMap = new Map(); // sel+条件 JSON → probe
+          for (const r of rules) {
+            for (const m of r.matchers || []) {
+              if (m.type === 'js') for (const p of m.js || []) paths.add(p.path);
+              if (m.type === 'dom') {
+                for (const s of m.words || []) domMap.set(s, { sel: s });
+                for (const p of m.dom || []) domMap.set(JSON.stringify(p), p);
+              }
+            }
+          }
+          probeCache = { paths: [...paths], selectors: [...domMap.values()] };
+        }
+        sendResponse({ ok: true, ...probeCache });
         break;
       }
       case 'getDefaultPrompts': {
