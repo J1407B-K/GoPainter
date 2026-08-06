@@ -501,7 +501,7 @@ func slugify(s string) string {
 			b.WriteByte('-')
 		}
 	}
-	return b.String()
+	return strings.Trim(b.String(), "-")
 }
 
 // goConvertWappalyzer(techJSON) -> {"rules":[...]}

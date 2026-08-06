@@ -173,7 +173,8 @@ if (features.body.includes('hello-world-cta')) {
 | 命令 | 说明 |
 |---|---|
 | `make build` | macOS/Linux 构建 WASM。优先 TinyGo，未安装 TinyGo 时回退标准 Go |
-| `make test` | 运行 WASM 冒烟测试（需先构建） |
+| `make test` | 先跑 Go 单元测试，再跑 WASM 冒烟测试 |
+| `make test-go` | 只跑 Go 单元测试（js/wasm 目标，经 node 执行，无需先构建） |
 | `make icons` | 重新生成扩展图标 |
 | `make clean` | 删除 `extension/wasm/matcher.wasm` 和 `wasm_exec.js` |
 | `node scripts/generate-icons.mjs` | 直接运行图标生成器 |
@@ -260,7 +261,8 @@ sidepanel    爬取进度实时展示 / 启停（Side Panel，与页面并存）
 - [ ] 规则集管理：分组启用/禁用、远程规则源订阅与自动更新
 - [ ] 补全英文README.md
 - [ ] 扫描历史与报告导出（JSON/CSV）
-- [ ] 单元测试补全（Go/Js）
+- [x] Go 侧单元测试（matcher / dsl / mmh3 / extract / normalize / crawl / convert，`make test-go`）
+- [ ] JS 侧单元测试
 - [ ] wasm 体积进一步优化（当前 ~750KB，目标 < 300KB，暂搁置）
 ## License
 
