@@ -20,7 +20,7 @@
     }
     .banner h1 { font-size: 18px; margin: 0; }
     .banner .sub { font-size: 12px; opacity: .85; margin-top: 2px; }
-    .container { max-width: 720px; margin: 0 auto; padding: 20px 24px 40px; }
+    .container { width: min(720px, 100%); margin: 0 auto; padding: 20px 24px 40px; overflow-x: hidden; }
 
     .card {
       background: var(--card); border: 1px solid var(--border);
@@ -62,13 +62,13 @@
     #rule-stats { margin: 12px 0 6px; }
     #rule-list { max-height: 280px; overflow: auto; }
     .rule-item {
-      display: flex; justify-content: space-between; align-items: baseline;
+      display: flex; justify-content: space-between; align-items: baseline; gap: 12px; min-width: 0;
       padding: 6px 10px; border-radius: 6px; cursor: pointer;
     }
     .rule-item:nth-child(odd) { background: #fafbfc; }
     .rule-item:hover { background: var(--accent-soft); }
-    .rule-item .name { font-weight: 600; font-size: 13px; }
-    .rule-item .id { color: var(--muted); font-size: 11px; font-family: var(--mono); }
+    .rule-item .name { min-width: 0; font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .rule-item .id { min-width: 0; max-width: 45%; color: var(--muted); font-size: 11px; font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
     /* 规则详情弹窗 */
     .rule-modal-mask {
@@ -134,23 +134,30 @@
 
     /* 第三方规则源 */
     .source-item {
-      display: flex; align-items: center; gap: 12px;
+      display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px;
       padding: 8px 10px; border-radius: 8px;
     }
     .source-item:nth-child(odd) { background: #fafbfc; }
-    .source-item .src-info { flex: 1; display: flex; flex-direction: column; }
+    .source-item .src-info { min-width: 0; display: flex; flex-direction: column; }
     .source-item a { font-weight: 600; font-size: 13px; color: var(--accent); text-decoration: none; }
     .source-item a:hover { text-decoration: underline; }
-    .source-item button { margin-top: 0; flex-shrink: 0; }
+    .source-item .muted { overflow-wrap: anywhere; }
+    .source-item button { margin-top: 0; white-space: nowrap; }
+    @media (max-width: 520px) {
+      .container { padding: 14px 12px 28px; }
+      .source-item { grid-template-columns: 1fr; }
+      .source-item button { width: 100%; }
+    }
 
     /* 哈希库 */
     #hash-list { max-height: 200px; overflow: auto; margin-top: 8px; }
     .hash-item {
-      display: flex; align-items: center; gap: 8px; padding: 4px 10px;
+      display: flex; align-items: center; gap: 8px; min-width: 0; padding: 4px 10px;
       font-size: 12px; border-radius: 6px;
     }
     .hash-item:nth-child(odd) { background: #fafbfc; }
-    .hash-item .h { font-family: var(--mono); color: var(--muted); }
+    .hash-item .h { flex-shrink: 0; font-family: var(--mono); color: var(--muted); }
+    .hash-item .n { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .hash-item .del {
       margin-left: auto; border: none; background: none; color: #dc2626;
       cursor: pointer; padding: 0 4px; font-size: 13px;

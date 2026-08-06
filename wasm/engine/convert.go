@@ -504,7 +504,8 @@ func slugify(s string) string {
 }
 
 // --- EHole finger.json（github.com/EdgeSecurityTeam/EHole） ---
-// 格式: {"fingerprint":[{"cms":"致远OA","method":"keyword","location":"body","keyword":["/seeyon/"]}]}
+// 格式: [{"cms":"致远OA","method":"keyword","location":"body","keyword":["/seeyon/"]}]
+// 旧版/部分镜像也可能包一层 {"fingerprint":[...]}，两种都兼容。
 // method 就两种：keyword（body/title/header 关键词）和 faviconhash
 
 type eholeFinger struct {
@@ -515,17 +516,24 @@ type eholeFinger struct {
 }
 
 func convertEHole(jsonStr string) ([]Rule, error) {
-	var data struct {
-		Fingerprint []eholeFinger `json:"fingerprint"`
+	var fingers []eholeFinger
+	if err := json.Unmarshal([]byte(jsonStr), &fingers); err != nil {
+		var data struct {
+			Fingerprint []eholeFinger `json:"fingerprint"`
+		}
+		if err := json.Unmarshal([]byte(jsonStr), &data); err != nil {
+			return nil, err
+		}
+		fingers = data.Fingerprint
 	}
-	if err := json.Unmarshal([]byte(jsonStr), &data); err != nil {
-		return nil, err
-	}
+	return convertEHoleFingers(fingers), nil
+}
 
+func convertEHoleFingers(fingers []eholeFinger) []Rule {
 	// 按 cms 分组，一个系统一条规则
 	byCms := make(map[string][]eholeFinger)
 	var order []string
-	for _, fp := range data.Fingerprint {
+	for _, fp := range fingers {
 		if fp.Cms == "" {
 			continue
 		}
@@ -562,11 +570,27 @@ func convertEHole(jsonStr string) ([]Rule, error) {
 					matchers = append(matchers, Matcher{Type: "word", Part: part, Words: words, Condition: "and"})
 				}
 			case "faviconhash":
-				// keyword 是字符串形式的 mmh3 整数
-				s, _ := fp.Keyword.(string)
-				var h int64
-				if _, err := fmt.Sscanf(s, "%d", &h); err == nil && h != 0 {
-					matchers = append(matchers, Matcher{Type: "icon_hash", Hash: []int32{int32(h)}})
+				var hashes []int32
+				switch kw := fp.Keyword.(type) {
+				case string:
+					var h int64
+					if _, err := fmt.Sscanf(kw, "%d", &h); err == nil && h != 0 {
+						hashes = append(hashes, int32(h))
+					}
+				case []any:
+					for _, v := range kw {
+						s, ok := v.(string)
+						if !ok {
+							continue
+						}
+						var h int64
+						if _, err := fmt.Sscanf(s, "%d", &h); err == nil && h != 0 {
+							hashes = append(hashes, int32(h))
+						}
+					}
+				}
+				if len(hashes) > 0 {
+					matchers = append(matchers, Matcher{Type: "icon_hash", Hash: hashes})
 				}
 			}
 		}
@@ -574,5 +598,5 @@ func convertEHole(jsonStr string) ([]Rule, error) {
 			rules = append(rules, Rule{ID: slugify(cms), Name: cms, MatchersCondition: "or", Matchers: matchers})
 		}
 	}
-	return rules, nil
+	return rules
 }

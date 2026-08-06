@@ -16,8 +16,9 @@
       --mono: "SF Mono", Consolas, "Courier New", monospace;
     }
     * { box-sizing: border-box; }
+    html, body { width: 380px; max-width: 380px; overflow-x: hidden; }
     body {
-      width: 380px; margin: 0; background: var(--bg); color: var(--text);
+      margin: 0; background: var(--bg); color: var(--text);
       font: 13px/1.55 -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
     }
 
@@ -38,7 +39,7 @@
       padding: 10px 12px; margin-bottom: 12px;
     }
     .page-info .title { font-weight: 600; font-size: 13px; word-break: break-all; }
-    .page-info .title-row { display: flex; align-items: center; gap: 8px; }
+    .page-info .title-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
     .favicon { width: 18px; height: 18px; border-radius: 4px; flex-shrink: 0; }
     .favicon.matched { box-shadow: 0 0 0 2px var(--green), 0 0 6px rgba(22, 163, 74, .4); }
     .page-info .url {
@@ -66,10 +67,13 @@
       animation: slide-in .18s ease-out;
     }
     @keyframes slide-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; } }
-    .hit .head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
-    .hit .name { font-weight: 700; font-size: 13px; }
-    .hit .tail { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
-    .hit .id { color: var(--muted); font-size: 10px; font-family: var(--mono); }
+    .hit .head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; min-width: 0; }
+    .hit .name { min-width: 0; font-weight: 700; font-size: 13px; overflow-wrap: anywhere; }
+    .hit .tail { display: flex; align-items: center; gap: 6px; flex-shrink: 0; max-width: 45%; min-width: 0; }
+    .hit .id {
+      min-width: 0; color: var(--muted); font-size: 10px; font-family: var(--mono);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
     /* 置信度徽章：高强弱三档配色 */
     .hit .conf {
       font-family: var(--mono); font-size: 10px; font-weight: 700;
@@ -80,7 +84,7 @@
     .hit .conf.low { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
     .hit .evidence { margin-top: 8px; display: flex; flex-direction: column; gap: 4px; }
     .ev {
-      display: flex; gap: 6px; align-items: baseline;
+      display: flex; gap: 6px; align-items: flex-start; min-width: 0;
       font-size: 11px; padding: 4px 8px; border-radius: 6px;
       background: var(--accent-soft);
     }
@@ -89,7 +93,7 @@
       color: var(--accent); background: #fff; border: 1px solid #dfe2ff;
       padding: 1px 6px; border-radius: 4px;
     }
-    .ev .detail { font-family: var(--mono); color: #444; word-break: break-all; }
+    .ev .detail { min-width: 0; font-family: var(--mono); color: #444; overflow-wrap: anywhere; }
 
     .empty {
       text-align: center; color: var(--muted); padding: 18px 0 10px; font-size: 12px;
@@ -97,7 +101,7 @@
     .empty .icon { font-size: 26px; display: block; margin-bottom: 6px; }
 
     /* 底部操作小卡片 */
-    .footer { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 12px; }
+    .footer { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
     .action-card {
       display: flex; flex-direction: column; align-items: center; gap: 4px;
       padding: 10px 0 8px; background: var(--card); border: 1px solid var(--border);
@@ -109,7 +113,7 @@
     .action-card.running { opacity: .5; }
     .action-card.running .ac-icon { animation: pulse .8s ease-in-out infinite; }
     .ac-icon { font-size: 17px; }
-    .ac-label { font-size: 11px; color: var(--text); font-weight: 600; }
+    .ac-label { max-width: 100%; font-size: 11px; color: var(--text); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .action-card.busy .ac-icon { animation: pulse .8s ease-in-out infinite; }
     @keyframes pulse { 50% { opacity: .3; } }
 

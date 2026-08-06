@@ -11,6 +11,11 @@ let currentTabUrl = '';
 // 置信度开关：设置页开的，开了才显示数值/排序/过滤
 let confCfg = { showConfidence: false, confThreshold: 0 };
 
+function confidenceValue(hit) {
+  const n = Number(hit?.confidence);
+  return Number.isFinite(n) && n >= 0 && n <= 100 ? n : null;
+}
+
 function setBusy(el, busy, busyLabel) {
   el.classList.toggle('busy', busy);
   const label = el.querySelector('.ac-label');
@@ -109,13 +114,21 @@ function render({ features, result }) {
   let hidden = 0;
   if (confCfg.showConfidence) {
     if (confCfg.confThreshold > 0) {
-      hidden = hits.filter((h) => typeof h.confidence === 'number' && h.confidence < confCfg.confThreshold).length;
-      hits = hits.filter((h) => typeof h.confidence !== 'number' || h.confidence >= confCfg.confThreshold);
+      hidden = hits.filter((h) => {
+        const conf = confidenceValue(h);
+        return conf != null && conf < confCfg.confThreshold;
+      }).length;
+      hits = hits.filter((h) => {
+        const conf = confidenceValue(h);
+        return conf == null || conf >= confCfg.confThreshold;
+      });
     }
     hits = hits.map((h, i) => ({ h, i })).sort((a, b) => {
-      const ac = typeof a.h.confidence === 'number';
-      const bc = typeof b.h.confidence === 'number';
-      if (ac && bc) return b.h.confidence - a.h.confidence || a.i - b.i;
+      const av = confidenceValue(a.h);
+      const bv = confidenceValue(b.h);
+      const ac = av != null;
+      const bc = bv != null;
+      if (ac && bc) return bv - av || a.i - b.i;
       if (ac !== bc) return ac ? -1 : 1;
       return a.i - b.i;
     }).map((x) => x.h);
@@ -148,8 +161,8 @@ function renderHit(hit) {
   head.innerHTML = `<span class="name"></span><span class="tail"><span class="id"></span></span>`;
   head.querySelector('.name').textContent = hit.name || hit.id;
   head.querySelector('.id').textContent = hit.id;
-  if (confCfg.showConfidence && typeof hit.confidence === 'number') {
-    const conf = hit.confidence;
+  const conf = confidenceValue(hit);
+  if (confCfg.showConfidence && conf != null) {
     const badge = document.createElement('span');
     badge.className = 'conf ' + (conf >= 80 ? 'high' : conf >= 50 ? 'mid' : 'low');
     badge.textContent = conf + '%';

@@ -190,6 +190,31 @@ func TestConvertEHole(t *testing.T) {
 	}
 }
 
+func TestConvertEHoleTopLevelArray(t *testing.T) {
+	jsonStr := `[
+		{"cms":"宝塔-BT.cn","method":"keyword","location":"body","keyword":["bt.cn","/login"]},
+		{"cms":"宝塔-BT.cn","method":"faviconhash","location":"body","keyword":["-386189083","12345"]}
+	]`
+	rules, err := convertEHole(jsonStr)
+	if err != nil {
+		t.Fatalf("convertEHole 出错: %v", err)
+	}
+	if len(rules) != 1 {
+		t.Fatalf("应转换 1 条规则，实际 %d: %+v", len(rules), rules)
+	}
+	r := rules[0]
+	if r.ID != "宝塔-bt-cn" || r.Name != "宝塔-BT.cn" {
+		t.Errorf("规则头不对: %+v", r)
+	}
+	if len(r.Matchers) != 2 {
+		t.Fatalf("应 2 个 matcher，实际 %+v", r.Matchers)
+	}
+	hash := r.Matchers[1]
+	if hash.Type != "icon_hash" || len(hash.Hash) != 2 || hash.Hash[0] != -386189083 || hash.Hash[1] != 12345 {
+		t.Errorf("faviconhash 数组转换不对: %+v", hash)
+	}
+}
+
 func TestConvertEHoleBadJSON(t *testing.T) {
 	if _, err := convertEHole(`not json`); err == nil {
 		t.Error("非法 JSON 应报错")

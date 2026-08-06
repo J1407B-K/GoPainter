@@ -167,11 +167,28 @@ const RULE_SOURCES = {
   },
 
   async ehole() {
-    const resp = await fetch('https://raw.githubusercontent.com/EdgeSecurityTeam/EHole/main/finger.json');
-    if (!resp.ok) throw new Error(`拉取 finger.json 失败: HTTP ${resp.status}`);
+    sourceStatus('EHole：拉取 finger.json…');
+    const urls = [
+      'https://raw.githubusercontent.com/EdgeSecurityTeam/EHole/main/finger.json',
+      'https://github.com/EdgeSecurityTeam/EHole/raw/main/finger.json',
+    ];
+    let text = '';
+    let lastErr = '';
+    for (const url of urls) {
+      try {
+        const resp = await fetch(url);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        text = await resp.text();
+        break;
+      } catch (err) {
+        lastErr = err.message || String(err);
+      }
+    }
+    if (!text) throw new Error(`拉取 finger.json 失败：${lastErr}`);
     sourceStatus('EHole：转换中…');
-    const r = await chrome.runtime.sendMessage({ type: 'convertEHole', fingerJSON: await resp.text() });
+    const r = await chrome.runtime.sendMessage({ type: 'convertEHole', fingerJSON: text });
     if (!r.ok) throw new Error(r.error);
+    if (!r.rules?.length) throw new Error('finger.json 已拉取，但没有转换出有效规则');
     return r.rules;
   },
 

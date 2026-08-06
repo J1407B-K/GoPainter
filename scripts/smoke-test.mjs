@@ -202,20 +202,18 @@ const wappMatch = JSON.parse(globalThis.goMatch(JSON.stringify(wapp.rules), JSON
 pass &&= wappMatch.hits.some((h) => h.id === 'wordpress');
 
 // goConvertEHole：keyword/faviconhash 分组转换
-const ehole = JSON.parse(globalThis.goConvertEHole(JSON.stringify({
-  fingerprint: [
-    { cms: '致远OA', method: 'keyword', location: 'body', keyword: ['/seeyon/'] },
-    { cms: '致远OA', method: 'faviconhash', location: 'body', keyword: '-123456' },
-    { cms: '致远OA', method: 'keyword', location: 'icon', keyword: ['x'] }, // location 不支持，丢
-    { cms: '', method: 'keyword', location: 'body', keyword: ['y'] },        // 没名字，丢
-  ],
-})));
+const ehole = JSON.parse(globalThis.goConvertEHole(JSON.stringify([
+  { cms: '致远OA', method: 'keyword', location: 'body', keyword: ['/seeyon/'] },
+  { cms: '致远OA', method: 'faviconhash', location: 'body', keyword: ['-123456', '123'] },
+  { cms: '致远OA', method: 'keyword', location: 'icon', keyword: ['x'] }, // location 不支持，丢
+  { cms: '', method: 'keyword', location: 'body', keyword: ['y'] },        // 没名字，丢
+])));
 console.log('ehole =', JSON.stringify(ehole.rules));
 pass &&= ehole.rules?.length === 1
   && ehole.rules[0].id === '致远oa'
   && ehole.rules[0].name === '致远OA'
   && ehole.rules[0].matchers.length === 2
-  && ehole.rules[0].matchers.some((m) => m.type === 'icon_hash' && m.hash[0] === -123456);
+  && ehole.rules[0].matchers.some((m) => m.type === 'icon_hash' && m.hash[0] === -123456 && m.hash[1] === 123);
 
 // js / dom / implies 三件套
 const probeRules = [
