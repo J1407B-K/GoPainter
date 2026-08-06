@@ -136,7 +136,31 @@ document.getElementById('import-builtin').addEventListener('click', async (e) =>
 // --- 第三方规则源：用户浏览器实时拉取 + wasm 转换，数据不随扩展分发 ---
 // 每个源的仓库链接在页面上标出，致敬社区作者
 
-const sourceStatus = (text) => { document.getElementById('source-status').textContent = text; };
+const sourceStatus = (text, isError = false) => {
+  const el = document.getElementById('source-status');
+  el.textContent = text;
+  el.className = isError ? 'error' : 'muted';
+};
+const SOURCE_LABELS = {
+  wappalyzer: 'Wappalyzer',
+  ehole: 'EHole',
+  nuclei: 'nuclei-templates',
+};
+
+function mergeConvertedRules(rules) {
+  const byId = new Map();
+  for (const rule of rules) {
+    const existing = byId.get(rule.id);
+    if (!existing) {
+      byId.set(rule.id, rule);
+      continue;
+    }
+    existing.matchers = [...(existing.matchers || []), ...(rule.matchers || [])];
+    existing.implies = [...new Set([...(existing.implies || []), ...(rule.implies || [])])];
+    existing.excludes = [...new Set([...(existing.excludes || []), ...(rule.excludes || [])])];
+  }
+  return [...byId.values()];
+}
 
 const RULE_SOURCES = {
   async wappalyzer() {
@@ -186,10 +210,28 @@ const RULE_SOURCES = {
     }
     if (!text) throw new Error(`拉取 finger.json 失败：${lastErr}`);
     sourceStatus('EHole：转换中…');
-    const r = await chrome.runtime.sendMessage({ type: 'convertEHole', fingerJSON: text });
-    if (!r.ok) throw new Error(r.error);
-    if (!r.rules?.length) throw new Error('finger.json 已拉取，但没有转换出有效规则');
-    return r.rules;
+    let fingers;
+    try {
+      fingers = JSON.parse(text);
+      if (!Array.isArray(fingers)) fingers = fingers?.fingerprint;
+      if (!Array.isArray(fingers)) throw new Error('finger.json 不是数组格式');
+    } catch (err) {
+      throw new Error(`finger.json 解析失败：${err.message}`);
+    }
+
+    // 跟 Wappalyzer 一样分批转，避免一次性大 JSON 触发 TinyGo wasm 栈/堆问题。
+    const CHUNK = 100;
+    const rules = [];
+    for (let i = 0; i < fingers.length; i += CHUNK) {
+      const chunk = fingers.slice(i, i + CHUNK);
+      const r = await chrome.runtime.sendMessage({ type: 'convertEHole', fingerJSON: JSON.stringify(chunk) });
+      if (!r?.ok) throw new Error(r?.error || '后台转换无响应');
+      rules.push(...(r.rules || []));
+      sourceStatus(`EHole：转换中… ${Math.min(i + CHUNK, fingers.length)}/${fingers.length}`);
+    }
+    const merged = mergeConvertedRules(rules);
+    if (!merged.length) throw new Error('finger.json 已拉取，但没有转换出有效规则');
+    return merged;
   },
 
   async nuclei() {
@@ -228,10 +270,10 @@ document.querySelectorAll('[data-source]').forEach((btn) => {
     try {
       const rules = await RULE_SOURCES[source]();
       const n = await importRules(rules);
-      sourceStatus('');
+      sourceStatus(`${SOURCE_LABELS[source] || source}：导入完成，${n} 条规则（同 id 已覆盖）`);
       showMsg(`导入完成：${n} 条规则（同 id 已覆盖）`);
     } catch (err) {
-      sourceStatus('');
+      sourceStatus(`${SOURCE_LABELS[source] || source}：失败：${err.message}`, true);
       showMsg(`拉取失败：${err.message}`, true);
     } finally {
       btn.disabled = false;

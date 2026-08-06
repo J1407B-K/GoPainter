@@ -12,7 +12,10 @@ let currentTabUrl = '';
 let confCfg = { showConfidence: false, confThreshold: 0 };
 
 function confidenceValue(hit) {
-  const n = Number(hit?.confidence);
+  if (hit?.confidence === null || hit?.confidence === undefined || hit?.confidence === '') {
+    return null;
+  }
+  const n = Number(hit.confidence);
   return Number.isFinite(n) && n >= 0 && n <= 100 ? n : null;
 }
 
