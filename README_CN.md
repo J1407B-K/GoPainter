@@ -120,7 +120,7 @@ dsl 表达式支持：标识符 `body` / `title` / `url` / `header` / `raw` / `m
 | [EdgeSecurityTeam/EHole](https://github.com/EdgeSecurityTeam/EHole) | 958 条 | 棱洞指纹，国产系统覆盖好 |
 | [projectdiscovery/nuclei-templates](https://github.com/projectdiscovery/nuclei-templates) | 数百条 | http/technologies 技术识别模板 |
 
-感谢以上社区的长期维护 🙏 转换逻辑在 `wasm/convert.go`，均在用户侧运行时拉取。
+感谢以上社区的长期维护 🙏 转换逻辑在 `wasm/engine/convert.go`，均在用户侧运行时拉取。
 
 **声明**：本项目仅提供格式转换工具，不内置、不分发任何第三方规则数据。第三方规则源的内容、
 版权与合规性由其维护者负责；用户的拉取、使用行为及其后果与本项目无关。请遵守各源的许可证
@@ -180,7 +180,7 @@ if (features.body.includes('hello-world-cta')) {
 | `make icons` | 重新生成扩展图标 |
 | `make clean` | 删除 `extension/wasm/matcher.wasm` 和 `wasm_exec.js` |
 | `node scripts/generate-icons.mjs` | 直接运行图标生成器 |
-| `node scripts/generate-hashdb.mjs` | 从 `data/favicon-hashes.json` 生成 `wasm/hashdb.go` |
+| `node scripts/generate-hashdb.mjs` | 从 `data/favicon-hashes.json` 生成 `wasm/engine/hashdb.go` |
 | `node scripts/smoke-test.mjs` | 直接运行 WASM 冒烟测试 |
 | `powershell -ExecutionPolicy Bypass -File scripts/build.ps1` | Windows 构建 WASM |
 
@@ -206,19 +206,23 @@ sidepanel    爬取进度实时展示 / 启停（Side Panel，与页面并存）
 ## 目录
 
 ```
-├── wasm/                     # Go 引擎（TinyGo 编译为 WASM）
-│   ├── main.go               #   JS 导出 + JSON 进出
-│   ├── matcher.go            #   匹配引擎（核心）
-│   ├── mmh3.go               #   favicon 哈希
-│   ├── extract.go            #   HTML 特征提取（title/meta/scripts/favicon/links）
-│   ├── normalize.go          #   规则规范化（nuclei 转换）
-│   ├── dsl.go                #   dsl 表达式求值器
-│   ├── convert.go            #   Wappalyzer 指纹转换
-│   ├── crawl.go              #   爬虫调度（BFS/去重/同站过滤/上限）
-│   └── hashdb.go             #   favicon 哈希库（生成）
+├── wasm/                     # WASM 入口包（薄 JS bridge）
+│   ├── main.go               #   注册 JS 导出
+│   ├── bridge.go             #   匹配/转换/hash/dsl 的 JSON 进出
+│   ├── crawl_bridge.go       #   爬虫 API 的 JSON 进出
+│   └── engine/               #   纯 Go 逻辑包
+│       ├── matcher.go        #   匹配引擎（核心）
+│       ├── mmh3.go           #   favicon 哈希
+│       ├── extract.go        #   HTML 特征提取（title/meta/scripts/favicon/links）
+│       ├── normalize.go      #   规则规范化（nuclei 转换）
+│       ├── dsl.go            #   dsl 表达式求值器
+│       ├── convert.go        #   Wappalyzer/EHole 指纹转换
+│       ├── crawl.go          #   爬虫调度（BFS/去重/同站过滤/上限）
+│       └── hashdb.go         #   favicon 哈希库（生成）
 ├── extension/                # Chrome 扩展（MV3）
 │   ├── manifest.json
-│   ├── background.js         # service worker：wasm 加载、webRequest、favicon、AI、图标、书签
+│   ├── background.js         # service worker：AI/书签/爬虫/消息路由
+│   ├── background/           # service worker 分层：wasm、浏览器状态、匹配
 │   ├── content.js            # 页面特征采集
 │   ├── popup.*               # 结果与证据展示 / AI 识别 / AI 生成规则
 │   ├── options.*             # 规则导入 / AI 配置 / 提示词 / 书签整理
@@ -227,7 +231,7 @@ sidepanel    爬取进度实时展示 / 启停（Side Panel，与页面并存）
 │   └── lib/                  # js-yaml（唯一的第三方 JS）
 ├── scripts/
 │   ├── generate-icons.mjs    # 图标生成器（纯 Node，零依赖）
-│   ├── generate-hashdb.mjs   # favicon 哈希库生成器（data/ → wasm/hashdb.go）
+│   ├── generate-hashdb.mjs   # favicon 哈希库生成器（data/ → wasm/engine/hashdb.go）
 │   ├── smoke-test.mjs        # wasm 冒烟测试
 │   └── build.ps1             # Windows 构建脚本
 ├── data/favicon-hashes.json  # 哈希库源数据（BishopFox/Favicons）

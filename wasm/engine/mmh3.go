@@ -1,5 +1,5 @@
 // mmh3（MurmurHash3 x86_32），算 fofa 的 favicon 哈希用。
-package main
+package engine
 
 import "math/bits"
 

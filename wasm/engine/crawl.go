@@ -1,13 +1,11 @@
 // 爬虫调度：BFS 队列、去重、同站过滤、页数上限，状态都在这。
 // 网络抓取在 JS 侧（wasm 不碰 I/O），JS 取一批 URL 抓完把页面链接喂回来。
-package main
+package engine
 
 import (
-	"encoding/json"
 	"errors"
 	"net/url"
 	"strings"
-	"syscall/js"
 )
 
 type crawler struct {
@@ -20,6 +18,8 @@ type crawler struct {
 
 // 同一时间只跑一个任务，简单点
 var crawlState *crawler
+
+var errCrawlerNotStarted = errors.New("爬虫没启动")
 
 // 去重 key：去 fragment、去路径末尾的 /（根路径除外）
 func normURL(u *url.URL) string {
@@ -113,57 +113,4 @@ func (c *crawler) batch(n int) (urls []string, done bool) {
 	c.visited += len(urls)
 	done = len(c.queue) == 0 || (c.maxPages > 0 && c.visited >= c.maxPages)
 	return urls, done
-}
-
-// --- JS 导出 ---
-
-// goCrawlStart(seed, maxPages) -> {"ok":true}；maxPages 0 = 不限
-func jsCrawlStart(_ js.Value, args []js.Value) any {
-	if len(args) < 2 {
-		return jsError("crawlStart(seed, maxPages) 需要两个参数")
-	}
-	if err := crawlStart(args[0].String(), args[1].Int()); err != nil {
-		return jsError("%s", err)
-	}
-	return `{"ok":true}`
-}
-
-// goCrawlBatch(n) -> {"urls":[...],"done":bool}
-func jsCrawlBatch(_ js.Value, args []js.Value) any {
-	if crawlState == nil {
-		return jsError("爬虫没启动")
-	}
-	n := 5
-	if len(args) >= 1 {
-		n = args[0].Int()
-	}
-	urls, done := crawlState.batch(n)
-	out, _ := json.Marshal(map[string]any{"urls": urls, "done": done})
-	return string(out)
-}
-
-// goCrawlFeed(pageURL, linksJSON) -> {"added":n}
-func jsCrawlFeed(_ js.Value, args []js.Value) any {
-	if crawlState == nil {
-		return jsError("爬虫没启动")
-	}
-	if len(args) < 2 {
-		return jsError("crawlFeed(pageURL, linksJSON) 需要两个参数")
-	}
-	var links []string
-	if err := json.Unmarshal([]byte(args[1].String()), &links); err != nil {
-		return jsError("链接 JSON 解析失败: %s", err)
-	}
-	added := crawlState.feed(args[0].String(), links)
-	out, _ := json.Marshal(map[string]any{"added": added})
-	return string(out)
-}
-
-// goCrawlStatus() -> {"visited":n,"queued":n}
-func jsCrawlStatus(_ js.Value, _ []js.Value) any {
-	if crawlState == nil {
-		return jsError("爬虫没启动")
-	}
-	out, _ := json.Marshal(map[string]any{"visited": crawlState.visited, "queued": len(crawlState.queue)})
-	return string(out)
 }

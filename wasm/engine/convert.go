@@ -1,7 +1,7 @@
 // 指纹 JSON → GoPainter 规则。
 // 数据由用户在浏览器里实时拉取
 // 这个文件只含转换逻辑，不含任何数据
-package main
+package engine
 
 import (
 	"encoding/json"
@@ -9,7 +9,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"syscall/js"
 	"unicode"
 )
 
@@ -504,26 +503,6 @@ func slugify(s string) string {
 	return strings.Trim(b.String(), "-")
 }
 
-// goConvertWappalyzer(techJSON) -> {"rules":[...]}
-// techJSON 是 wappalyzer 的 technologies 对象（{"技术名": {...}}）
-func jsConvertWappalyzer(_ js.Value, args []js.Value) any {
-	if len(args) < 1 {
-		return jsError("convertWappalyzer(techJSON) 需要一个参数")
-	}
-	var techs map[string]wappTech
-	if err := json.Unmarshal([]byte(args[0].String()), &techs); err != nil {
-		return jsError("Wappalyzer JSON 解析失败: %s", err)
-	}
-	rules := make([]Rule, 0, len(techs))
-	for name, t := range techs {
-		if r := convertWappTech(name, t); r != nil {
-			rules = append(rules, *r)
-		}
-	}
-	out, _ := json.Marshal(map[string]any{"rules": rules})
-	return string(out)
-}
-
 // --- EHole finger.json（github.com/EdgeSecurityTeam/EHole） ---
 // 格式: {"fingerprint":[{"cms":"致远OA","method":"keyword","location":"body","keyword":["/seeyon/"]}]}
 // method 就两种：keyword（body/title/header 关键词）和 faviconhash
@@ -596,17 +575,4 @@ func convertEHole(jsonStr string) ([]Rule, error) {
 		}
 	}
 	return rules, nil
-}
-
-// goConvertEHole(fingerJSON) -> {"rules":[...]}
-func jsConvertEHole(_ js.Value, args []js.Value) any {
-	if len(args) < 1 {
-		return jsError("convertEHole(fingerJSON) 需要一个参数")
-	}
-	rules, err := convertEHole(args[0].String())
-	if err != nil {
-		return jsError("EHole JSON 解析失败: %s", err)
-	}
-	out, _ := json.Marshal(map[string]any{"rules": rules})
-	return string(out)
 }

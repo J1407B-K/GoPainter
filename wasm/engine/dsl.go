@@ -4,14 +4,12 @@
 // 标识符: body / title / url / header / raw / meta / script / status / favicon_hash
 // 函数:   contains(a, "子串") / matches(a, "正则")
 // 运算符: && || ! == != 和括号
-package main
+package engine
 
 import (
-	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
-	"syscall/js"
 	"unicode"
 )
 
@@ -434,32 +432,4 @@ func dslEval(expr string, f *Features) (bool, error) {
 		return false, err
 	}
 	return dslBool(v), nil
-}
-
-// goDslEval(exprJSON, featuresJSON) -> {"results":[true,false],"errors":[...]}，给调试/测试用
-func jsDslEval(_ js.Value, args []js.Value) any {
-	if len(args) < 2 {
-		return jsError("dslEval(exprsJSON, featuresJSON) 需要两个参数")
-	}
-	var exprs []string
-	if err := json.Unmarshal([]byte(args[0].String()), &exprs); err != nil {
-		return jsError("表达式 JSON 解析失败: %s", err)
-	}
-	var features Features
-	if err := json.Unmarshal([]byte(args[1].String()), &features); err != nil {
-		return jsError("特征 JSON 解析失败: %s", err)
-	}
-	results := make([]bool, 0, len(exprs))
-	errs := make([]string, 0, len(exprs))
-	for _, e := range exprs {
-		ok, err := dslEval(e, &features)
-		results = append(results, ok)
-		if err != nil {
-			errs = append(errs, err.Error())
-		} else {
-			errs = append(errs, "")
-		}
-	}
-	out, _ := json.Marshal(map[string]any{"results": results, "errors": errs})
-	return string(out)
 }

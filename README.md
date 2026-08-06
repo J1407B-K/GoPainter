@@ -120,7 +120,7 @@ The settings page can pull community fingerprint libraries in real time from you
 | [EdgeSecurityTeam/EHole](https://github.com/EdgeSecurityTeam/EHole) | 958 | EHole fingerprints, strong domestic-system coverage |
 | [projectdiscovery/nuclei-templates](https://github.com/projectdiscovery/nuclei-templates) | hundreds | http/technologies recognition templates |
 
-Thanks to these communities for their long-term maintenance. The conversion logic lives in `wasm/convert.go` and runs client-side at fetch time.
+Thanks to these communities for their long-term maintenance. The conversion logic lives in `wasm/engine/convert.go` and runs client-side at fetch time.
 
 **Disclaimer**: this project is a format-conversion tool only; it bundles and distributes no third-party rule data. The content, licensing, and compliance of third-party sources are the responsibility of their maintainers; your pulling and use of them is likewise your own responsibility. Please respect each source's license and applicable law, and use this only for authorized security testing and research.
 
@@ -178,7 +178,7 @@ Returned items need at least `id` and `name`. An `id` that already exists is ski
 | `make icons` | Regenerate extension icons |
 | `make clean` | Remove `extension/wasm/matcher.wasm` and `wasm_exec.js` |
 | `node scripts/generate-icons.mjs` | Run the icon generator directly |
-| `node scripts/generate-hashdb.mjs` | Generate `wasm/hashdb.go` from `data/favicon-hashes.json` |
+| `node scripts/generate-hashdb.mjs` | Generate `wasm/engine/hashdb.go` from `data/favicon-hashes.json` |
 | `node scripts/smoke-test.mjs` | Run the WASM smoke test directly |
 | `powershell -ExecutionPolicy Bypass -File scripts/build.ps1` | Build WASM on Windows |
 
@@ -204,19 +204,23 @@ Matching, mmh3, HTML feature extraction, and nuclei conversion all live in Go.
 ## Directory layout
 
 ```
-├── wasm/                     # Go engine (compiled to WASM by TinyGo)
-│   ├── main.go               #   JS exports + JSON in/out
-│   ├── matcher.go            #   matching engine (core)
-│   ├── mmh3.go               #   favicon hashing
-│   ├── extract.go            #   HTML feature extraction (title/meta/scripts/favicons/links)
-│   ├── normalize.go          #   rule normalization (nuclei conversion)
-│   ├── dsl.go                #   dsl expression evaluator
-│   ├── convert.go            #   Wappalyzer fingerprint conversion
-│   ├── crawl.go              #   crawler scheduling (BFS/dedup/same-site/max pages)
-│   └── hashdb.go             #   favicon hash database (generated)
+├── wasm/                     # WASM entry package (thin JS bridge)
+│   ├── main.go               #   register JS exports
+│   ├── bridge.go             #   JSON in/out for matching/conversion/hash/dsl
+│   ├── crawl_bridge.go       #   JSON in/out for crawler APIs
+│   └── engine/               #   pure Go logic package
+│       ├── matcher.go        #   matching engine (core)
+│       ├── mmh3.go           #   favicon hashing
+│       ├── extract.go        #   HTML feature extraction (title/meta/scripts/favicons/links)
+│       ├── normalize.go      #   rule normalization (nuclei conversion)
+│       ├── dsl.go            #   dsl expression evaluator
+│       ├── convert.go        #   Wappalyzer/EHole fingerprint conversion
+│       ├── crawl.go          #   crawler scheduling (BFS/dedup/same-site/max pages)
+│       └── hashdb.go         #   favicon hash database (generated)
 ├── extension/                # Chrome extension (MV3)
 │   ├── manifest.json
-│   ├── background.js         # service worker: wasm loading, webRequest, favicon, AI, icon, bookmarks
+│   ├── background.js         # service worker: AI/bookmarks/crawl/message routing
+│   ├── background/           # service worker layers: wasm, browser state, matching
 │   ├── content.js            # page feature collection
 │   ├── popup.*               # results & evidence / AI identification / AI rule generation
 │   ├── options.*             # rule import / AI config / prompts / bookmark organization
@@ -225,7 +229,7 @@ Matching, mmh3, HTML feature extraction, and nuclei conversion all live in Go.
 │   └── lib/                  # js-yaml (the only third-party JS)
 ├── scripts/
 │   ├── generate-icons.mjs    # icon generator (pure Node, zero deps)
-│   ├── generate-hashdb.mjs   # favicon hash DB generator (data/ → wasm/hashdb.go)
+│   ├── generate-hashdb.mjs   # favicon hash DB generator (data/ → wasm/engine/hashdb.go)
 │   ├── smoke-test.mjs        # wasm smoke test
 │   └── build.ps1             # Windows build script
 ├── data/favicon-hashes.json  # hash DB source data (BishopFox/Favicons)

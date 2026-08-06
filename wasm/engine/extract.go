@@ -1,6 +1,6 @@
 // HTML 特征提取：JS 把原始 HTML 丢过来，这里抠出结构化特征。
 // 用正则而不是 html parser，指纹场景够用，还省依赖。
-package main
+package engine
 
 import (
 	"regexp"

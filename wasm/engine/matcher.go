@@ -1,5 +1,5 @@
 // 匹配引擎：规则定义 + 求值。这是 wasm 的核心，其他文件都是给它打辅助的。
-package main
+package engine
 
 import (
 	"fmt"

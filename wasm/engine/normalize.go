@@ -1,6 +1,6 @@
 // 规则规范化：JS 解析完 YAML 把文档 JSON 丢过来，这里统一转成原生规则。
 // 支持原生格式和 nuclei 模板（抽 http matchers 里能用的部分）。
-package main
+package engine
 
 import (
 	"encoding/json"
