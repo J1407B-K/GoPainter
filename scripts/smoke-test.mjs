@@ -344,5 +344,42 @@ const cspHit = JSON.parse(globalThis.goMatch(JSON.stringify(csp.rules), JSON.str
 })));
 pass &&= cspHit.hits.some((h) => h.name === 'Amazon S3');
 
+// 置信度：matcher 级 or 取 max、and 取 min、规则级缩放、implies 继承、没标默认 100
+const confRules = [
+  { id: 'or-rule', name: 'OrRule', matchers: [
+    { type: 'status', status: [200], confidence: 40 },
+    { type: 'word', words: ['wp-content'], confidence: 90 },
+  ] },
+  { id: 'and-rule', name: 'AndRule', 'matchers-condition': 'and', matchers: [
+    { type: 'status', status: [200], confidence: 40 },
+    { type: 'word', words: ['wp-content'] }, // 没标 = 100
+  ] },
+  { id: 'scaled', name: 'Scaled', confidence: 50, implies: ['ScaledChild'], matchers: [
+    { type: 'status', status: [200], confidence: 80 },
+  ] },
+  { id: 'plain', name: 'Plain', matchers: [{ type: 'status', status: [200] }] },
+];
+const confOut = JSON.parse(globalThis.goMatch(JSON.stringify(confRules), JSON.stringify(features)));
+const confOf = (id) => confOut.hits.find((h) => h.id === id)?.confidence;
+console.log('confidence =', confOut.hits.map((h) => `${h.id}:${h.confidence}`).join(', '));
+pass &&= confOf('or-rule') === 90        // or → 最强信号
+  && confOf('and-rule') === 40           // and → 最短板
+  && confOf('scaled') === 40             // 80 × 规则级 50%
+  && confOf('scaledchild') === 40        // implies 继承来源
+  && confOf('plain') === 100;            // 啥都没标 → 100
+
+// wappalyzer 的 \;confidence:N 后缀要转进 matcher（一组模式取最小）
+const wappConf = JSON.parse(globalThis.goConvertWappalyzer(JSON.stringify({
+  'WeakTech': { html: ['<div id="app"\\;confidence:30', 'webpack\\;confidence:60'] },
+  'StrongTech': { meta: { generator: 'StrongTech\\;confidence:95\\;version:\\1' } },
+})));
+const weak = wappConf.rules.find((r) => r.id === 'weaktech');
+const strong = wappConf.rules.find((r) => r.id === 'strongtech');
+console.log('wapp confidence =', JSON.stringify(wappConf.rules.map((r) => [r.id, r.matchers.map((m) => m.confidence ?? 0)])));
+pass &&= weak && weak.matchers.every((m) => m.confidence > 0 && m.confidence <= 60)
+  && weak.matchers.some((m) => m.confidence === 30)   // 组内最小
+  && strong && strong.matchers[0].confidence === 95
+  && !strong.matchers[0].regex[0].includes('\\;');    // 后缀还是切干净的
+
 console.log(pass ? '✅ 冒烟测试通过' : '❌ 结果不符合预期');
 process.exit(pass ? 0 : 1);

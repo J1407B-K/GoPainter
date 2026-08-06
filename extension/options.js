@@ -581,6 +581,28 @@ document.querySelectorAll('[data-prompt-reset]').forEach((btn) => {
   });
 });
 
+// --- 置信度 ---
+
+async function loadConfConfig() {
+  const cfg = await chrome.storage.local.get(['showConfidence', 'confThreshold']);
+  document.getElementById('conf-enabled').checked = !!cfg.showConfidence;
+  document.getElementById('conf-threshold').value = cfg.confThreshold || '';
+}
+
+document.getElementById('conf-save').addEventListener('click', async () => {
+  const raw = document.getElementById('conf-threshold').value.trim();
+  const threshold = raw === '' ? 0 : parseInt(raw, 10);
+  if (!Number.isInteger(threshold) || threshold < 0 || threshold > 100) {
+    showMsg('置信度阈值得是 0-100 的整数', true);
+    return;
+  }
+  await chrome.storage.local.set({
+    showConfidence: document.getElementById('conf-enabled').checked,
+    confThreshold: threshold,
+  });
+  showMsg('置信度设置已保存');
+});
+
 // --- 工具 ---
 
 function escapeHtml(s) {
@@ -591,3 +613,4 @@ function escapeHtml(s) {
 
 refreshRuleList();
 loadAiConfig();
+loadConfConfig();

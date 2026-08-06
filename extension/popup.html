@@ -68,7 +68,16 @@
     @keyframes slide-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; } }
     .hit .head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
     .hit .name { font-weight: 700; font-size: 13px; }
+    .hit .tail { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
     .hit .id { color: var(--muted); font-size: 10px; font-family: var(--mono); }
+    /* 置信度徽章：高强弱三档配色 */
+    .hit .conf {
+      font-family: var(--mono); font-size: 10px; font-weight: 700;
+      padding: 1px 7px; border-radius: 999px;
+    }
+    .hit .conf.high { background: var(--green-soft); color: var(--green); border: 1px solid #bbf7d0; }
+    .hit .conf.mid { background: #fffbeb; color: #b45309; border: 1px solid #fde68a; }
+    .hit .conf.low { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
     .hit .evidence { margin-top: 8px; display: flex; flex-direction: column; gap: 4px; }
     .ev {
       display: flex; gap: 6px; align-items: baseline;

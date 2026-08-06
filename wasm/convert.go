@@ -28,12 +28,36 @@ type wappTech struct {
 	Excludes  any            `json:"excludes"`
 }
 
-// wappalyzer 的模式带 "\;version:\1" / "\;confidence:50" 这种后缀，切掉
-func cleanWappPattern(p string) string {
-	if i := strings.Index(p, "\\;"); i >= 0 {
-		p = p[:i]
+// wappalyzer 的模式带 "\;version:\1" / "\;confidence:50" 这种后缀。
+// 版本提取我们不支持，切掉；confidence 捡起来填到 matcher 上
+var wappConfRe = regexp.MustCompile(`\\;confidence:(\d+)`)
+
+func splitWappMeta(p string) (string, int) {
+	i := strings.Index(p, "\\;")
+	if i < 0 {
+		return p, 0
 	}
-	return p
+	conf := 0
+	if m := wappConfRe.FindStringSubmatch(p[i:]); m != nil {
+		conf, _ = strconv.Atoi(m[1])
+	}
+	return p[:i], conf
+}
+
+func cleanWappPattern(p string) string {
+	c, _ := splitWappMeta(p)
+	return c
+}
+
+// 一组模式攒成一个 matcher 时，各自带的 confidence 取最小（保守），都没标就是 0（=默认 100）
+func minConf(confs []int) int {
+	min := 0
+	for _, c := range confs {
+		if c > 0 && c <= 100 && (min == 0 || c < min) {
+			min = c
+		}
+	}
+	return min
 }
 
 // 字段值可能是单个字符串或字符串数组
@@ -137,6 +161,19 @@ func compilable(patterns []string) []string {
 	return out
 }
 
+// 成对版：丢模式的同时把它的 confidence 也丢了，保持两个切片对齐
+func compilablePair(patterns []string, confs []int) ([]string, []int) {
+	outP := patterns[:0]
+	outC := confs[:0]
+	for i, p := range patterns {
+		if _, err := safeCompile(tamePattern(p)); err == nil {
+			outP = append(outP, tamePattern(p))
+			outC = append(outC, confs[i])
+		}
+	}
+	return outP, outC
+}
+
 // 响应头是 "k: v" 格式（k 小写），按行首匹配 key。
 // 值模式两种语义要区分（之前一律 \s* 接值开头，把"值里包含"类规则全弄死了）：
 //   原版以 ^ 开头 → 值的开头匹配（剥掉 ^，我们自己的行首锚定已经管了）
@@ -174,22 +211,30 @@ func plainLiteral(p string) (string, bool) {
 	return b.String(), true
 }
 
-// 模式列表拆成"纯字符串"和"真正则"两组，各做一个 matcher
-func splitPatterns(patterns []string, part string) []Matcher {
+// 模式列表拆成"纯字符串"和"真正则"两组，各做一个 matcher。
+// confs 与 patterns 平行（\;confidence:N 解析来的），跟着各自的模式走
+func splitPatterns(patterns []string, confs []int, part string) []Matcher {
 	var words, regexes []string
-	for _, p := range patterns {
+	var wordConfs, regexConfs []int
+	for i, p := range patterns {
+		conf := 0
+		if i < len(confs) {
+			conf = confs[i]
+		}
 		if lit, ok := plainLiteral(p); ok {
 			words = append(words, lit)
+			wordConfs = append(wordConfs, conf)
 		} else {
 			regexes = append(regexes, p)
+			regexConfs = append(regexConfs, conf)
 		}
 	}
 	var out []Matcher
 	if len(words) > 0 {
-		out = append(out, Matcher{Type: "word", Part: part, Words: words})
+		out = append(out, Matcher{Type: "word", Part: part, Words: words, Confidence: minConf(wordConfs)})
 	}
 	if regexes = compilable(regexes); len(regexes) > 0 {
-		out = append(out, Matcher{Type: "regex", Part: part, Regex: regexes})
+		out = append(out, Matcher{Type: "regex", Part: part, Regex: regexes, Confidence: minConf(regexConfs)})
 	}
 	return out
 }
@@ -198,9 +243,12 @@ func convertWappTech(name string, t wappTech) *Rule {
 	var matchers []Matcher
 
 	var headerRes, metaRes []string
+	var headerConfs, metaConfs []int
 	for k, v := range t.Headers {
 		for _, p := range wappPatterns(v) {
-			headerRes = append(headerRes, headerPattern(k, cleanWappPattern(p)))
+			clean, conf := splitWappMeta(p)
+			headerRes = append(headerRes, headerPattern(k, clean))
+			headerConfs = append(headerConfs, conf)
 		}
 	}
 	for k, v := range t.Cookies {
@@ -208,48 +256,68 @@ func convertWappTech(name string, t wappTech) *Rule {
 		ps := wappPatterns(v)
 		if len(ps) == 0 {
 			headerRes = append(headerRes, headerPattern("set-cookie", regexp.QuoteMeta(k)+`=`))
+			headerConfs = append(headerConfs, 0)
 		}
 		for _, p := range ps {
-			headerRes = append(headerRes, headerPattern("set-cookie", regexp.QuoteMeta(k)+`=`+cleanWappPattern(p)))
+			clean, conf := splitWappMeta(p)
+			headerRes = append(headerRes, headerPattern("set-cookie", regexp.QuoteMeta(k)+`=`+clean))
+			headerConfs = append(headerConfs, conf)
 		}
 	}
-	if headerRes = compilable(headerRes); len(headerRes) > 0 {
-		matchers = append(matchers, Matcher{Type: "regex", Part: "header", Regex: headerRes})
+	if headerRes, headerConfs = compilablePair(headerRes, headerConfs); len(headerRes) > 0 {
+		matchers = append(matchers, Matcher{Type: "regex", Part: "header", Regex: headerRes, Confidence: minConf(headerConfs)})
 	}
 
 	for k, v := range t.Meta {
 		for _, p := range wappPatterns(v) {
-			metaRes = append(metaRes, headerPattern(k, cleanWappPattern(p)))
+			clean, conf := splitWappMeta(p)
+			metaRes = append(metaRes, headerPattern(k, clean))
+			metaConfs = append(metaConfs, conf)
 		}
 	}
-	if metaRes = compilable(metaRes); len(metaRes) > 0 {
-		matchers = append(matchers, Matcher{Type: "regex", Part: "meta", Regex: metaRes})
+	if metaRes, metaConfs = compilablePair(metaRes, metaConfs); len(metaRes) > 0 {
+		matchers = append(matchers, Matcher{Type: "regex", Part: "meta", Regex: metaRes, Confidence: minConf(metaConfs)})
 	}
 
-	if ps := compilable(cleanAll(wappPatterns(t.HTML))); len(ps) > 0 {
-		matchers = append(matchers, splitPatterns(ps, "body")...)
-	}
-	if ps := compilable(cleanAll(wappPatterns(t.ScriptSrc))); len(ps) > 0 {
-		matchers = append(matchers, splitPatterns(ps, "script")...)
-	}
-	if ps := compilable(cleanAll(wappPatterns(t.URL))); len(ps) > 0 {
-		matchers = append(matchers, splitPatterns(ps, "url")...)
+	for _, part := range []struct {
+		field any
+		part  string
+	}{
+		{t.HTML, "body"},
+		{t.ScriptSrc, "script"},
+		{t.URL, "url"},
+	} {
+		var ps []string
+		var confs []int
+		for _, p := range wappPatterns(part.field) {
+			clean, conf := splitWappMeta(p)
+			if clean != "" {
+				ps = append(ps, clean)
+				confs = append(confs, conf)
+			}
+		}
+		if ps, confs = compilablePair(ps, confs); len(ps) > 0 {
+			matchers = append(matchers, splitPatterns(ps, confs, part.part)...)
+		}
 	}
 
 	// js 全局变量：path 存在即命中，模式非空则值也要匹配
 	var probes []JsProbe
+	var probeConfs []int
 	for path, v := range t.Js {
 		pattern := ""
+		conf := 0
 		if ps := wappPatterns(v); len(ps) > 0 {
-			pattern = cleanWappPattern(ps[0])
+			pattern, conf = splitWappMeta(ps[0])
 			if _, err := safeCompile(pattern); err != nil {
 				pattern = ""
 			}
 		}
 		probes = append(probes, JsProbe{Path: path, Pattern: tamePattern(pattern)})
+		probeConfs = append(probeConfs, conf)
 	}
 	if len(probes) > 0 {
-		matchers = append(matchers, Matcher{Type: "js", Js: probes})
+		matchers = append(matchers, Matcher{Type: "js", Js: probes, Confidence: minConf(probeConfs)})
 	}
 
 	// dom 选择器。
@@ -260,9 +328,12 @@ func convertWappTech(name string, t wappTech) *Rule {
 	//	text/attributes → 保留完整条件（content.js 能评估）
 	//	properties      → content script 摸不到页面挂在 DOM 上的 expando，丢
 	var domProbes []DomProbe
+	var domConfs []int
 	for _, s := range wappPatterns(t.Dom) {
-		if informativeSelector(s) {
-			domProbes = append(domProbes, DomProbe{Sel: s})
+		clean, conf := splitWappMeta(s)
+		if informativeSelector(clean) {
+			domProbes = append(domProbes, DomProbe{Sel: clean})
+			domConfs = append(domConfs, conf)
 		}
 	}
 	if domMap, ok := t.Dom.(map[string]any); ok {
@@ -271,6 +342,7 @@ func convertWappTech(name string, t wappTech) *Rule {
 			if condMap == nil { // 没条件，退化成 exists
 				if informativeSelector(sel) {
 					domProbes = append(domProbes, DomProbe{Sel: sel})
+					domConfs = append(domConfs, 0)
 				}
 				continue
 			}
@@ -278,14 +350,19 @@ func convertWappTech(name string, t wappTech) *Rule {
 				continue // 需要页面运行时属性，放弃这条
 			}
 			p := DomProbe{Sel: sel}
+			conf := 0
 			if ps := wappPatterns(condMap["text"]); len(ps) > 0 {
-				p.Text = cleanWappPattern(ps[0])
+				p.Text, conf = splitWappMeta(ps[0])
 			}
 			if attrs, ok := condMap["attributes"].(map[string]any); ok {
 				p.Attrs = make(map[string]string, len(attrs))
 				for k, v := range attrs {
 					if ps := wappPatterns(v); len(ps) > 0 {
-						p.Attrs[k] = cleanWappPattern(ps[0])
+						c, cc := splitWappMeta(ps[0])
+						p.Attrs[k] = c
+						if conf == 0 {
+							conf = cc
+						}
 					}
 				}
 			}
@@ -293,10 +370,11 @@ func convertWappTech(name string, t wappTech) *Rule {
 				continue // 裸存在 + 无信息量
 			}
 			domProbes = append(domProbes, p)
+			domConfs = append(domConfs, conf)
 		}
 	}
 	if len(domProbes) > 0 {
-		matchers = append(matchers, Matcher{Type: "dom", Dom: domProbes})
+		matchers = append(matchers, Matcher{Type: "dom", Dom: domProbes, Confidence: minConf(domConfs)})
 	}
 
 	if len(matchers) == 0 {

@@ -208,6 +208,23 @@
     </div>
 
     <div class="card">
+      <h2>🎚 置信度</h2>
+      <p class="muted">
+        规则（或单条 matcher）可以标 <code>confidence: 0-100</code>，数值越低表示信号越弱
+        （比如「页面声明了 manifest」只是 PWA 候选，标 30；meta generator 这种强信号标 90）。
+        Wappalyzer 源自带的置信度拉取时会自动转进来。
+        启用后弹窗会显示每个命中的置信度并按它排序，低于阈值的直接隐藏；不启用一切照旧。
+      </p>
+      <label class="bm-all-label" style="margin-top: 6px;">
+        <input type="checkbox" id="conf-enabled"> 启用置信度显示
+      </label>
+      <label for="conf-threshold">隐藏低于此置信度的命中（0 = 不隐藏）</label>
+      <input type="text" id="conf-threshold" placeholder="0">
+      <br>
+      <button id="conf-save" class="primary">保存</button>
+    </div>
+
+    <div class="card">
       <h2>🌐 第三方规则源</h2>
       <p class="muted">
         以下规则源由各自社区维护，致敬作者 🙏。点击后由你的浏览器实时拉取并转换入库（同 id 覆盖），

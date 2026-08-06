@@ -3,6 +3,7 @@
 # part: body / title / url / header / raw（默认 body）
 # condition 控制多条件组合（and/or，默认 or），negative 取反
 # matchers-condition 控制规则内多个 matcher 的组合
+# confidence: 0-100，可选，标在 matcher 或规则上表示信号强度（缺省 100，弱指纹给低分）
 
 - id: wordpress
   name: WordPress

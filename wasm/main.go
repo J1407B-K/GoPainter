@@ -29,8 +29,8 @@ func match(_ js.Value, args []js.Value) any {
 
 	hits := make([]Hit, 0)
 	for _, r := range rules {
-		if ok, ev := matchRule(r, &features); ok {
-			hits = append(hits, Hit{ID: r.ID, Name: r.Name, Evidence: ev})
+		if ok, ev, conf := matchRule(r, &features); ok {
+			hits = append(hits, Hit{ID: r.ID, Name: r.Name, Evidence: ev, Confidence: conf})
 		}
 	}
 	hits = applyImplies(hits, rules)

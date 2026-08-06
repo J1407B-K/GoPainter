@@ -348,6 +348,7 @@ const DEFAULT_PROMPTS = {
     '      hash: [整数]           # type=icon_hash 用，直接用用户给的 faviconHash 数字，别自己编',
     '      condition: and 或 or   # matcher 内部多条件组合，默认 or',
     '      negative: true         # 可选，取反',
+    '      confidence: 0-100      # 可选，这条 matcher 的可信度，缺省 100；弱信号给低点',
     '',
     '【示范】用户给的页面特征 → 应输出的完整规则：',
     '用户特征：',

@@ -8,6 +8,8 @@ const pageInfo = document.getElementById('page-info');
 
 let currentTabId = null;
 let currentTabUrl = '';
+// 置信度开关：设置页开的，开了才显示数值/排序/过滤
+let confCfg = { showConfidence: false, confThreshold: 0 };
 
 function setBusy(el, busy, busyLabel) {
   el.classList.toggle('busy', busy);
@@ -42,6 +44,8 @@ async function init() {
   }
   currentTabId = tab.id;
   currentTabUrl = tab.url;
+
+  confCfg = await chrome.storage.local.get({ showConfidence: false, confThreshold: 0 });
 
   // 有爬虫在跑就把「爬取本站」置灰，点了变成打开侧栏看进度
   const st = await chrome.runtime.sendMessage({ type: 'crawlStatus' });
@@ -100,12 +104,31 @@ function render({ features, result }) {
     return;
   }
 
+  // 置信度启用时：低置信度的隐藏，剩下的按置信度从高到低排
+  let hits = result.hits;
+  let hidden = 0;
+  if (confCfg.showConfidence) {
+    if (confCfg.confThreshold > 0) {
+      hidden = hits.filter((h) => (h.confidence ?? 100) < confCfg.confThreshold).length;
+      hits = hits.filter((h) => (h.confidence ?? 100) >= confCfg.confThreshold);
+    }
+    hits = hits.slice().sort((a, b) => (b.confidence ?? 100) - (a.confidence ?? 100));
+  }
+
+  if (!hits.length) {
+    statusEl.style.display = 'block';
+    statusEl.innerHTML = hidden > 0
+      ? `<span class="icon">🔍</span>${hidden} 个命中都低于置信度阈值<br>可在设置里调低阈值`
+      : '<span class="icon">🔍</span>未命中任何规则<br>可点击下方 AI 辅助识别';
+    return;
+  }
+
   const label = document.createElement('div');
   label.className = 'section-label';
-  label.textContent = `命中 ${result.hits.length} 个指纹`;
+  label.textContent = `命中 ${hits.length} 个指纹` + (hidden > 0 ? `（隐藏 ${hidden} 个低置信度）` : '');
   hitsEl.appendChild(label);
 
-  for (const h of result.hits) {
+  for (const h of hits) {
     hitsEl.appendChild(renderHit(h));
   }
 }
@@ -116,9 +139,17 @@ function renderHit(hit) {
 
   const head = document.createElement('div');
   head.className = 'head';
-  head.innerHTML = `<span class="name"></span><span class="id"></span>`;
+  head.innerHTML = `<span class="name"></span><span class="tail"><span class="id"></span></span>`;
   head.querySelector('.name').textContent = hit.name || hit.id;
   head.querySelector('.id').textContent = hit.id;
+  if (confCfg.showConfidence) {
+    const conf = hit.confidence ?? 100;
+    const badge = document.createElement('span');
+    badge.className = 'conf ' + (conf >= 80 ? 'high' : conf >= 50 ? 'mid' : 'low');
+    badge.textContent = conf + '%';
+    badge.title = '置信度';
+    head.querySelector('.tail').appendChild(badge);
+  }
   card.appendChild(head);
 
   if (hit.evidence?.length) {

@@ -99,6 +99,11 @@ dsl 表达式支持：标识符 `body` / `title` / `url` / `header` / `raw` / `m
 - `condition`：matcher 内部多条件组合，`and` / `or`（默认 `or`）
 - `matchers-condition`：规则内多个 matcher 的组合方式
 - `negative: true`：取反
+- `confidence: 0-100`：可选，标在 matcher 或规则上，表示信号强度——强信号（meta generator、专有路径）给高分，
+  弱信号（比如「页面声明了 manifest」只是 PWA 候选）给低分，没标一律按 100。
+  合成规则：`or` 取命中 matcher 的最大值，`and` 取最小值（最短板），规则级 `confidence` 作为缩放系数；
+  `implies` 推导的命中继承来源置信度。Wappalyzer 源里的 `\;confidence:N` 拉取时自动转进来。
+  在设置页「🎚 置信度」开启后，弹窗会显示置信度徽章、按置信度排序，并可设阈值隐藏低置信度命中（默认关闭）。
 
 ## 第三方规则源
 

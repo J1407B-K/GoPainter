@@ -17,6 +17,8 @@ type Rule struct {
 	Implies []string `json:"implies,omitempty"`
 	// 命中后要压制的技术名（wappalyzer 的 excludes），降噪用
 	Excludes []string `json:"excludes,omitempty"`
+	// 规则整体置信度 0-100，缺省 100。作为缩放系数乘在 matcher 合成值上
+	Confidence int `json:"confidence,omitempty"`
 }
 
 // JsProbe 检测页面运行时全局变量：path 存在即算，pattern 非空则值也要匹配
@@ -46,6 +48,8 @@ type Matcher struct {
 	Js        []JsProbe `json:"js,omitempty"`  // type=js 时用
 	// type=dom 时用；words 里的裸选择器也按"存在即命中"兼容
 	Dom []DomProbe `json:"dom,omitempty"`
+	// 这条 matcher 命中的可信度 0-100，缺省 100。弱信号（比如只是个 link 标签）可以给低点
+	Confidence int `json:"confidence,omitempty"`
 }
 
 // 页面特征，JS 侧采集完传进来
@@ -76,6 +80,8 @@ type Hit struct {
 	ID       string     `json:"id"`
 	Name     string     `json:"name"`
 	Evidence []Evidence `json:"evidence"`
+	// 0-100，由规则里的 confidence 合成；没配置信度的规则恒为 100
+	Confidence int `json:"confidence"`
 }
 
 // headerString 拼 "k: v\n" 形式的响应头文本，partText 和 dsl 都用
@@ -285,15 +291,37 @@ func combine(results []bool, condition string) bool {
 	return false
 }
 
-func matchRule(r Rule, f *Features) (bool, []Evidence) {
+func matchRule(r Rule, f *Features) (bool, []Evidence, int) {
 	results := make([]bool, 0, len(r.Matchers))
 	var ev []Evidence
+	conf := 0
+	and := r.MatchersCondition == "and"
 	for _, m := range r.Matchers {
 		ok, sub := evalMatcher(m, f)
 		results = append(results, ok)
 		ev = append(ev, sub...)
+		if !ok {
+			continue
+		}
+		// or 取最强信号，and 取最短板（整体可信度被最弱的那环拖累）
+		c := m.Confidence
+		if c <= 0 || c > 100 {
+			c = 100
+		}
+		if conf == 0 || (and && c < conf) || (!and && c > conf) {
+			conf = c
+		}
 	}
-	return combine(results, r.MatchersCondition), ev
+	if !combine(results, r.MatchersCondition) {
+		return false, nil, 0
+	}
+	if conf == 0 {
+		conf = 100
+	}
+	if r.Confidence > 0 && r.Confidence < 100 {
+		conf = conf * r.Confidence / 100
+	}
+	return true, ev, conf
 }
 
 // implies 级联：命中 A 就补上 A 声明的技术，一轮轮推到没有新东西为止。
@@ -323,9 +351,10 @@ func applyImplies(hits []Hit, rules []Rule) []Hit {
 			}
 			have[key] = true
 			nh := Hit{
-				ID:       slugify(imp),
-				Name:     imp,
-				Evidence: []Evidence{{Type: "implies", Detail: "由 " + h.Name + " 推导"}},
+				ID:         slugify(imp),
+				Name:       imp,
+				Evidence:   []Evidence{{Type: "implies", Detail: "由 " + h.Name + " 推导"}},
+				Confidence: h.Confidence, // 推导链上的可信度跟着来源走
 			}
 			hits = append(hits, nh)
 			queue = append(queue, nh) // 推导出来的还能再推导
