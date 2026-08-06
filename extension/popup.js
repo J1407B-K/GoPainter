@@ -109,10 +109,16 @@ function render({ features, result }) {
   let hidden = 0;
   if (confCfg.showConfidence) {
     if (confCfg.confThreshold > 0) {
-      hidden = hits.filter((h) => (h.confidence ?? 100) < confCfg.confThreshold).length;
-      hits = hits.filter((h) => (h.confidence ?? 100) >= confCfg.confThreshold);
+      hidden = hits.filter((h) => typeof h.confidence === 'number' && h.confidence < confCfg.confThreshold).length;
+      hits = hits.filter((h) => typeof h.confidence !== 'number' || h.confidence >= confCfg.confThreshold);
     }
-    hits = hits.slice().sort((a, b) => (b.confidence ?? 100) - (a.confidence ?? 100));
+    hits = hits.map((h, i) => ({ h, i })).sort((a, b) => {
+      const ac = typeof a.h.confidence === 'number';
+      const bc = typeof b.h.confidence === 'number';
+      if (ac && bc) return b.h.confidence - a.h.confidence || a.i - b.i;
+      if (ac !== bc) return ac ? -1 : 1;
+      return a.i - b.i;
+    }).map((x) => x.h);
   }
 
   if (!hits.length) {
@@ -142,8 +148,8 @@ function renderHit(hit) {
   head.innerHTML = `<span class="name"></span><span class="tail"><span class="id"></span></span>`;
   head.querySelector('.name').textContent = hit.name || hit.id;
   head.querySelector('.id').textContent = hit.id;
-  if (confCfg.showConfidence) {
-    const conf = hit.confidence ?? 100;
+  if (confCfg.showConfidence && typeof hit.confidence === 'number') {
+    const conf = hit.confidence;
     const badge = document.createElement('span');
     badge.className = 'conf ' + (conf >= 80 ? 'high' : conf >= 50 ? 'mid' : 'low');
     badge.textContent = conf + '%';

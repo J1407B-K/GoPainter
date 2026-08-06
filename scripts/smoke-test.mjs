@@ -344,7 +344,7 @@ const cspHit = JSON.parse(globalThis.goMatch(JSON.stringify(csp.rules), JSON.str
 })));
 pass &&= cspHit.hits.some((h) => h.name === 'Amazon S3');
 
-// 置信度：matcher 级 or 取 max、and 取 min、规则级缩放、implies 继承、没标默认 100
+// 置信度：matcher 级 or 取 max、and 取 min、规则级缩放、implies 继承、没标就是 null
 const confRules = [
   { id: 'or-rule', name: 'OrRule', matchers: [
     { type: 'status', status: [200], confidence: 40 },
@@ -366,20 +366,33 @@ pass &&= confOf('or-rule') === 90        // or → 最强信号
   && confOf('and-rule') === 40           // and → 最短板
   && confOf('scaled') === 40             // 80 × 规则级 50%
   && confOf('scaledchild') === 40        // implies 继承来源
-  && confOf('plain') === 100;            // 啥都没标 → 100
+  && confOf('plain') === null;           // 啥都没标 → 不编分
 
-// wappalyzer 的 \;confidence:N 后缀要转进 matcher（一组模式取最小）
+// wappalyzer 的 \;confidence:N 后缀要转进 matcher；同字段不同置信度要拆开，
+// 避免只命中高分模式时被未命中的低分模式拖低
 const wappConf = JSON.parse(globalThis.goConvertWappalyzer(JSON.stringify({
   'WeakTech': { html: ['<div id="app"\\;confidence:30', 'webpack\\;confidence:60'] },
   'StrongTech': { meta: { generator: 'StrongTech\\;confidence:95\\;version:\\1' } },
 })));
 const weak = wappConf.rules.find((r) => r.id === 'weaktech');
 const strong = wappConf.rules.find((r) => r.id === 'strongtech');
-console.log('wapp confidence =', JSON.stringify(wappConf.rules.map((r) => [r.id, r.matchers.map((m) => m.confidence ?? 0)])));
-pass &&= weak && weak.matchers.every((m) => m.confidence > 0 && m.confidence <= 60)
-  && weak.matchers.some((m) => m.confidence === 30)   // 组内最小
+console.log('wapp confidence =', JSON.stringify(wappConf.rules.map((r) => [r.id, r.matchers.map((m) => m.confidence ?? null)])));
+const weakWebpackOnly = JSON.parse(globalThis.goMatch(JSON.stringify([weak]), JSON.stringify({
+  ...features, body: '<html><script>webpack</script></html>',
+})));
+const noWappConf = JSON.parse(globalThis.goConvertWappalyzer(JSON.stringify({
+  'NoConfTech': { html: ['no-conf-marker'] },
+})));
+const noWappConfHit = JSON.parse(globalThis.goMatch(JSON.stringify(noWappConf.rules), JSON.stringify({
+  ...features, body: 'no-conf-marker',
+})));
+pass &&= weak && weak.matchers.some((m) => m.confidence === 30)
+  && weak.matchers.some((m) => m.confidence === 60)
+  && weakWebpackOnly.hits[0]?.confidence === 60
   && strong && strong.matchers[0].confidence === 95
-  && !strong.matchers[0].regex[0].includes('\\;');    // 后缀还是切干净的
+  && !strong.matchers[0].regex[0].includes('\\;')     // 后缀还是切干净的
+  && noWappConf.rules[0].matchers.every((m) => !('confidence' in m))
+  && noWappConfHit.hits[0]?.confidence === null;
 
 console.log(pass ? '✅ 冒烟测试通过' : '❌ 结果不符合预期');
 process.exit(pass ? 0 : 1);

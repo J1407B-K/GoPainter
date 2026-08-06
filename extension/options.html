@@ -213,10 +213,10 @@
         规则（或单条 matcher）可以标 <code>confidence: 0-100</code>，数值越低表示信号越弱
         （比如「页面声明了 manifest」只是 PWA 候选，标 30；meta generator 这种强信号标 90）。
         Wappalyzer 源自带的置信度拉取时会自动转进来。
-        启用后弹窗会显示每个命中的置信度并按它排序，低于阈值的直接隐藏；不启用一切照旧。
+        未标注的命中不显示置信度；开启排序后，弹窗才显示已标注置信度并按它排序、按阈值隐藏。
       </p>
       <label class="bm-all-label" style="margin-top: 6px;">
-        <input type="checkbox" id="conf-enabled"> 启用置信度显示
+        <input type="checkbox" id="conf-enabled"> 按置信度排序
       </label>
       <label for="conf-threshold">隐藏低于此置信度的命中（0 = 不隐藏）</label>
       <input type="text" id="conf-threshold" placeholder="0">

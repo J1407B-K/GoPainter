@@ -32,14 +32,15 @@ type wappTech struct {
 // 版本提取我们不支持，切掉；confidence 捡起来填到 matcher 上
 var wappConfRe = regexp.MustCompile(`\\;confidence:(\d+)`)
 
-func splitWappMeta(p string) (string, int) {
+func splitWappMeta(p string) (string, *int) {
 	i := strings.Index(p, "\\;")
 	if i < 0 {
-		return p, 0
+		return p, nil
 	}
-	conf := 0
+	var conf *int
 	if m := wappConfRe.FindStringSubmatch(p[i:]); m != nil {
-		conf, _ = strconv.Atoi(m[1])
+		v, _ := strconv.Atoi(m[1])
+		conf = &v
 	}
 	return p[:i], conf
 }
@@ -47,17 +48,6 @@ func splitWappMeta(p string) (string, int) {
 func cleanWappPattern(p string) string {
 	c, _ := splitWappMeta(p)
 	return c
-}
-
-// 一组模式攒成一个 matcher 时，各自带的 confidence 取最小（保守），都没标就是 0（=默认 100）
-func minConf(confs []int) int {
-	min := 0
-	for _, c := range confs {
-		if c > 0 && c <= 100 && (min == 0 || c < min) {
-			min = c
-		}
-	}
-	return min
 }
 
 // 字段值可能是单个字符串或字符串数组
@@ -162,7 +152,7 @@ func compilable(patterns []string) []string {
 }
 
 // 成对版：丢模式的同时把它的 confidence 也丢了，保持两个切片对齐
-func compilablePair(patterns []string, confs []int) ([]string, []int) {
+func compilablePair(patterns []string, confs []*int) ([]string, []*int) {
 	outP := patterns[:0]
 	outC := confs[:0]
 	for i, p := range patterns {
@@ -174,10 +164,95 @@ func compilablePair(patterns []string, confs []int) ([]string, []int) {
 	return outP, outC
 }
 
+func confKey(confs []*int, i int) int {
+	if i >= len(confs) {
+		return -1
+	}
+	c := confs[i]
+	if c == nil || *c < 0 || *c > 100 {
+		return -1
+	}
+	return *c
+}
+
+func confFromKey(c int) *int {
+	if c < 0 {
+		return nil
+	}
+	v := c
+	return &v
+}
+
+func appendWordMatchersByConf(out []Matcher, part string, words []string, confs []*int) []Matcher {
+	byConf := make(map[int][]string)
+	var order []int
+	for i, w := range words {
+		c := confKey(confs, i)
+		if _, ok := byConf[c]; !ok {
+			order = append(order, c)
+		}
+		byConf[c] = append(byConf[c], w)
+	}
+	for _, c := range order {
+		out = append(out, Matcher{Type: "word", Part: part, Words: byConf[c], Confidence: confFromKey(c)})
+	}
+	return out
+}
+
+func appendRegexMatchersByConf(out []Matcher, part string, regexes []string, confs []*int) []Matcher {
+	byConf := make(map[int][]string)
+	var order []int
+	for i, r := range regexes {
+		c := confKey(confs, i)
+		if _, ok := byConf[c]; !ok {
+			order = append(order, c)
+		}
+		byConf[c] = append(byConf[c], r)
+	}
+	for _, c := range order {
+		out = append(out, Matcher{Type: "regex", Part: part, Regex: byConf[c], Confidence: confFromKey(c)})
+	}
+	return out
+}
+
+func appendJsMatchersByConf(out []Matcher, probes []JsProbe, confs []*int) []Matcher {
+	byConf := make(map[int][]JsProbe)
+	var order []int
+	for i, p := range probes {
+		c := confKey(confs, i)
+		if _, ok := byConf[c]; !ok {
+			order = append(order, c)
+		}
+		byConf[c] = append(byConf[c], p)
+	}
+	for _, c := range order {
+		out = append(out, Matcher{Type: "js", Js: byConf[c], Confidence: confFromKey(c)})
+	}
+	return out
+}
+
+func appendDomMatchersByConf(out []Matcher, probes []DomProbe, confs []*int) []Matcher {
+	byConf := make(map[int][]DomProbe)
+	var order []int
+	for i, p := range probes {
+		c := confKey(confs, i)
+		if _, ok := byConf[c]; !ok {
+			order = append(order, c)
+		}
+		byConf[c] = append(byConf[c], p)
+	}
+	for _, c := range order {
+		out = append(out, Matcher{Type: "dom", Dom: byConf[c], Confidence: confFromKey(c)})
+	}
+	return out
+}
+
 // 响应头是 "k: v" 格式（k 小写），按行首匹配 key。
 // 值模式两种语义要区分（之前一律 \s* 接值开头，把"值里包含"类规则全弄死了）：
-//   原版以 ^ 开头 → 值的开头匹配（剥掉 ^，我们自己的行首锚定已经管了）
-//   否则           → 值里任意位置包含（补 [^\n]*）
+//
+//	原版以 ^ 开头 → 值的开头匹配（剥掉 ^，我们自己的行首锚定已经管了）
+//	否则           → 值里任意位置包含（补 [^\n]*）
+//
 // 结尾的 $ 保留，(?m) 下能正确锚到行尾
 func headerPattern(key, pattern string) string {
 	p := `(?im)^` + regexp.QuoteMeta(strings.ToLower(key)) + `:`
@@ -213,11 +288,11 @@ func plainLiteral(p string) (string, bool) {
 
 // 模式列表拆成"纯字符串"和"真正则"两组，各做一个 matcher。
 // confs 与 patterns 平行（\;confidence:N 解析来的），跟着各自的模式走
-func splitPatterns(patterns []string, confs []int, part string) []Matcher {
+func splitPatterns(patterns []string, confs []*int, part string) []Matcher {
 	var words, regexes []string
-	var wordConfs, regexConfs []int
+	var wordConfs, regexConfs []*int
 	for i, p := range patterns {
-		conf := 0
+		var conf *int
 		if i < len(confs) {
 			conf = confs[i]
 		}
@@ -231,10 +306,10 @@ func splitPatterns(patterns []string, confs []int, part string) []Matcher {
 	}
 	var out []Matcher
 	if len(words) > 0 {
-		out = append(out, Matcher{Type: "word", Part: part, Words: words, Confidence: minConf(wordConfs)})
+		out = appendWordMatchersByConf(out, part, words, wordConfs)
 	}
-	if regexes = compilable(regexes); len(regexes) > 0 {
-		out = append(out, Matcher{Type: "regex", Part: part, Regex: regexes, Confidence: minConf(regexConfs)})
+	if regexes, regexConfs = compilablePair(regexes, regexConfs); len(regexes) > 0 {
+		out = appendRegexMatchersByConf(out, part, regexes, regexConfs)
 	}
 	return out
 }
@@ -243,7 +318,7 @@ func convertWappTech(name string, t wappTech) *Rule {
 	var matchers []Matcher
 
 	var headerRes, metaRes []string
-	var headerConfs, metaConfs []int
+	var headerConfs, metaConfs []*int
 	for k, v := range t.Headers {
 		for _, p := range wappPatterns(v) {
 			clean, conf := splitWappMeta(p)
@@ -256,7 +331,7 @@ func convertWappTech(name string, t wappTech) *Rule {
 		ps := wappPatterns(v)
 		if len(ps) == 0 {
 			headerRes = append(headerRes, headerPattern("set-cookie", regexp.QuoteMeta(k)+`=`))
-			headerConfs = append(headerConfs, 0)
+			headerConfs = append(headerConfs, nil)
 		}
 		for _, p := range ps {
 			clean, conf := splitWappMeta(p)
@@ -265,7 +340,7 @@ func convertWappTech(name string, t wappTech) *Rule {
 		}
 	}
 	if headerRes, headerConfs = compilablePair(headerRes, headerConfs); len(headerRes) > 0 {
-		matchers = append(matchers, Matcher{Type: "regex", Part: "header", Regex: headerRes, Confidence: minConf(headerConfs)})
+		matchers = appendRegexMatchersByConf(matchers, "header", headerRes, headerConfs)
 	}
 
 	for k, v := range t.Meta {
@@ -276,7 +351,7 @@ func convertWappTech(name string, t wappTech) *Rule {
 		}
 	}
 	if metaRes, metaConfs = compilablePair(metaRes, metaConfs); len(metaRes) > 0 {
-		matchers = append(matchers, Matcher{Type: "regex", Part: "meta", Regex: metaRes, Confidence: minConf(metaConfs)})
+		matchers = appendRegexMatchersByConf(matchers, "meta", metaRes, metaConfs)
 	}
 
 	for _, part := range []struct {
@@ -288,7 +363,7 @@ func convertWappTech(name string, t wappTech) *Rule {
 		{t.URL, "url"},
 	} {
 		var ps []string
-		var confs []int
+		var confs []*int
 		for _, p := range wappPatterns(part.field) {
 			clean, conf := splitWappMeta(p)
 			if clean != "" {
@@ -303,10 +378,10 @@ func convertWappTech(name string, t wappTech) *Rule {
 
 	// js 全局变量：path 存在即命中，模式非空则值也要匹配
 	var probes []JsProbe
-	var probeConfs []int
+	var probeConfs []*int
 	for path, v := range t.Js {
 		pattern := ""
-		conf := 0
+		var conf *int
 		if ps := wappPatterns(v); len(ps) > 0 {
 			pattern, conf = splitWappMeta(ps[0])
 			if _, err := safeCompile(pattern); err != nil {
@@ -317,7 +392,7 @@ func convertWappTech(name string, t wappTech) *Rule {
 		probeConfs = append(probeConfs, conf)
 	}
 	if len(probes) > 0 {
-		matchers = append(matchers, Matcher{Type: "js", Js: probes, Confidence: minConf(probeConfs)})
+		matchers = appendJsMatchersByConf(matchers, probes, probeConfs)
 	}
 
 	// dom 选择器。
@@ -328,7 +403,7 @@ func convertWappTech(name string, t wappTech) *Rule {
 	//	text/attributes → 保留完整条件（content.js 能评估）
 	//	properties      → content script 摸不到页面挂在 DOM 上的 expando，丢
 	var domProbes []DomProbe
-	var domConfs []int
+	var domConfs []*int
 	for _, s := range wappPatterns(t.Dom) {
 		clean, conf := splitWappMeta(s)
 		if informativeSelector(clean) {
@@ -342,7 +417,7 @@ func convertWappTech(name string, t wappTech) *Rule {
 			if condMap == nil { // 没条件，退化成 exists
 				if informativeSelector(sel) {
 					domProbes = append(domProbes, DomProbe{Sel: sel})
-					domConfs = append(domConfs, 0)
+					domConfs = append(domConfs, nil)
 				}
 				continue
 			}
@@ -350,7 +425,7 @@ func convertWappTech(name string, t wappTech) *Rule {
 				continue // 需要页面运行时属性，放弃这条
 			}
 			p := DomProbe{Sel: sel}
-			conf := 0
+			var conf *int
 			if ps := wappPatterns(condMap["text"]); len(ps) > 0 {
 				p.Text, conf = splitWappMeta(ps[0])
 			}
@@ -360,7 +435,7 @@ func convertWappTech(name string, t wappTech) *Rule {
 					if ps := wappPatterns(v); len(ps) > 0 {
 						c, cc := splitWappMeta(ps[0])
 						p.Attrs[k] = c
-						if conf == 0 {
+						if conf == nil {
 							conf = cc
 						}
 					}
@@ -374,7 +449,7 @@ func convertWappTech(name string, t wappTech) *Rule {
 		}
 	}
 	if len(domProbes) > 0 {
-		matchers = append(matchers, Matcher{Type: "dom", Dom: domProbes, Confidence: minConf(domConfs)})
+		matchers = appendDomMatchersByConf(matchers, domProbes, domConfs)
 	}
 
 	if len(matchers) == 0 {

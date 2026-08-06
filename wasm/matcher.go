@@ -17,8 +17,8 @@ type Rule struct {
 	Implies []string `json:"implies,omitempty"`
 	// 命中后要压制的技术名（wappalyzer 的 excludes），降噪用
 	Excludes []string `json:"excludes,omitempty"`
-	// 规则整体置信度 0-100，缺省 100。作为缩放系数乘在 matcher 合成值上
-	Confidence int `json:"confidence,omitempty"`
+	// 规则整体置信度 0-100；没写就是未知，不自动伪造成 100
+	Confidence *int `json:"confidence,omitempty"`
 }
 
 // JsProbe 检测页面运行时全局变量：path 存在即算，pattern 非空则值也要匹配
@@ -48,8 +48,8 @@ type Matcher struct {
 	Js        []JsProbe `json:"js,omitempty"`  // type=js 时用
 	// type=dom 时用；words 里的裸选择器也按"存在即命中"兼容
 	Dom []DomProbe `json:"dom,omitempty"`
-	// 这条 matcher 命中的可信度 0-100，缺省 100。弱信号（比如只是个 link 标签）可以给低点
-	Confidence int `json:"confidence,omitempty"`
+	// 这条 matcher 命中的可信度 0-100；没写就是未知，不自动伪造成 100
+	Confidence *int `json:"confidence,omitempty"`
 }
 
 // 页面特征，JS 侧采集完传进来
@@ -80,8 +80,8 @@ type Hit struct {
 	ID       string     `json:"id"`
 	Name     string     `json:"name"`
 	Evidence []Evidence `json:"evidence"`
-	// 0-100，由规则里的 confidence 合成；没配置信度的规则恒为 100
-	Confidence int `json:"confidence"`
+	// 0-100，由规则里的 confidence 合成；没配置信度则为 null
+	Confidence *int `json:"confidence"`
 }
 
 // headerString 拼 "k: v\n" 形式的响应头文本，partText 和 dsl 都用
@@ -291,10 +291,17 @@ func combine(results []bool, condition string) bool {
 	return false
 }
 
-func matchRule(r Rule, f *Features) (bool, []Evidence, int) {
+func validConfidence(c *int) (int, bool) {
+	if c == nil || *c < 0 || *c > 100 {
+		return 0, false
+	}
+	return *c, true
+}
+
+func matchRule(r Rule, f *Features) (bool, []Evidence, *int) {
 	results := make([]bool, 0, len(r.Matchers))
 	var ev []Evidence
-	conf := 0
+	var conf *int
 	and := r.MatchersCondition == "and"
 	for _, m := range r.Matchers {
 		ok, sub := evalMatcher(m, f)
@@ -303,23 +310,27 @@ func matchRule(r Rule, f *Features) (bool, []Evidence, int) {
 		if !ok {
 			continue
 		}
-		// or 取最强信号，and 取最短板（整体可信度被最弱的那环拖累）
-		c := m.Confidence
-		if c <= 0 || c > 100 {
-			c = 100
+		c, ok := validConfidence(m.Confidence)
+		if !ok {
+			continue
 		}
-		if conf == 0 || (and && c < conf) || (!and && c > conf) {
-			conf = c
+		// or 取最强的已标注信号，and 取已标注信号里的短板
+		if conf == nil || (and && c < *conf) || (!and && c > *conf) {
+			v := c
+			conf = &v
 		}
 	}
 	if !combine(results, r.MatchersCondition) {
-		return false, nil, 0
+		return false, nil, nil
 	}
-	if conf == 0 {
-		conf = 100
-	}
-	if r.Confidence > 0 && r.Confidence < 100 {
-		conf = conf * r.Confidence / 100
+	if rc, ok := validConfidence(r.Confidence); ok {
+		if conf == nil {
+			v := rc
+			conf = &v
+		} else {
+			v := *conf * rc / 100
+			conf = &v
+		}
 	}
 	return true, ev, conf
 }
