@@ -1,24 +1,26 @@
-# GoPainter 🎨
+# GoPainter
 
-基于 YAML 指纹规则的 Web 资产测绘。**TinyGo** 编译的 WASM 匹配引擎 + AI 辅助识别。
+**English** | [简体中文](./README_CN.md)
 
-GoPainter只管"画"(高效检测+爬取引擎),不管颜料（规则）————来自社区规则源/自定义
+Web asset fingerprinting for the browser. A **TinyGo**-compiled WASM matching engine with optional LLM-assisted identification.
 
-浏览网页时自动对当前站点做指纹识别，命中结果实时展示——工具栏图标**灰色 = 未命中，彩色 + 数字角标 = 命中 N 个指纹**。
+GoPainter provides the engine — detection and crawling. The fingerprint definitions (rules) come from community rule sources or your own YAML files; the repository ships no rule data itself.
 
-## 特性
+While you browse, GoPainter fingerprints the current site automatically and surfaces hits in real time: the toolbar icon stays gray when nothing matches, and turns colored with a badge showing the hit count when it does.
 
-- 🧩 **YAML 指纹规则**：word / regex / status / icon_hash 四种 matcher，支持 and/or 组合与 negative 取反
-- 🔁 **兼容 nuclei 模板**：导入时自动提取 http matchers 子集，社区海量规则直接可用
-- 🌐 **第三方规则源**：Wappalyzer / EHole / nuclei-templates 一键拉取转换，是否下载由你决定，仓库本身不含任何规则数据
-- ⚡ **TinyGo WASM 引擎**：匹配逻辑用 Go 编写，编译产物仅 ~750KB，毫秒级匹配
-- 🔍 **命中证据展示**：每个指纹附带具体命中的关键词/正则/状态码/哈希
-- 🎨 **图标状态感知**：灰色 = 未命中，彩色 + 角标数字 = 命中数
-- ✨ **AI 辅助识别**：规则未命中时一键调用 LLM 分析（任意 OpenAI 兼容接口）
+## Features
 
-## 快速开始
+- **YAML fingerprint rules** — word / regex / status / icon_hash matchers, with `and`/`or` combinations and `negative` inversion
+- **nuclei template compatibility** — imports automatically extract the HTTP matchers subset, so the large community template library is directly usable
+- **Third-party rule sources** — Wappalyzer / EHole / nuclei-templates can be pulled and converted in one click; whether to download is your choice
+- **TinyGo WASM engine** — matching logic in Go, compiled to a ~750KB WASM binary with millisecond matching
+- **Hit evidence** — each fingerprint carries the specific keyword, regex, status code, or hash that matched
+- **Icon state indicator** — gray = no match, colored + badge = N matches
+- **LLM-assisted identification** — one-click analysis via any OpenAI-compatible endpoint when rules miss
 
-### 1. 安装 TinyGo
+## Quick start
+
+### 1. Install TinyGo
 
 **macOS**
 ```bash
@@ -29,126 +31,124 @@ brew install tinygo
 **Windows**
 ```powershell
 winget install TinyGo.TinyGo
-# 或者用 Scoop: scoop install tinygo
+# or via Scoop: scoop install tinygo
 ```
 
 **Linux**
 ```bash
 sudo pacman -S tinygo        # Arch
-sudo apt install tinygo      # Debian/Ubuntu（或参考官网用预编译包）
+sudo apt install tinygo      # Debian/Ubuntu (or use a prebuilt package from the official site)
 ```
 
-其他安装方式见 [TinyGo 官方文档](https://tinygo.org/getting-started/install/)。
+Other installation options: [TinyGo official docs](https://tinygo.org/getting-started/install/).
 
-### 2. 构建 WASM 引擎
+### 2. Build the WASM engine
 
 **macOS / Linux**
 ```bash
-make build        # 产出 extension/wasm/matcher.wasm + wasm_exec.js
-make icons        # 如需重新生成图标（可选，仓库已内置）
+make build        # produces extension/wasm/matcher.wasm + wasm_exec.js
+make icons        # regenerate icons (optional; the repo ships them)
 ```
 
-**Windows（PowerShell）**
+**Windows (PowerShell)**
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/build.ps1
 ```
 
-### 3. 安装到 Chrome
+### 3. Install into Chrome
 
-1. 打开 `chrome://extensions`
-2. 打开右上角「**开发者模式**」（Developer mode）
-3. 点击「**加载已解压的扩展程序**」（Load unpacked）
-4. 选择本项目的 **`extension/`** 目录
+1. Open `chrome://extensions`
+2. Enable **Developer mode** (top right)
+3. Click **Load unpacked**
+4. Select this repo's **`extension/`** directory
 
-> Edge / Brave 等 Chromium 浏览器同样适用（`edge://extensions`）。
+> Edge and Brave (Chromium-based) work the same way (`edge://extensions`).
 
-### 4. 导入规则 & 使用
+### 4. Import rules & use
 
-1. 点击工具栏 GoPainter 图标 → 「⚙️ 规则」→ 导入 `rules/examples.yaml`（或任何 nuclei 模板）
-2. 访问任意网站，图标变彩色即表示命中，点击图标查看详情与证据
-3. 未命中时可点「✨ AI 辅助识别」（需先在设置页配置 API）
+1. Click the GoPainter toolbar icon → "Rules" → import `rules/examples.yaml` (or any nuclei template)
+2. Visit a site — the icon turns colored on a match; click it to inspect details and evidence
+3. When nothing matches, use "AI-assisted identification" (configure an API in settings first)
 
-### 5. 爬取站点（Side Panel）
+### 5. Crawl a site (Side Panel)
 
-1. 点击工具栏 GoPainter 图标 → 「🕷 爬取本站」，确认起始 URL 与最大页数后启动
-2. 右侧自动滑出**爬取侧边栏**（Side Panel），与页面并存，实时显示：已扫页数 / 队列 / 失败数，以及每个页面的命中指纹
-3. 爬取中工具栏的「爬取本站」会置灰，再次点击直接回到侧栏看进度
-4. 也可以在设置页「🕷 站点爬取」从任意 URL 发起爬取
+1. Click the GoPainter toolbar icon → "Crawl this site", confirm the seed URL and max page count
+2. A crawl **Side Panel** slides out alongside the page, showing scanned count / queue / failures in real time, plus matched fingerprints per page
+3. While a crawl is running the toolbar button is disabled; clicking it again returns to the panel
+4. Crawling can also be started from any URL under Settings → "Site crawl"
 
-> 侧栏依赖 Chrome 126+ 的 `chrome.sidePanel` API；早版本浏览器不会自动弹侧栏，但仍可在设置页查看进度。
+> The side panel requires the `chrome.sidePanel` API (Chrome 126+). Older browsers won't auto-open it, but progress remains visible in the settings page.
 
-## 规则格式
+## Rule format
 
-见 [`rules/examples.yaml`](rules/examples.yaml)。支持四种 matcher：
+See [`rules/examples.yaml`](rules/examples.yaml). Supported matcher types:
 
-| type | 说明 | 条件字段 |
+| type | description | fields |
 |---|---|---|
-| `word` | 文本包含 | `words` |
-| `regex` | 正则匹配 | `regex` |
-| `status` | HTTP 状态码 | `status` |
-| `icon_hash` | favicon mmh3 哈希（fofa 标准） | `hash` |
-| `dsl` | 表达式求值（nuclei dsl 子集） | `dsl` |
-| `js` | 页面运行时全局变量（MAIN world 探测） | `js: [{path, pattern?}]` |
-| `dom` | CSS 选择器存在性 | `words` 装选择器 |
+| `word` | plain-text containment | `words` |
+| `regex` | regular expression match | `regex` |
+| `status` | HTTP status code | `status` |
+| `icon_hash` | favicon mmh3 hash (fofa standard) | `hash` |
+| `dsl` | expression evaluation (nuclei dsl subset) | `dsl` |
+| `js` | page runtime globals (MAIN world probe) | `js: [{path, pattern?}]` |
+| `dom` | CSS selector presence | `words` holding selectors |
 
-规则还支持 `implies: ["其他技术名"]`——命中后自动级联推导（如 Next.js → React），推导命中带「由 X 推导」证据。
+Rules also support `implies: ["other technology"]` — on a hit, the listed technologies are derived automatically (e.g. Next.js → React), each derived hit carrying a "derived from X" evidence.
 
-dsl 表达式支持：标识符 `body` / `title` / `url` / `header` / `raw` / `meta` / `script` / `status` / `favicon_hash`，
-函数 `contains(a, "子串")` / `matches(a, "正则")`，运算符 `&&` `||` `!` `==` `!=` 和括号。
-例：`contains(body, "wp-content") && status == 200`
+The dsl subset supports the identifiers `body` / `title` / `url` / `header` / `raw` / `meta` / `script` / `status` / `favicon_hash`,
+the functions `contains(a, "substr")` / `matches(a, "regex")`, operators `&&` `||` `!` `==` `!=`, and parentheses.
+Example: `contains(body, "wp-content") && status == 200`
 
-- `part`：`body` / `title` / `url` / `header` / `raw` / `meta` / `script`（默认 `body`）
-- `condition`：matcher 内部多条件组合，`and` / `or`（默认 `or`）
-- `matchers-condition`：规则内多个 matcher 的组合方式
-- `negative: true`：取反
-- `confidence: 0-100`：可选，标在 matcher 或规则上，表示信号强度——强信号（meta generator、专有路径）给高分，
-  弱信号（比如「页面声明了 manifest」只是 PWA 候选）给低分，没标则输出 `confidence: null`，不自动编成 100。
-  合成规则：`or` 取命中 matcher 的最大值，`and` 取最小值（最短板），规则级 `confidence` 作为缩放系数；
-  `implies` 推导的命中继承来源置信度。Wappalyzer 源里的 `\;confidence:N` 拉取时自动转进来，
-  同字段不同置信度的模式会拆成独立 matcher，避免未命中的低分模式拉低高分命中。
-  在设置页「🎚 置信度」开启后，弹窗只给已标注命中显示徽章、按已标注置信度排序，并可设阈值隐藏低置信度命中（默认关闭）。
+- `part`: `body` / `title` / `url` / `header` / `raw` / `meta` / `script` (default `body`)
+- `condition`: combines conditions within a matcher, `and` / `or` (default `or`)
+- `matchers-condition`: combines multiple matchers within a rule
+- `negative: true`: inverts the match
+- `confidence: 0-100`: optional, on a matcher or a rule, expressing signal strength — strong signals (meta generator, proprietary paths) get high values,
+  weak signals (e.g. "page declares a manifest" is only a PWA candidate) get low ones; when unset the output is `confidence: null`, never fabricated as 100.
+  Aggregation: `or` takes the max confidence among matched matchers, `and` takes the min (the weakest link); a rule-level `confidence` acts as a scale factor;
+  derived (`implies`) hits inherit the source's confidence. `\;confidence:N` suffixes from the Wappalyzer source are converted on import,
+  and patterns of the same field with different confidences are split into separate matchers so a low-confidence miss doesn't drag down a high-confidence hit.
+  With "Confidence" enabled in settings, the popup shows badges only for hits that carry a confidence, sorts by it, and can filter out hits below a threshold (off by default).
 
-## 第三方规则源
+## Third-party rule sources
 
-设置页「第三方规则源」支持从你的浏览器实时拉取社区指纹库并转换入库：
+The settings page can pull community fingerprint libraries in real time from your browser and convert them into rules:
 
-| 源 | 规模 | 说明 |
+| source | size | description |
 |---|---|---|
-| [enthec/webappanalyzer](https://github.com/enthec/webappanalyzer) | 几千条 | Wappalyzer 社区维护版，Web 技术指纹 |
-| [EdgeSecurityTeam/EHole](https://github.com/EdgeSecurityTeam/EHole) | 958 条 | 棱洞指纹，国产系统覆盖好 |
-| [projectdiscovery/nuclei-templates](https://github.com/projectdiscovery/nuclei-templates) | 数百条 | http/technologies 技术识别模板 |
+| [enthec/webappanalyzer](https://github.com/enthec/webappanalyzer) | several thousand | community-maintained Wappalyzer, web technology fingerprints |
+| [EdgeSecurityTeam/EHole](https://github.com/EdgeSecurityTeam/EHole) | 958 | EHole fingerprints, strong domestic-system coverage |
+| [projectdiscovery/nuclei-templates](https://github.com/projectdiscovery/nuclei-templates) | hundreds | http/technologies recognition templates |
 
-感谢以上社区的长期维护 🙏 转换逻辑在 `wasm/convert.go`，均为用户侧运行时拉取。
+Thanks to these communities for their long-term maintenance. The conversion logic lives in `wasm/convert.go` and runs client-side at fetch time.
 
-**声明**：本项目仅提供格式转换工具，不内置、不分发任何第三方规则数据。第三方规则源的内容、
-版权与合规性由其维护者负责；用户的拉取、使用行为及其后果与本项目无关。请遵守各源的许可证
-和适用法律，仅用于授权范围内的安全测试与研究。
+**Disclaimer**: this project is a format-conversion tool only; it bundles and distributes no third-party rule data. The content, licensing, and compliance of third-party sources are the responsibility of their maintainers; your pulling and use of them is likewise your own responsibility. Please respect each source's license and applicable law, and use this only for authorized security testing and research.
 
-## AI 配置
+## AI configuration
 
-设置页填入任意 **OpenAI 兼容接口**即可：
+Fill in any **OpenAI-compatible endpoint** in settings:
 
-| 服务 | Base URL | 模型示例 |
+| service | Base URL | example model |
 |---|---|---|
 | OpenAI | `https://api.openai.com/v1` | `gpt-4o-mini` |
 | DeepSeek | `https://api.deepseek.com/v1` | `deepseek-chat` |
-| 通义千问 | `https://dashscope.aliyuncs.com/compatible-mode/v1` | `qwen-plus` |
-| Ollama（本地） | `http://localhost:11434/v1` | `qwen2.5` |
+| Qwen | `https://dashscope.aliyuncs.com/compatible-mode/v1` | `qwen-plus` |
+| Ollama (local) | `http://localhost:11434/v1` | `qwen2.5` |
 
-## AI 安全提示
+## AI & security notes
 
-- GoPainter 不内置、不代管、不上传你的 API Key；API Key 只保存在浏览器扩展本地存储里，由扩展直接请求你填写的 Base URL。
-- 使用云端 LLM 时，页面特征会发送给你配置的模型服务：URL、标题、响应头、meta、script 路径、favicon 哈希，以及截断后的页面 HTML。不要在敏感站点上启用 AI，除非你确认这些信息可以交给对应服务商处理。
-- AI 辅助识别、AI 生成规则、书签 AI 兜底分类都可能出错或编造结果。请人工确认后再把 AI 生成的规则加入长期规则库；本项目不对 AI 输出的准确性、合规性或外部服务费用负责。
-- 外接脚本会以扩展权限执行。只添加自己编写或完全信任的脚本，不要粘贴来源不明的代码。
+- GoPainter never embeds, stores on a server, or uploads your API key. Keys live only in the extension's local storage and the extension requests your Base URL directly.
+- When using a cloud LLM, page features are sent to the model service you configure: URL, title, response headers, meta, script paths, favicon hashes, and a truncated HTML snippet. Do not enable AI on sensitive sites unless you are certain these can be shared with that provider.
+- AI-assisted identification, AI-generated rules, and AI bookmark fallback can be wrong or hallucinated. Review before promoting AI-generated rules into your long-term rule set. The project is not responsible for AI output accuracy, compliance, or external service costs.
+- External scripts execute with extension privileges. Only add scripts you wrote or fully trust; don't paste code of unknown provenance.
 
-## 外接脚本
+## External scripts
 
-设置页「外接脚本」允许在规则匹配和 favicon 哈希库命中之后追加自定义识别逻辑。脚本体会被当作函数体执行：
+Settings → "External scripts" lets you append custom identification logic after rule matching and the favicon hash database. The script body is executed as a function:
 
 ```js
-// 参数：features, hits
-// 返回：追加的指纹数组；不追加可以不 return
+// Arguments: features, hits
+// Return: an array of extra fingerprints; returning nothing is fine
 if (features.body.includes('hello-world-cta')) {
   return [{
     id: 'my-product',
@@ -158,112 +158,111 @@ if (features.body.includes('hello-world-cta')) {
 }
 ```
 
-可用输入：
+Available inputs:
 
 - `features.url` / `features.title` / `features.body`
 - `features.headers` / `features.status`
 - `features.meta` / `features.scripts` / `features.links`
 - `features.faviconHash` / `features.faviconHashes`
-- `hits`：前置规则和哈希库已经命中的结果
+- `hits`: results already matched by the rules and hash database
 
-脚本返回项至少需要 `id` 和 `name`。同一个 `id` 已存在时会跳过，避免重复追加。
+Returned items need at least `id` and `name`. An `id` that already exists is skipped to avoid duplicates.
 
-## 自定义脚本命令
+## Commands
 
-| 命令 | 说明 |
+| command | description |
 |---|---|
-| `make build` | macOS/Linux 构建 WASM。优先 TinyGo，未安装 TinyGo 时回退标准 Go |
-| `make test` | 先跑 Go 单元测试，再跑 WASM 冒烟测试 |
-| `make test-go` | 只跑 Go 单元测试（js/wasm 目标，经 node 执行，无需先构建） |
-| `make icons` | 重新生成扩展图标 |
-| `make clean` | 删除 `extension/wasm/matcher.wasm` 和 `wasm_exec.js` |
-| `node scripts/generate-icons.mjs` | 直接运行图标生成器 |
-| `node scripts/generate-hashdb.mjs` | 从 `data/favicon-hashes.json` 生成 `wasm/hashdb.go` |
-| `node scripts/smoke-test.mjs` | 直接运行 WASM 冒烟测试 |
-| `powershell -ExecutionPolicy Bypass -File scripts/build.ps1` | Windows 构建 WASM |
+| `make build` | Build WASM on macOS/Linux. Prefers TinyGo; falls back to the standard Go toolchain if TinyGo is missing |
+| `make test` | Run Go unit tests, then the WASM smoke test |
+| `make test-go` | Run only the Go unit tests (js/wasm target, executed via node; no build required) |
+| `make icons` | Regenerate extension icons |
+| `make clean` | Remove `extension/wasm/matcher.wasm` and `wasm_exec.js` |
+| `node scripts/generate-icons.mjs` | Run the icon generator directly |
+| `node scripts/generate-hashdb.mjs` | Generate `wasm/hashdb.go` from `data/favicon-hashes.json` |
+| `node scripts/smoke-test.mjs` | Run the WASM smoke test directly |
+| `powershell -ExecutionPolicy Bypass -File scripts/build.ps1` | Build WASM on Windows |
 
-## 架构
-
-```
-JS 侧（胶水层，一切 I/O）            Go WASM（纯函数，零 I/O）
-─────────────────────────          ─────────────────────────
-content.js   采集 DOM/原始 HTML ─┐
-background   采集响应头/状态码    │     goMatch            规则匹配 + 证据
-  .js        favicon 下载       ─┼─→  goMmh3             favicon 哈希（fofa 标准）
-             AI API 调用        │     goExtractFeatures  HTML → title/meta/scripts
-             图标状态切换        │     goNormalizeRules   YAML 文档 → 原生规则
-options      YAML 解析(js-yaml) ─┘    ←  全部进 JSON 出 JSON
-popup        结果与证据展示 / AI 按钮
-sidepanel    爬取进度实时展示 / 启停（Side Panel，与页面并存）
-```
-
-核心边界：**WASM 只做纯计算**（进 JSON 出 JSON，不碰网络/YAML/DOM），
-因此 TinyGo 的短板（反射不完整、标准库缺失）完全不会踩到。
-匹配、mmh3、HTML 特征提取、nuclei 模板转换全部在 Go 里。
-
-## 目录
+## Architecture
 
 ```
-├── wasm/                     # Go 引擎（TinyGo 编译为 WASM）
-│   ├── main.go               #   JS 导出 + JSON 进出
-│   ├── matcher.go            #   匹配引擎（核心）
-│   ├── mmh3.go               #   favicon 哈希
-│   ├── extract.go            #   HTML 特征提取（title/meta/scripts/favicon/links）
-│   ├── normalize.go          #   规则规范化（nuclei 转换）
-│   ├── dsl.go                #   dsl 表达式求值器
-│   ├── convert.go            #   Wappalyzer 指纹转换
-│   ├── crawl.go              #   爬虫调度（BFS/去重/同站过滤/上限）
-│   └── hashdb.go             #   favicon 哈希库（生成）
-├── extension/                # Chrome 扩展（MV3）
+JS side (glue layer, all I/O)            Go WASM (pure functions, zero I/O)
+──────────────────────────               ───────────────────────────
+content.js   collects DOM / raw HTML ─┐
+background   collects headers/status   │     goMatch            rule matching + evidence
+  .js        favicon download        ─┼─→  goMmh3            favicon hash (fofa standard)
+             AI API calls             │     goExtractFeatures HTML → title/meta/scripts
+             icon state switching     │     goNormalizeRules  YAML docs → native rules
+options      YAML parsing (js-yaml)  ─┘    ←  everything in JSON, out JSON
+popup        results & evidence / AI button
+sidepanel    crawl progress / start-stop (Side Panel, alongside the page)
+```
+
+Core boundary: **the WASM does pure computation only** (JSON in, JSON out; no network, YAML, or DOM).
+This sidesteps TinyGo's weak spots (incomplete reflection, missing stdlib) entirely.
+Matching, mmh3, HTML feature extraction, and nuclei conversion all live in Go.
+
+## Directory layout
+
+```
+├── wasm/                     # Go engine (compiled to WASM by TinyGo)
+│   ├── main.go               #   JS exports + JSON in/out
+│   ├── matcher.go            #   matching engine (core)
+│   ├── mmh3.go               #   favicon hashing
+│   ├── extract.go            #   HTML feature extraction (title/meta/scripts/favicons/links)
+│   ├── normalize.go          #   rule normalization (nuclei conversion)
+│   ├── dsl.go                #   dsl expression evaluator
+│   ├── convert.go            #   Wappalyzer fingerprint conversion
+│   ├── crawl.go              #   crawler scheduling (BFS/dedup/same-site/max pages)
+│   └── hashdb.go             #   favicon hash database (generated)
+├── extension/                # Chrome extension (MV3)
 │   ├── manifest.json
-│   ├── background.js         # service worker：wasm 加载、webRequest、favicon、AI、图标、书签
-│   ├── content.js            # 页面特征采集
-│   ├── popup.*               # 结果与证据展示 / AI 识别 / AI 生成规则
-│   ├── options.*             # 规则导入 / AI 配置 / 提示词 / 书签整理
-│   ├── sidepanel.*           # 爬取进度实时展示 / 启停（Side Panel）
-│   ├── icons/                # 彩色/灰色两套图标（脚本生成）
-│   └── lib/                  # js-yaml（唯一的第三方 JS）
+│   ├── background.js         # service worker: wasm loading, webRequest, favicon, AI, icon, bookmarks
+│   ├── content.js            # page feature collection
+│   ├── popup.*               # results & evidence / AI identification / AI rule generation
+│   ├── options.*             # rule import / AI config / prompts / bookmark organization
+│   ├── sidepanel.*           # crawl progress / start-stop (Side Panel)
+│   ├── icons/                # colored & gray icon sets (script-generated)
+│   └── lib/                  # js-yaml (the only third-party JS)
 ├── scripts/
-│   ├── generate-icons.mjs    # 图标生成器（纯 Node，零依赖）
-│   ├── generate-hashdb.mjs   # favicon 哈希库生成器（data/ → wasm/hashdb.go）
-│   ├── smoke-test.mjs        # wasm 冒烟测试
-│   └── build.ps1             # Windows 构建脚本
-├── data/favicon-hashes.json  # 哈希库源数据（BishopFox/Favicons）
-├── rules/examples.yaml       # 示例规则
-├── Makefile                  # macOS/Linux 构建
-└── build.ps1（scripts/）     # Windows 构建
+│   ├── generate-icons.mjs    # icon generator (pure Node, zero deps)
+│   ├── generate-hashdb.mjs   # favicon hash DB generator (data/ → wasm/hashdb.go)
+│   ├── smoke-test.mjs        # wasm smoke test
+│   └── build.ps1             # Windows build script
+├── data/favicon-hashes.json  # hash DB source data (BishopFox/Favicons)
+├── rules/examples.yaml       # example rules
+└── Makefile                  # macOS/Linux build
 ```
 
-## 路线图
+## Roadmap
 
-**已完成** ✅
-- [x] TinyGo WASM 匹配引擎（word / regex / status / icon_hash）
-- [x] nuclei 模板导入兼容（http matchers 子集）
-- [x] 命中证据展示
-- [x] 图标状态感知（灰色/彩色 + 角标）
-- [x] AI 辅助识别（OpenAI 兼容接口，提示词可自定义）
-- [x] AI 反向生成规则（未识别页面 → AI 写 YAML → 确认入库）
-- [x] 书签自动分类（勾选想整理的书签，按指纹命中挪入「🎨 指纹分类」文件夹，可开 AI 兜底）
-- [x] mmh3 / HTML 特征提取 / nuclei 转换收编进 Go（新增 meta、script 匹配维度）
-- [x] 内置 favicon 哈希库（956 条，BishopFox 数据集）+ 自定义哈希导入
-- [x] 内置 Top 130 常用指纹规则库（options 页一键导入）
-- [x] 书签扫描补全 favicon 哈希（icon_hash 规则与哈希库对书签生效）
-- [x] 外接脚本（自定义 JS 挂钩匹配管线，追加指纹）
-- [x] 站点递归爬取（BFS/去重/同站过滤在 Go 侧，最大页数可配、留空不限，popup 一键爬本站）
-- [x] 爬取进度侧边栏（Side Panel 实时展示已扫/队列/失败 + 命中指纹，爬取中按钮置灰）
-- [x] 多 favicon 持续匹配（DOM + 网络包里所有 icon 都算哈希，晚到的 icon 触发重匹配）
-- [x] SPA 路由变化监听（main world hook pushState/replaceState，变化即重扫）
-- [x] matcher 支持 dsl 表达式子集（自研递归下降求值器，nuclei 模板的 dsl 也可转换）
-- [x] 第三方规则源市场（Wappalyzer / EHole / nuclei-templates官方仓库地址）
-- [x] js 运行时变量探测（MAIN world 探针）+ dom 选择器探测 + implies 级联推导
+**Done**
+- [x] TinyGo WASM matching engine (word / regex / status / icon_hash)
+- [x] nuclei template import compatibility (http matchers subset)
+- [x] hit evidence display
+- [x] icon state indicator (gray/colored + badge)
+- [x] AI-assisted identification (OpenAI-compatible endpoint, customizable prompts)
+- [x] reverse AI rule generation (unidentified page → AI writes YAML → confirm & import)
+- [x] bookmark auto-categorization (sort bookmarks by fingerprint hit; optional AI fallback)
+- [x] mmh3 / HTML extraction / nuclei conversion moved into Go (added meta, script dimensions)
+- [x] built-in favicon hash database (956 entries, BishopFox dataset) + custom hash import
+- [x] built-in top-130 common fingerprint rule library (one-click import in options)
+- [x] bookmark scan backfills favicon hashes (icon_hash rules & DB apply to bookmarks)
+- [x] external scripts (custom JS hooking into the match pipeline)
+- [x] recursive site crawling (BFS / dedup / same-site filtering in Go; max pages configurable, blank = unlimited; one-click from popup)
+- [x] crawl progress side panel (live scanned / queue / failures + matched fingerprints; button disabled while running)
+- [x] multi-favicon continuous matching (all icons from DOM + network count; late icons trigger re-match)
+- [x] SPA route-change watching (main world hooks pushState/replaceState; re-scan on change)
+- [x] dsl expression matcher subset (hand-rolled recursive descent evaluator; nuclei dsl converts too)
+- [x] third-party rule source marketplace (Wappalyzer / EHole / nuclei-templates)
+- [x] js runtime variable probing (MAIN world) + dom selector probing + implies cascading
 
-**进行中 / 计划** 🚧
-- [ ] 规则集管理：分组启用/禁用、远程规则源订阅与自动更新
-- [ ] 补全英文README.md
-- [ ] 扫描历史与报告导出（JSON/CSV）
-- [x] Go 侧单元测试（matcher / dsl / mmh3 / extract / normalize / crawl / convert，`make test-go`）
-- [ ] JS 侧单元测试
-- [ ] wasm 体积进一步优化（当前 ~750KB，目标 < 300KB，暂搁置）
+**In progress / planned**
+- [ ] rule-set management: group enable/disable, remote rule source subscriptions & auto-update
+- [ ] scan history and report export (JSON/CSV)
+- [x] Go unit tests (matcher / dsl / mmh3 / extract / normalize / crawl / convert, `make test-go`)
+- [ ] JS unit tests
+- [ ] further WASM size reduction (currently ~750KB, target < 300KB, parked)
+
 ## License
 
 [MIT](LICENSE)
