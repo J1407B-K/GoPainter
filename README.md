@@ -108,7 +108,8 @@ Example: `contains(body, "wp-content") && status == 200`
   Aggregation: `or` takes the max confidence among matched matchers, `and` takes the min (the weakest link); a rule-level `confidence` acts as a scale factor;
   derived (`implies`) hits inherit the source's confidence. `\;confidence:N` suffixes from the Wappalyzer source are converted on import,
   and patterns of the same field with different confidences are split into separate matchers so a low-confidence miss doesn't drag down a high-confidence hit.
-  With "Confidence" enabled in settings, the popup shows badges only for hits that carry a confidence, sorts by it, and can filter out hits below a threshold (off by default).
+  With "Confidence" enabled in settings, the popup shows a badge for every hit: numeric confidences as percentages, unannotated hits as `null`;
+  sorting and threshold filtering only apply to numeric confidences (off by default).
 
 ## Third-party rule sources
 

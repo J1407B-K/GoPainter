@@ -8,6 +8,7 @@ const pageInfo = document.getElementById('page-info');
 
 let currentTabId = null;
 let currentTabUrl = '';
+let currentData = null;
 // 置信度开关：设置页开的，开了才显示数值/排序/过滤
 let confCfg = { showConfidence: false, confThreshold: 0 };
 
@@ -66,6 +67,7 @@ async function init() {
     statusEl.innerHTML = '<span class="icon">🔄</span>尚未采集到页面特征<br>请刷新页面后重试';
     return;
   }
+  currentData = data;
   render(data);
 }
 
@@ -115,6 +117,7 @@ function render({ features, result }) {
   // 置信度启用时：低置信度的隐藏，剩下的按置信度从高到低排
   let hits = result.hits;
   let hidden = 0;
+  const annotated = hits.filter((h) => confidenceValue(h) != null).length;
   if (confCfg.showConfidence) {
     if (confCfg.confThreshold > 0) {
       hidden = hits.filter((h) => {
@@ -149,7 +152,6 @@ function render({ features, result }) {
   label.className = 'section-label';
   label.textContent = `命中 ${hits.length} 个指纹` + (hidden > 0 ? `（隐藏 ${hidden} 个低置信度）` : '');
   hitsEl.appendChild(label);
-
   for (const h of hits) {
     hitsEl.appendChild(renderHit(h));
   }
@@ -165,10 +167,10 @@ function renderHit(hit) {
   head.querySelector('.name').textContent = hit.name || hit.id;
   head.querySelector('.id').textContent = hit.id;
   const conf = confidenceValue(hit);
-  if (confCfg.showConfidence && conf != null) {
+  if (confCfg.showConfidence) {
     const badge = document.createElement('span');
-    badge.className = 'conf ' + (conf >= 80 ? 'high' : conf >= 50 ? 'mid' : 'low');
-    badge.textContent = conf + '%';
+    badge.className = 'conf ' + (conf == null ? 'none' : conf >= 80 ? 'high' : conf >= 50 ? 'mid' : 'low');
+    badge.textContent = conf == null ? 'null' : conf + '%';
     badge.title = '置信度';
     head.querySelector('.tail').appendChild(badge);
   }
@@ -197,6 +199,15 @@ function makeChip(text, ok = false) {
   span.textContent = text;
   return span;
 }
+
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== 'local' || (!changes.showConfidence && !changes.confThreshold)) return;
+  confCfg = {
+    showConfidence: changes.showConfidence ? !!changes.showConfidence.newValue : confCfg.showConfidence,
+    confThreshold: changes.confThreshold ? (changes.confThreshold.newValue || 0) : confCfg.confThreshold,
+  };
+  if (currentData) render(currentData);
+});
 
 aiBtn.addEventListener('click', async () => {
   setBusy(aiBtn, true, '分析中…');

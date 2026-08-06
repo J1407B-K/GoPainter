@@ -60,6 +60,10 @@
       font-size: 11px; color: var(--muted); text-transform: uppercase;
       letter-spacing: .5px; margin: 4px 2px 6px;
     }
+    .conf-note {
+      margin: 0 2px 8px; color: var(--muted);
+      font-size: 11px;
+    }
     .hit {
       background: var(--card); border: 1px solid var(--border); border-radius: 10px;
       padding: 10px 12px; margin-bottom: 8px;
@@ -76,12 +80,14 @@
     }
     /* 置信度徽章：高强弱三档配色 */
     .hit .conf {
+      flex-shrink: 0;
       font-family: var(--mono); font-size: 10px; font-weight: 700;
       padding: 1px 7px; border-radius: 999px;
     }
     .hit .conf.high { background: var(--green-soft); color: var(--green); border: 1px solid #bbf7d0; }
     .hit .conf.mid { background: #fffbeb; color: #b45309; border: 1px solid #fde68a; }
     .hit .conf.low { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
+    .hit .conf.none { background: #f1f2f6; color: var(--muted); border: 1px solid var(--border); }
     .hit .evidence { margin-top: 8px; display: flex; flex-direction: column; gap: 4px; }
     .ev {
       display: flex; gap: 6px; align-items: flex-start; min-width: 0;
