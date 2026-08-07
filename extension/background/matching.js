@@ -61,7 +61,7 @@ async function runMatch(features) {
 
 // favicon 哈希库命中也当成一个指纹，并进 hits（规则命中优先，同名的不重复加）
 function faviconHashValues(features) {
-  return [...new Set([features.faviconHash, ...(features.faviconHashes || [])].filter(Boolean))];
+  return GoPainterUtils.faviconHashValues(features);
 }
 
 async function appendHashHit(features, result) {

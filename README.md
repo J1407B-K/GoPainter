@@ -174,8 +174,9 @@ Returned items need at least `id` and `name`. An `id` that already exists is ski
 | command | description |
 |---|---|
 | `make build` | Build WASM on macOS/Linux. Prefers TinyGo; falls back to the standard Go toolchain if TinyGo is missing |
-| `make test` | Run Go unit tests, then the WASM smoke test |
+| `make test` | Run Go and JS unit tests, then the WASM smoke test |
 | `make test-go` | Run only the Go unit tests (js/wasm target, executed via node; no build required) |
+| `make test-js` | Run only the Node unit tests for shared extension logic |
 | `make icons` | Regenerate extension icons |
 | `make clean` | Remove `extension/wasm/matcher.wasm` and `wasm_exec.js` |
 | `node scripts/generate-icons.mjs` | Run the icon generator directly |
@@ -265,7 +266,7 @@ Matching, mmh3, HTML feature extraction, and nuclei conversion all live in Go.
 - [ ] rule-set management: group enable/disable, remote rule source subscriptions & auto-update
 - [ ] scan history and report export (JSON/CSV)
 - [x] Go unit tests (matcher / dsl / mmh3 / extract / normalize / crawl / convert, `make test-go`)
-- [ ] JS unit tests
+- [x] JS unit tests (confidence filtering, rule merging, favicon hash de-duplication, YAML extraction; `make test-js`)
 - [ ] further WASM size reduction (currently ~750KB, target < 300KB, parked)
 
 ## License

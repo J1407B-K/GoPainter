@@ -13,11 +13,7 @@ let currentData = null;
 let confCfg = { showConfidence: false, confThreshold: 0 };
 
 function confidenceValue(hit) {
-  if (hit?.confidence === null || hit?.confidence === undefined || hit?.confidence === '') {
-    return null;
-  }
-  const n = Number(hit.confidence);
-  return Number.isFinite(n) && n >= 0 && n <= 100 ? n : null;
+  return GoPainterUtils.confidenceValue(hit);
 }
 
 function setBusy(el, busy, busyLabel) {
@@ -115,30 +111,8 @@ function render({ features, result }) {
   }
 
   // 置信度启用时：低置信度的隐藏，剩下的按置信度从高到低排
-  let hits = result.hits;
-  let hidden = 0;
-  const annotated = hits.filter((h) => confidenceValue(h) != null).length;
-  if (confCfg.showConfidence) {
-    if (confCfg.confThreshold > 0) {
-      hidden = hits.filter((h) => {
-        const conf = confidenceValue(h);
-        return conf != null && conf < confCfg.confThreshold;
-      }).length;
-      hits = hits.filter((h) => {
-        const conf = confidenceValue(h);
-        return conf == null || conf >= confCfg.confThreshold;
-      });
-    }
-    hits = hits.map((h, i) => ({ h, i })).sort((a, b) => {
-      const av = confidenceValue(a.h);
-      const bv = confidenceValue(b.h);
-      const ac = av != null;
-      const bc = bv != null;
-      if (ac && bc) return bv - av || a.i - b.i;
-      if (ac !== bc) return ac ? -1 : 1;
-      return a.i - b.i;
-    }).map((x) => x.h);
-  }
+  const filtered = GoPainterUtils.filterAndSortHits(result.hits, confCfg);
+  const { hits, hidden, annotated } = filtered;
 
   if (!hits.length) {
     statusEl.style.display = 'block';

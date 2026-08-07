@@ -3,6 +3,7 @@
 // 纯计算（匹配/mmh3/HTML 提取/规则规范化）都在 wasm 里，这里只做 I/O 和编排。
 
 importScripts(
+  'shared-utils.js',
   'wasm/wasm_exec.js',
   'lib/js-yaml.min.js',
   'background/wasm.js',
@@ -128,8 +129,7 @@ async function customPrompt(key) {
 
 // 从 AI 回复里抠出 YAML（AI 爱包 ```yaml ... ```）
 function extractYaml(text) {
-  const m = text.match(/```(?:yaml|yml)?\s*\n([\s\S]*?)```/);
-  return (m ? m[1] : text).trim();
+  return GoPainterUtils.extractYaml(text);
 }
 
 // --- 书签整理：勾选的处理，规则没命中可以选 AI 兜底 ---

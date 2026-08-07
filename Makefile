@@ -3,7 +3,7 @@
 WASM_OUT := extension/wasm/matcher.wasm
 EXEC_JS  := extension/wasm/wasm_exec.js
 
-.PHONY: build build-tinygo build-go icons test test-go clean
+.PHONY: build build-tinygo build-go icons test test-go test-js clean
 
 icons:
 	node scripts/generate-icons.mjs
@@ -13,8 +13,12 @@ icons:
 test-go:
 	GOOS=js GOARCH=wasm go test -count=1 -exec "node --stack-size=8192 $$(go env GOROOT)/lib/wasm/wasm_exec_node.js" ./wasm/...
 
+test-js:
+	node --test test/*.test.cjs
+
 test:
 	$(MAKE) test-go
+	$(MAKE) test-js
 	node scripts/smoke-test.mjs
 
 build:

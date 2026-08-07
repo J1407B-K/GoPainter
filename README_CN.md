@@ -176,8 +176,9 @@ if (features.body.includes('hello-world-cta')) {
 | 命令 | 说明 |
 |---|---|
 | `make build` | macOS/Linux 构建 WASM。优先 TinyGo，未安装 TinyGo 时回退标准 Go |
-| `make test` | 先跑 Go 单元测试，再跑 WASM 冒烟测试 |
+| `make test` | 跑 Go、JS 单元测试，再跑 WASM 冒烟测试 |
 | `make test-go` | 只跑 Go 单元测试（js/wasm 目标，经 node 执行，无需先构建） |
+| `make test-js` | 只跑扩展共享逻辑的 Node 单元测试 |
 | `make icons` | 重新生成扩展图标 |
 | `make clean` | 删除 `extension/wasm/matcher.wasm` 和 `wasm_exec.js` |
 | `node scripts/generate-icons.mjs` | 直接运行图标生成器 |
@@ -262,13 +263,12 @@ sidepanel    爬取进度实时展示 / 启停（Side Panel，与页面并存）
 - [x] matcher 支持 dsl 表达式子集（自研递归下降求值器，nuclei 模板的 dsl 也可转换）
 - [x] 第三方规则源市场（Wappalyzer / EHole / nuclei-templates官方仓库地址）
 - [x] js 运行时变量探测（MAIN world 探针）+ dom 选择器探测 + implies 级联推导
-- [x] 英文 README
+- [x] Go 侧单元测试（matcher / dsl / mmh3 / extract / normalize / crawl / convert，`make test-go`）
 
 **进行中 / 计划** 🚧
 - [ ] 规则集管理：分组启用/禁用、远程规则源订阅与自动更新
 - [ ] 扫描历史与报告导出（JSON/CSV）
-- [x] Go 侧单元测试（matcher / dsl / mmh3 / extract / normalize / crawl / convert，`make test-go`）
-- [ ] JS 侧单元测试
+- [x] JS 侧单元测试（置信度筛选、规则合并、favicon 哈希去重、YAML 提取；`make test-js`）
 - [ ] wasm 体积进一步优化（当前 ~750KB，目标 < 300KB，暂搁置）
 
 ## License

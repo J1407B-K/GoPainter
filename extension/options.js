@@ -106,11 +106,7 @@ document.getElementById('file-input').addEventListener('change', async (e) => {
 // 规则导入（文件或内置库）共用的合并逻辑
 async function importRules(rulesToAdd) {
   const rules = await loadRules();
-  const byId = new Map(rules.map((r) => [r.id, r]));
-  for (const rule of rulesToAdd) {
-    byId.set(rule.id, rule); // 同 id 覆盖，便于更新规则
-  }
-  await chrome.storage.local.set({ rules: [...byId.values()] });
+  await chrome.storage.local.set({ rules: GoPainterUtils.mergeRules(rules, rulesToAdd) });
   await refreshRuleList();
   return rulesToAdd.length;
 }
@@ -148,18 +144,7 @@ const SOURCE_LABELS = {
 };
 
 function mergeConvertedRules(rules) {
-  const byId = new Map();
-  for (const rule of rules) {
-    const existing = byId.get(rule.id);
-    if (!existing) {
-      byId.set(rule.id, rule);
-      continue;
-    }
-    existing.matchers = [...(existing.matchers || []), ...(rule.matchers || [])];
-    existing.implies = [...new Set([...(existing.implies || []), ...(rule.implies || [])])];
-    existing.excludes = [...new Set([...(existing.excludes || []), ...(rule.excludes || [])])];
-  }
-  return [...byId.values()];
+  return GoPainterUtils.mergeConvertedRules(rules);
 }
 
 const RULE_SOURCES = {
