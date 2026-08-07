@@ -25,7 +25,6 @@ let confCfg = { showConfidence: false, confThreshold: 0 };
 let rulesCache = [];
 let aiTechs = [];
 let aiMergedHits = [];
-// 规则生成的双模式：create（新建） / optimize（优化现有规则）
 let ruleMode = null;
 let optimizeRuleId = null;
 
@@ -203,7 +202,7 @@ function renderHit(hit) {
     card.appendChild(box);
   }
 
-  // 有对应规则才显示「优化此规则」（哈希库命中 icon-xxx / implies 推导命中无规则则不显示）
+  // 仅对当前页实际命中的已有规则开放优化：让 AI 用本页的额外特征补强 matcher。
   const rule = GoPainterUtils.ruleByTechName(rulesCache, hit.name) || GoPainterUtils.ruleByTechName(rulesCache, hit.id);
   if (rule) {
     const btn = document.createElement('button');
@@ -320,7 +319,7 @@ document.getElementById('settings-btn').addEventListener('click', () => {
   chrome.runtime.openOptionsPage();
 });
 
-// --- AI 规则：新建（create）/ 优化（optimize）双模式 ---
+// --- AI 规则：新建 / 基于当前命中页面优化已有规则 ---
 
 const ruleBtn = document.getElementById('rule-btn');
 
@@ -459,7 +458,7 @@ function renderAiCandidates(techs) {
       card.appendChild(box);
     }
 
-    // 状态标记 + 动作：已有规则→可优化；已有命中→禁勾选；新→可新建规则
+    // 状态标记 + 动作：已有命中→禁勾选；尚无规则的候选可新建规则。
     const actions = document.createElement('div');
     actions.className = 'actions';
     const alreadyHit = currentNames.has(tech.name.toLowerCase());
@@ -475,11 +474,6 @@ function renderAiCandidates(techs) {
       tag.className = 'tag-st has-rule';
       tag.textContent = '已有规则';
       actions.appendChild(tag);
-      const opt = document.createElement('button');
-      opt.className = 'opt-btn';
-      opt.textContent = '优化规则';
-      opt.addEventListener('click', () => optimizeRule(rule));
-      actions.appendChild(opt);
     } else {
       const tag = document.createElement('span');
       tag.className = 'tag-st new';

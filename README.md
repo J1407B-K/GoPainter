@@ -69,7 +69,7 @@ powershell -ExecutionPolicy Bypass -File scripts/build.ps1
 
 1. Click the GoPainter toolbar icon → "Rules" → import `rules/examples.yaml` (or any nuclei template)
 2. Visit a site — the icon turns colored on a match; click it to inspect details and evidence
-3. When nothing matches, use "AI identification" to get tech-stack candidates (configure an API in settings first), tick the ones you accept and merge them into the hit list; each matched card also offers "optimize this rule", and candidates without a rule can be turned into a new one in one click
+3. When nothing matches, use "AI identification" to get tech-stack candidates (configure an API in settings first), tick the ones you accept and merge them into the hit list; candidates without a rule can be turned into a new one in one click. A rule that actually matched the current page can be optimized against that page to add matchers; existing rules are also maintained in Settings → "Fingerprint rules"
 
 ### 5. Crawl a site (Side Panel)
 
@@ -248,7 +248,7 @@ Matching, mmh3, HTML feature extraction, and nuclei conversion all live in Go.
 - [x] hit evidence display
 - [x] icon state indicator (gray/colored + badge)
 - [x] AI-assisted tech-stack identification (structured candidates with confidence/evidence, merge into hit list)
-- [x] AI rule optimization & creation (optimize an existing rule against the current page, or create a missing rule)
+- [x] AI rule optimization & creation (strengthen a matched rule against the current page, or create a missing rule)
 - [x] bookmark auto-categorization (sort bookmarks by fingerprint hit; optional AI fallback)
 - [x] mmh3 / HTML extraction / nuclei conversion moved into Go (added meta, script dimensions)
 - [x] built-in favicon hash database (956 entries, BishopFox dataset) + custom hash import

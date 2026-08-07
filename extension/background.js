@@ -78,8 +78,8 @@ const DEFAULT_PROMPTS = {
   optimize: [
     '你是 Web 指纹规则优化专家。下面「用户消息」里会给出：页面特征 + 当前规则的 YAML。',
     '请基于该页面特征优化这条规则：',
-    '- 保持 id 不变（同 id 覆盖入库），可微调 name',
-    '- 把不稳定/易变化的 matchers 换成稳定特征：generator meta、框架特有 script 路径、响应头、favicon 哈希（hash 直接用页面 faviconHash 数字）、js 全局变量（window.x）、dom 选择器',
+    '- 保持 id 不变（同 id 覆盖入库），可微调 name；保留当前已有 matcher，不要删除或替换它们',
+    '- 从当前页面尚未使用的稳定特征中补充 1-2 条 matcher：优先 generator meta、框架特有 script 路径、响应头、favicon 哈希（hash 直接用页面 faviconHash 数字）、js 全局变量（window.x）、dom 选择器；没有可靠的新特征时保持原规则不变',
     '- 只输出一个 YAML 文档（以 "- id:" 开头），不要 ```yaml 代码块，不要解释文字',
     '- 严格照抄 schema 字段：type(word|regex|status|icon_hash|js|dom) / part(body|title|url|header|raw|meta|script) / words / regex / status / hash / js(数组,{path,pattern}) / dom(数组,{sel,text,attrs}) / condition / negative / confidence(0-100)',
     '- 别写 JS 表达式/DSL',

@@ -69,7 +69,7 @@ powershell -ExecutionPolicy Bypass -File scripts/build.ps1
 
 1. 点击工具栏 GoPainter 图标 → 「⚙️ 规则」→ 导入 `rules/examples.yaml`（或任意 nuclei 模板）
 2. 访问网站，图标变彩色即表示命中，点击图标查看详情与证据
-3. 未命中时可点「✨ AI 识别」获取技术栈候选（需先在设置页配置 API），勾选可接受的技术合并进命中列表；每条命中卡片可「优化此规则」，无对应规则的技术候选可一键「新建规则」
+3. 未命中时可点「✨ AI 识别」获取技术栈候选（需先在设置页配置 API），勾选可接受的技术合并进命中列表；无对应规则的技术候选可一键「新建规则」。当前页面实际命中的已有规则可「优化此规则」，让 AI 基于该页面补充 matcher；规则也可在设置页「指纹规则」中查看和维护
 
 ### 5. 爬取站点（Side Panel）
 
@@ -250,7 +250,7 @@ sidepanel    爬取进度实时展示 / 启停（Side Panel，与页面并存）
 - [x] 命中证据展示
 - [x] 图标状态感知（灰色/彩色 + 角标）
 - [x] AI 技术栈识别（结构化候选，带置信度/证据，可合并进命中列表）
-- [x] AI 规则优化与新建（针对当前页面优化某条现有规则，或新建缺失规则）
+- [x] AI 规则优化与新建（基于当前命中页面补强已有规则，或新建缺失规则）
 - [x] 书签自动分类（勾选想整理的书签，按指纹命中挪入「🎨 指纹分类」文件夹，可开 AI 兜底）
 - [x] mmh3 / HTML 特征提取 / nuclei 转换收编进 Go（新增 meta、script 匹配维度）
 - [x] 内置 favicon 哈希库（956 条，BishopFox 数据集）+ 自定义哈希导入
@@ -265,11 +265,12 @@ sidepanel    爬取进度实时展示 / 启停（Side Panel，与页面并存）
 - [x] 第三方规则源市场（Wappalyzer / EHole / nuclei-templates官方仓库地址）
 - [x] js 运行时变量探测（MAIN world 探针）+ dom 选择器探测 + implies 级联推导
 - [x] Go 侧单元测试（matcher / dsl / mmh3 / extract / normalize / crawl / convert，`make test-go`）
+- [x] JS 侧单元测试（置信度筛选、规则合并、favicon 哈希去重、YAML 提取；`make test-js`）
+- [x] 扫描历史与报告导出（JSON/CSV）
+
 
 **进行中 / 计划** 🚧
 - [ ] 规则集管理：分组启用/禁用、远程规则源订阅与自动更新
-- [x] 扫描历史与报告导出（JSON/CSV）
-- [x] JS 侧单元测试（置信度筛选、规则合并、favicon 哈希去重、YAML 提取；`make test-js`）
 - [ ] wasm 体积进一步优化（当前 ~750KB，目标 < 300KB，暂搁置）
 
 ## License
