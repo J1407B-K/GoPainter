@@ -17,10 +17,11 @@ async function hashIconUrl(url) {
   }
 }
 
-// 一组 icon URL 全部算哈希，去重去 0。一个站点挂几个 icon 就匹配几个
+// 一组 icon URL 全部算哈希，去重去 0。不能限制数量：网络中后到的任一图标
+// 都可能正好是规则或哈希库要命中的那个。
 async function hashIcons(urls) {
   const hashes = new Set();
-  const unique = [...new Set(urls)].slice(0, 8); // 防个页面满天飞 icon
+  const unique = [...new Set(urls)];
   await Promise.all(unique.map(async (u) => {
     const h = await hashIconUrl(u);
     if (h) hashes.add(h);

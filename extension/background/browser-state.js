@@ -18,7 +18,7 @@ chrome.webRequest.onHeadersReceived.addListener(
 
 chrome.tabs.onRemoved.addListener((tabId) => {
   responseCache.delete(tabId);
-  tabIcons.delete(tabId);
+  clearTabIcons(tabId);
   iconJobs.delete(tabId);
   chrome.storage.session.remove(`result:${tabId}`);
 });
@@ -82,6 +82,8 @@ async function shouldKeepExistingHitIcon(tabId) {
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   if (changeInfo.status === 'loading') {
+    // 每次导航都是一张新页面；不能把上一页网络包里的 icon 带进来参与匹配。
+    clearTabIcons(tabId);
     shouldKeepExistingHitIcon(tabId).then((keep) => {
       if (!keep) updateIcon(tabId, 0).catch(() => {});
     });
@@ -90,6 +92,12 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
 
 // 网络包里的 icon：页面加载过程中所有带 icon/favicon 字样的图片请求都收。
 const tabIcons = new Map(); // tabId -> { seen:Set, pending:Set, timer }
+
+function clearTabIcons(tabId) {
+  const st = tabIcons.get(tabId);
+  if (st?.timer) clearTimeout(st.timer);
+  tabIcons.delete(tabId);
+}
 
 function trackIconRequest(tabId, url) {
   let st = tabIcons.get(tabId);
