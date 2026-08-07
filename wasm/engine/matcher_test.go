@@ -111,6 +111,9 @@ func TestEvalMatcherRegex(t *testing.T) {
 	if len(ev) == 0 || !strings.Contains(ev[0].Detail, "Powered by") {
 		t.Errorf("regex 证据应带命中文本: %+v", ev)
 	}
+	if len(ev) == 0 || ev[0].Pattern != `Powered\s+by` {
+		t.Errorf("regex 证据应分离保存规则表达式: %+v", ev)
+	}
 }
 
 func TestEvalMatcherRegexInvalid(t *testing.T) {

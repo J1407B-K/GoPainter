@@ -71,9 +71,10 @@ type Features struct {
 
 // 命中证据：哪个类型、在哪个位置、命中了什么
 type Evidence struct {
-	Type   string `json:"type"`
-	Part   string `json:"part,omitempty"`
-	Detail string `json:"detail"`
+	Type    string `json:"type"`
+	Part    string `json:"part,omitempty"`
+	Detail  string `json:"detail"`
+	Pattern string `json:"pattern,omitempty"`
 }
 
 type Hit struct {
@@ -165,11 +166,14 @@ func evalMatcher(m Matcher, f *Features) (bool, []Evidence) {
 			ok := re.MatchString(text)
 			results = append(results, ok)
 			if ok {
-				detail := "/" + r + "/"
-				if s := re.FindString(text); len(s) <= 120 {
-					detail += " 命中: " + s
+				detail := re.FindString(text)
+				if len(detail) > 120 {
+					detail = detail[:120] + "…"
 				}
-				ev = append(ev, Evidence{Type: "regex", Part: part, Detail: detail})
+				if detail == "" {
+					detail = "（零宽匹配）"
+				}
+				ev = append(ev, Evidence{Type: "regex", Part: part, Detail: detail, Pattern: r})
 			}
 		}
 	case "status":

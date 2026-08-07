@@ -343,6 +343,110 @@ document.getElementById('hash-clear').addEventListener('click', async () => {
 
 refreshHashList();
 
+// --- 扫描历史与报告 ---
+
+const SCAN_HISTORY_KEY = 'scanHistory';
+const DEFAULT_SCAN_HISTORY_LIMIT = 300;
+
+async function loadScanHistory() {
+  const { [SCAN_HISTORY_KEY]: history = [] } = await chrome.storage.local.get(SCAN_HISTORY_KEY);
+  return Array.isArray(history) ? history : [];
+}
+
+function downloadReport(filename, text, type) {
+  const url = URL.createObjectURL(new Blob([text], { type }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function formatHistoryTime(at) {
+  const date = new Date(at);
+  return Number.isNaN(date.getTime()) ? '未知时间' : date.toLocaleString();
+}
+
+async function refreshScanHistory() {
+  const history = await loadScanHistory();
+  const { scanHistoryLimit = DEFAULT_SCAN_HISTORY_LIMIT } = await chrome.storage.local.get({ scanHistoryLimit: DEFAULT_SCAN_HISTORY_LIMIT });
+  const limit = GoPainterUtils.normalizeHistoryLimit(scanHistoryLimit, DEFAULT_SCAN_HISTORY_LIMIT);
+  document.getElementById('history-limit').value = limit;
+  document.getElementById('history-limit-value').textContent = `${limit} 条`;
+  document.getElementById('history-stats').textContent = `已保存 ${history.length} / ${limit} 条，最新记录在前`;
+  const list = document.getElementById('history-list');
+  list.innerHTML = '';
+  if (!history.length) {
+    list.innerHTML = '<div class="muted" style="padding: 10px;">尚无扫描记录</div>';
+    return;
+  }
+  for (const item of history) {
+    const row = document.createElement('div');
+    row.className = 'history-item';
+    const top = document.createElement('div');
+    top.className = 'top';
+    const time = document.createElement('span');
+    time.className = 'time';
+    time.textContent = formatHistoryTime(item.at);
+    const title = document.createElement('span');
+    title.className = 'title';
+    title.textContent = item.title || item.url;
+    top.append(time, title);
+    const url = document.createElement('div');
+    url.className = 'url';
+    url.textContent = `${item.source === 'crawl' ? '爬取' : '页面'} · ${item.url}（HTTP ${item.status || '—'}）`;
+    const hits = document.createElement('div');
+    hits.className = 'hits';
+    const names = (item.hits || []).map((hit) => hit.name || hit.id).filter(Boolean);
+    hits.textContent = names.length ? `🎯 ${names.join('、')}` : '— 未识别';
+    row.append(top, url, hits);
+    list.appendChild(row);
+  }
+}
+
+document.getElementById('history-limit').addEventListener('input', (event) => {
+  document.getElementById('history-limit-value').textContent = `${event.target.value} 条`;
+});
+
+document.getElementById('history-limit-save').addEventListener('click', async () => {
+  const limit = Number(document.getElementById('history-limit').value);
+  const resp = await chrome.runtime.sendMessage({ type: 'setScanHistoryLimit', limit });
+  if (!resp?.ok) {
+    showMsg(resp?.error || '保存扫描历史上限失败', true);
+    return;
+  }
+  await refreshScanHistory();
+  showMsg(`扫描历史上限已设为 ${resp.limit} 条`);
+});
+
+document.getElementById('history-export-json').addEventListener('click', async () => {
+  const history = await loadScanHistory();
+  downloadReport('gopainter-scan-report.json', JSON.stringify(GoPainterUtils.scanHistoryReport(history), null, 2), 'application/json');
+  showMsg(`已导出 ${history.length} 条扫描记录（JSON）`);
+});
+
+document.getElementById('history-export-csv').addEventListener('click', async () => {
+  const history = await loadScanHistory();
+  // UTF-8 BOM 让 Excel 直接正确识别中文。
+  downloadReport('gopainter-scan-history.csv', `\uFEFF${GoPainterUtils.scanHistoryCsv(history)}`, 'text/csv;charset=utf-8');
+  showMsg(`已导出 ${history.length} 条扫描记录（CSV）`);
+});
+
+document.getElementById('history-clear').addEventListener('click', async () => {
+  if (!confirm('确定清空全部扫描历史？此操作无法撤销。')) return;
+  const resp = await chrome.runtime.sendMessage({ type: 'clearScanHistory' });
+  if (!resp?.ok) {
+    showMsg(resp?.error || '清空扫描历史失败', true);
+    return;
+  }
+  await refreshScanHistory();
+  showMsg('扫描历史已清空');
+});
+
+refreshScanHistory();
+
 // --- 书签整理：勾选哪些就处理哪些，没勾的一律不动 ---
 
 const bmPanel = document.getElementById('bm-panel');
@@ -583,18 +687,19 @@ document.getElementById('crawl-stop').addEventListener('click', async () => {
 
 // --- AI 配置 ---
 
-// 三个场景的提示词分开存，空着就用默认（默认从 background 拿，不在前端抄一份）
-const PROMPT_KEYS = ['identify', 'rule', 'bookmark'];
+// 几个场景的提示词分开存，空着就用默认（默认从 background 拿，不在前端抄一份）
+const PROMPT_KEYS = ['identify', 'rule', 'optimize', 'bookmark'];
 let defaultPrompts = {};
 
 async function loadAiConfig() {
-  const keys = ['aiBaseURL', 'aiApiKey', 'aiModel', 'aiPromptIdentify', 'aiPromptRule', 'aiPromptBookmark'];
+  const keys = ['aiBaseURL', 'aiApiKey', 'aiModel', 'aiPromptIdentify', 'aiPromptRule', 'aiPromptOptimize', 'aiPromptBookmark'];
   const cfg = await chrome.storage.local.get(keys);
   document.getElementById('ai-base-url').value = cfg.aiBaseURL || '';
   document.getElementById('ai-api-key').value = cfg.aiApiKey || '';
   document.getElementById('ai-model').value = cfg.aiModel || '';
   document.getElementById('prompt-identify').value = cfg.aiPromptIdentify || '';
   document.getElementById('prompt-rule').value = cfg.aiPromptRule || '';
+  document.getElementById('prompt-optimize').value = cfg.aiPromptOptimize || '';
   document.getElementById('prompt-bookmark').value = cfg.aiPromptBookmark || '';
 
   const resp = await chrome.runtime.sendMessage({ type: 'getDefaultPrompts' });
@@ -613,6 +718,7 @@ document.getElementById('save-ai').addEventListener('click', async () => {
     aiModel: document.getElementById('ai-model').value.trim(),
     aiPromptIdentify: document.getElementById('prompt-identify').value.trim(),
     aiPromptRule: document.getElementById('prompt-rule').value.trim(),
+    aiPromptOptimize: document.getElementById('prompt-optimize').value.trim(),
     aiPromptBookmark: document.getElementById('prompt-bookmark').value.trim(),
   });
   showMsg('AI 配置已保存');

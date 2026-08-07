@@ -179,6 +179,21 @@
     .crawl-item .hits { color: var(--accent); font-weight: 600; }
     .crawl-item.failed .t { color: #dc2626; font-weight: 700; }
     .crawl-item.failed .hits { color: #dc2626; }
+
+    /* 扫描历史 */
+    .history-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+    .history-actions button { margin-top: 0; }
+    .history-limit { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
+    .history-limit input { flex: 1; accent-color: var(--accent); }
+    .history-limit output { min-width: 64px; color: var(--accent); font-family: var(--mono); font-weight: 700; text-align: right; }
+    #history-list { max-height: 360px; overflow: auto; margin-top: 10px; border: 1px solid var(--border); border-radius: 8px; }
+    .history-item { padding: 8px 10px; font-size: 12px; }
+    .history-item:nth-child(odd) { background: #fafbfc; }
+    .history-item .top { display: flex; gap: 8px; align-items: baseline; }
+    .history-item .time { flex-shrink: 0; color: var(--muted); font-family: var(--mono); font-size: 11px; }
+    .history-item .title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+    .history-item .url { color: var(--muted); font-family: var(--mono); overflow-wrap: anywhere; }
+    .history-item .hits { color: var(--accent); font-weight: 600; }
   </style>
 </head>
 <body>
@@ -299,6 +314,24 @@
     </div>
 
     <div class="card">
+      <h2>🕘 扫描历史与报告</h2>
+      <p class="muted">保留页面/爬取扫描的摘要：URL、标题、状态码、favicon 哈希和命中证据。不保存页面 HTML、响应头或 API Key。</p>
+      <label for="history-limit">历史保留上限（滚动窗口）</label>
+      <div class="history-limit">
+        <input type="range" id="history-limit" min="50" max="5000" step="50" value="300">
+        <output id="history-limit-value" for="history-limit">300 条</output>
+      </div>
+      <button id="history-limit-save">保存上限</button>
+      <div class="history-actions">
+        <button id="history-export-json" class="primary">⬇️ 导出 JSON</button>
+        <button id="history-export-csv">⬇️ 导出 CSV</button>
+        <button id="history-clear" class="danger">清空历史</button>
+      </div>
+      <div id="history-stats" class="muted"></div>
+      <div id="history-list"></div>
+    </div>
+
+    <div class="card">
       <h2>🔌 外接脚本</h2>
       <p class="muted">
         自定义 JS，在规则匹配之后执行。脚本体即函数体，参数 <code>(features, hits)</code>，
@@ -343,13 +376,16 @@ if (features.body.includes('hello-world-cta')) {
       <label for="ai-model">模型</label>
       <input type="text" id="ai-model" placeholder="gpt-4o-mini / deepseek-chat / qwen2.5 ...">
 
-      <h3 class="prompt-h">提示词 <span class="muted">（留空则用默认，三个场景互不影响）</span></h3>
-      <label for="prompt-identify">AI 辅助识别</label>
+      <h3 class="prompt-h">提示词 <span class="muted">（留空则用默认，四个场景互不影响）</span></h3>
+      <label for="prompt-identify">AI 技术栈识别</label>
       <textarea id="prompt-identify" rows="4"></textarea>
       <button data-prompt-reset="identify" class="reset-btn">恢复默认</button>
-      <label for="prompt-rule">AI 生成规则</label>
+      <label for="prompt-rule">AI 新建规则</label>
       <textarea id="prompt-rule" rows="4"></textarea>
       <button data-prompt-reset="rule" class="reset-btn">恢复默认</button>
+      <label for="prompt-optimize">AI 优化规则</label>
+      <textarea id="prompt-optimize" rows="4"></textarea>
+      <button data-prompt-reset="optimize" class="reset-btn">恢复默认</button>
       <label for="prompt-bookmark">书签 AI 兜底分类</label>
       <textarea id="prompt-bookmark" rows="4"></textarea>
       <button data-prompt-reset="bookmark" class="reset-btn">恢复默认</button>

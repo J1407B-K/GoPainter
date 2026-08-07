@@ -16,7 +16,8 @@ While you browse, GoPainter fingerprints the current site automatically and surf
 - **TinyGo WASM engine** — matching logic in Go, compiled to a ~750KB WASM binary with millisecond matching
 - **Hit evidence** — each fingerprint carries the specific keyword, regex, status code, or hash that matched
 - **Icon state indicator** — gray = no match, colored + badge = N matches
-- **LLM-assisted identification** — one-click analysis via any OpenAI-compatible endpoint when rules miss
+- **LLM-assisted tech-stack identification** — feed headers/body/js/dom to any OpenAI-compatible endpoint; AI returns structured candidates (confidence + evidence) you can merge into the hit list, or turn into rules
+- **Scan history & reports** — choose a 50–5,000 entry rolling window and export it as JSON/CSV
 
 ## Quick start
 
@@ -68,7 +69,7 @@ powershell -ExecutionPolicy Bypass -File scripts/build.ps1
 
 1. Click the GoPainter toolbar icon → "Rules" → import `rules/examples.yaml` (or any nuclei template)
 2. Visit a site — the icon turns colored on a match; click it to inspect details and evidence
-3. When nothing matches, use "AI-assisted identification" (configure an API in settings first)
+3. When nothing matches, use "AI identification" to get tech-stack candidates (configure an API in settings first), tick the ones you accept and merge them into the hit list; each matched card also offers "optimize this rule", and candidates without a rule can be turned into a new one in one click
 
 ### 5. Crawl a site (Side Panel)
 
@@ -246,8 +247,8 @@ Matching, mmh3, HTML feature extraction, and nuclei conversion all live in Go.
 - [x] nuclei template import compatibility (http matchers subset)
 - [x] hit evidence display
 - [x] icon state indicator (gray/colored + badge)
-- [x] AI-assisted identification (OpenAI-compatible endpoint, customizable prompts)
-- [x] reverse AI rule generation (unidentified page → AI writes YAML → confirm & import)
+- [x] AI-assisted tech-stack identification (structured candidates with confidence/evidence, merge into hit list)
+- [x] AI rule optimization & creation (optimize an existing rule against the current page, or create a missing rule)
 - [x] bookmark auto-categorization (sort bookmarks by fingerprint hit; optional AI fallback)
 - [x] mmh3 / HTML extraction / nuclei conversion moved into Go (added meta, script dimensions)
 - [x] built-in favicon hash database (956 entries, BishopFox dataset) + custom hash import
@@ -264,7 +265,7 @@ Matching, mmh3, HTML feature extraction, and nuclei conversion all live in Go.
 
 **In progress / planned**
 - [ ] rule-set management: group enable/disable, remote rule source subscriptions & auto-update
-- [ ] scan history and report export (JSON/CSV)
+- [x] scan history and report export (JSON/CSV)
 - [x] Go unit tests (matcher / dsl / mmh3 / extract / normalize / crawl / convert, `make test-go`)
 - [x] JS unit tests (confidence filtering, rule merging, favicon hash de-duplication, YAML extraction; `make test-js`)
 - [ ] further WASM size reduction (currently ~750KB, target < 300KB, parked)

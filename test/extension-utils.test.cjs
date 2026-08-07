@@ -2,6 +2,8 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
   confidenceValue, filterAndSortHits, faviconHashValues, mergeRules, mergeConvertedRules, extractYaml,
+  extractJson, normalizeAiEvidence, normalizeAiTech, techsFromAiReply, ruleByTechName, sanitizeRuleDocs,
+  scanHistoryEntry, mergeScanHistory, normalizeHistoryLimit, scanHistoryReport, scanHistoryCsv,
 } = require('../extension/shared-utils.js');
 
 test('confidenceValue only accepts the supported 0-100 range', () => {
@@ -52,4 +54,147 @@ test('extractYaml removes a YAML fence and leaves ordinary YAML alone', () => {
   assert.equal(extractYaml('text\n```yaml\n- id: wordpress\n```\n'), '- id: wordpress');
   assert.equal(extractYaml('```YML\r\nid: nginx\r\n```'), 'id: nginx');
   assert.equal(extractYaml('  - id: plain  '), '- id: plain');
+});
+
+test('scan history stores a compact report and replaces an older scan of the same URL', () => {
+  const entry = scanHistoryEntry({ url: 'https://example.com', title: 'Example', status: 200, faviconHash: -8 }, {
+    hits: [{ id: 'nginx', name: 'Nginx', confidence: 90, evidence: [{ type: 'word', part: 'header', detail: 'server: nginx' }] }],
+  }, 'page', 100);
+  assert.deepEqual(entry, {
+    url: 'https://example.com', title: 'Example', status: 200, faviconHash: -8, source: 'page', at: 100,
+    hits: [{ id: 'nginx', name: 'Nginx', confidence: 90, evidence: [{ matcher: 'word', location: 'header', matched: 'server: nginx' }] }],
+  });
+  const out = mergeScanHistory([{ url: 'https://example.com', at: 1 }, { url: 'https://old.example', at: 2 }], entry, 2);
+  assert.deepEqual(out.map((item) => item.url), ['https://example.com', 'https://old.example']);
+});
+
+test('scanHistoryCsv escapes commas, quotes and newlines for spreadsheet import', () => {
+  const csv = scanHistoryCsv([{ at: 0, source: 'page', url: 'https://example.com/a,b', title: 'A "quoted" title', status: 200, faviconHash: 0,
+    hits: [{ name: 'Nginx', confidence: 90, evidence: [{ type: 'word', part: 'header', detail: 'server: nginx\nnext' }] }],
+  }]);
+  assert.match(csv, /^time,source,url,title,status,favicon_hash,fingerprint_id,fingerprint_name,confidence,matcher,location,matched,expression\r\n/);
+  assert.match(csv, /"https:\/\/example\.com\/a,b"/);
+  assert.match(csv, /"A ""quoted"" title"/);
+  assert.match(csv, /"server: nginx\nnext"/);
+});
+
+test('scanHistoryReport separates actual matches from optional rule expressions', () => {
+  const report = scanHistoryReport([{ at: 0, source: 'page', url: 'https://example.com', title: '', status: 200, faviconHash: 0,
+    hits: [{ id: 'c3-js', name: 'C3.js', confidence: null, evidence: [
+      { type: 'regex', part: 'script', detail: 'c3.js', pattern: 'c3(?:\\.min)?\\.js' },
+      { type: 'word', part: 'body', detail: 'hello' },
+    ] }],
+  }], 100);
+  const evidence = report.scans[0].detections[0].evidence;
+  assert.deepEqual(evidence[0], { matcher: 'regex', location: 'script', matched: 'c3.js', expression: 'c3(?:\\.min)?\\.js' });
+  assert.deepEqual(evidence[1], { matcher: 'word', location: 'body', matched: 'hello' });
+  assert.equal(report.schemaVersion, 1);
+  assert.equal(report.generatedAt, '1970-01-01T00:00:00.100Z');
+});
+
+test('normalizeHistoryLimit keeps the configurable rolling window in safe bounds', () => {
+  assert.equal(normalizeHistoryLimit(50), 50);
+  assert.equal(normalizeHistoryLimit('750'), 750);
+  assert.equal(normalizeHistoryLimit(10), 50);
+  assert.equal(normalizeHistoryLimit(9000), 5000);
+  assert.equal(normalizeHistoryLimit('bad', 300), 300);
+});
+
+test('extractJson pulls JSON out of fenced or prose-wrapped AI replies', () => {
+  assert.deepEqual(extractJson('```json\n[{"name":"Nginx"}]\n```'), { ok: true, value: [{ name: 'Nginx' }] });
+  assert.deepEqual(extractJson('根据分析，结果是：[{"name":"Nginx","confidence":0.9}] 以上。'), { ok: true, value: [{ name: 'Nginx', confidence: 0.9 }] });
+  assert.deepEqual(extractJson('{\"techs\":[1,2]} 后面有散文'), { ok: true, value: { techs: [1, 2] } });
+  assert.deepEqual(extractJson('这里没有 JSON'), { ok: false });
+  assert.deepEqual(extractJson(''), { ok: false });
+  assert.deepEqual(extractJson('```json\n[broken\n```'), { ok: false });
+});
+
+test('ruleByTechName matches rules by id or name case-insensitively', () => {
+  const rules = [{ id: 'wordpress', name: 'WordPress' }, { id: 'nginx', name: 'Nginx' }];
+  assert.equal(ruleByTechName(rules, 'wordpress').name, 'WordPress');
+  assert.equal(ruleByTechName(rules, 'WordPress').id, 'wordpress');
+  assert.equal(ruleByTechName(rules, 'NGINX').name, 'Nginx');
+  assert.equal(ruleByTechName(rules, 'Nope'), null);
+  assert.equal(ruleByTechName(rules, ''), null);
+  assert.equal(ruleByTechName([], 'nginx'), null);
+});
+
+test('normalizeAiEvidence maps location types to word matchers and keeps others', () => {
+  assert.deepEqual(normalizeAiEvidence({ type: 'header', detail: 'server: nginx' }), { type: 'word', part: 'header', detail: 'server: nginx' });
+  assert.deepEqual(normalizeAiEvidence({ type: 'status', detail: '状态码 200' }), { type: 'status', detail: '状态码 200' });
+  assert.deepEqual(normalizeAiEvidence({ type: 'regex', detail: '/wp-content/', pattern: 'wp-.*' }), { type: 'regex', detail: '/wp-content/', pattern: 'wp-.*' });
+  assert.equal(normalizeAiEvidence(null), null);
+  assert.equal(normalizeAiEvidence({ type: 'word' }), null);
+});
+
+test('normalizeAiTech normalizes confidence and drops unnamed techs', () => {
+  assert.deepEqual(normalizeAiTech({ name: 'ZenTao', confidence: 0.92, evidence: [{ type: 'meta', detail: 'generator: ZenTao' }] }), {
+    name: 'ZenTao', confidence: 92, evidence: [{ type: 'word', part: 'meta', detail: 'generator: ZenTao' }],
+  });
+  assert.equal(normalizeAiTech({ name: 'Nginx', confidence: 92 }).confidence, 92);
+  assert.equal(normalizeAiTech({ name: 'X', confidence: 'high' }).confidence, null);
+  assert.equal(normalizeAiTech({ name: 'X' }).confidence, null);
+  assert.equal(normalizeAiTech({ name: 'Y', confidence: 250 }).confidence, 100);
+  assert.equal(normalizeAiTech({ name: '' }), null);
+  assert.equal(normalizeAiTech(null), null);
+});
+
+test('techsFromAiReply accepts arrays or wrapped objects and falls back to raw text', () => {
+  const ok = techsFromAiReply('[{"name":"Nginx","confidence":1}]');
+  assert.equal(ok.raw, '');
+  assert.equal(ok.techs.length, 1);
+  assert.equal(ok.techs[0].confidence, 100);
+
+  const wrapped = techsFromAiReply('{"techs":[{"name":"React"}]}');
+  assert.equal(wrapped.techs.length, 1);
+  assert.equal(wrapped.techs[0].name, 'React');
+
+  const bad = techsFromAiReply('Nginx，置信度 0.9，依据是 server 头');
+  assert.deepEqual(bad.techs, []);
+  assert.equal(bad.raw, 'Nginx，置信度 0.9，依据是 server 头');
+});
+
+test('sanitizeRuleDocs fixes AI output shapes that would drop the whole rule', () => {
+  // 单条规则对象（jsyaml.loadAll 对 "- id:" 文档会包一层数组）
+  const single = sanitizeRuleDocs([[{
+    id: 'wp', name: 'WordPress', 'matchers-condition': 'or',
+    matchers: [{ type: 'word', words: 'wp-content', confidence: 0.8 }],
+  }]]);
+  assert.equal(single.length, 1);
+  assert.deepEqual(single[0].matchers[0].words, ['wp-content']);
+  assert.equal(single[0].matchers[0].confidence, 80); // 0-1 → 0-100
+
+  // 规则级浮点 confidence → 0-100 整数
+  const rc = sanitizeRuleDocs([{ id: 'a', name: 'A', confidence: 0.92, matchers: [{ type: 'word', words: ['x'] }] }]);
+  assert.equal(rc[0].confidence, 92);
+
+  // 单 matcher 不装数组、hash 标量、implies 标量
+  const shapes = sanitizeRuleDocs([{
+    id: 'b', name: 'B', implies: 'React',
+    matchers: { type: 'icon_hash', hash: -123 },
+  }]);
+  assert.equal(shapes.length, 1);
+  assert.equal(shapes[0].matchers.length, 1);
+  assert.deepEqual(shapes[0].matchers[0].hash, [-123]);
+  assert.deepEqual(shapes[0].implies, ['React']);
+
+  // 不支持的 matcher 类型丢掉，其余保留
+  const mixed = sanitizeRuleDocs([{
+    id: 'c', name: 'C',
+    matchers: [
+      { type: 'binary', words: ['x'] },
+      { type: 'word', words: ['ok'] },
+    ],
+  }]);
+  assert.equal(mixed[0].matchers.length, 1);
+  assert.equal(mixed[0].matchers[0].type, 'word');
+
+  // 无 id / 无有效 matcher 的规则被丢弃
+  assert.deepEqual(sanitizeRuleDocs([{ name: 'NoId', matchers: [{ type: 'word', words: ['x'] }] }]), []);
+  assert.deepEqual(sanitizeRuleDocs([{ id: 'd', name: 'D', matchers: [] }]), []);
+  assert.deepEqual(sanitizeRuleDocs([]), []);
+
+  // 越界 confidence 视为未标注（与引擎 validConfidence 一致）
+  const badConf = sanitizeRuleDocs([{ id: 'e', name: 'E', confidence: 150, matchers: [{ type: 'word', words: ['x'] }] }]);
+  assert.equal(badConf[0].confidence, undefined);
 });

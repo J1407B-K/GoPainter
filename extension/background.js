@@ -15,21 +15,19 @@ importScripts(
 
 const DEFAULT_PROMPTS = {
   identify: [
-    '你是 Web 指纹分析专家。根据用户给出的页面特征（URL、标题、meta 标签、script 路径、响应头、favicon 哈希），判断该站点使用的系统/框架/中间件。',
-    '用自然语言分条返回：第一行「系统名，置信度」，下面是命中的关键特征依据。没有把握就说「未知」，不要编造。',
+    '你是 Web 技术栈指纹分析专家。根据页面特征（URL/标题/状态码/响应头/meta/script/favicon哈希/body/js全局变量/dom选择器）识别站点使用的技术栈（框架、CMS、中间件、Web服务器、语言、前端库、统计工具等）。',
+    '只输出一个 JSON 数组，不要任何解释、不要 markdown 代码块。',
+    '数组每项结构：{"name":"技术名","confidence":0到100整数,"evidence":[{"type":"...","detail":"..."}]}',
+    'evidence.type 只允许：word / regex / header / meta / script / js / dom / status / icon_hash',
+    '  - header/meta/script 表示命中位置，detail 写具体内容，如 "server: nginx"、"generator: ZenTao"、"/media/system/js/core.js"',
+    '  - js 写 "window.React.version"；dom 写选择器；status 写 "状态码 200"；icon_hash 写 "mmh3 <数字>"',
+    'confidence 越高越确定；没有把握的技术不要列。',
     '',
-    '【示范】',
-    '用户特征：{"url":"https://demo.example.com","title":"登录 - 禅道","meta":{"generator":"ZenTao"}}',
-    '应返回：',
-    'ZenTao（禅道），置信度 0.92',
-    '依据：',
-    '- meta generator = ZenTao',
-    '- 标题含「登录」',
-    '',
-    '硬性要求：不要 ``` 代码块，不要 JSON 数组，纯文本即可。',
+    '【示范】用户特征 {"url":"https://demo.example.com","title":"登录 - 禅道","meta":{"generator":"ZenTao"}}',
+    '应返回：[{"name":"ZenTao","confidence":92,"evidence":[{"type":"meta","detail":"generator: ZenTao"}]}]',
   ].join('\n'),
   rule: [
-    '你是 Web 指纹规则编写专家。根据用户给的页面特征，编写一条 GoPainter 指纹规则，只输出 YAML，不要任何解释。',
+    '你是 Web 指纹规则编写专家。根据用户给的页面特征，为一个 Web 技术编写一条 GoPainter 指纹规则，只输出 YAML，不要任何解释。',
     '',
     '支持的 schema（严格照抄字段名，别自创）：',
     '- id: kebab-case 英文标识（必填）',
@@ -77,16 +75,62 @@ const DEFAULT_PROMPTS = {
     '- 只输出 YAML，不要 ```yaml 代码块，不要解释文字',
     '- 别写 JS 表达式/DSL，只用上面列出的字段',
   ].join('\n'),
+  optimize: [
+    '你是 Web 指纹规则优化专家。下面「用户消息」里会给出：页面特征 + 当前规则的 YAML。',
+    '请基于该页面特征优化这条规则：',
+    '- 保持 id 不变（同 id 覆盖入库），可微调 name',
+    '- 把不稳定/易变化的 matchers 换成稳定特征：generator meta、框架特有 script 路径、响应头、favicon 哈希（hash 直接用页面 faviconHash 数字）、js 全局变量（window.x）、dom 选择器',
+    '- 只输出一个 YAML 文档（以 "- id:" 开头），不要 ```yaml 代码块，不要解释文字',
+    '- 严格照抄 schema 字段：type(word|regex|status|icon_hash|js|dom) / part(body|title|url|header|raw|meta|script) / words / regex / status / hash / js(数组,{path,pattern}) / dom(数组,{sel,text,attrs}) / condition / negative / confidence(0-100)',
+    '- 别写 JS 表达式/DSL',
+  ].join('\n'),
   bookmark:
     '根据用户给出的页面特征判断该站点使用的系统/框架/中间件，只回复一个名称（如 Nginx、WordPress、Vue），拿不准就回复「未知」，不要任何其他内容。',
 };
 
-async function callAI(systemPrompt, features) {
+// 扫描历史只存报告需要的摘要，不存页面 HTML、响应头或 AI 配置。
+const SCAN_HISTORY_KEY = 'scanHistory';
+const SCAN_HISTORY_LIMIT_KEY = 'scanHistoryLimit';
+const DEFAULT_SCAN_HISTORY_LIMIT = 300;
+let historyWrite = Promise.resolve();
+
+function recordScanHistory(features, result, source) {
+  historyWrite = historyWrite.then(async () => {
+    const stored = await chrome.storage.local.get([SCAN_HISTORY_KEY, SCAN_HISTORY_LIMIT_KEY]);
+    const history = stored[SCAN_HISTORY_KEY] || [];
+    const limit = GoPainterUtils.normalizeHistoryLimit(stored[SCAN_HISTORY_LIMIT_KEY], DEFAULT_SCAN_HISTORY_LIMIT);
+    const entry = GoPainterUtils.scanHistoryEntry(features, result, source);
+    const next = GoPainterUtils.mergeScanHistory(history, entry, limit);
+    await chrome.storage.local.set({ [SCAN_HISTORY_KEY]: next });
+  }).catch((error) => console.warn('保存扫描历史失败:', error));
+  return historyWrite;
+}
+
+function setScanHistoryLimit(value) {
+  const limit = GoPainterUtils.normalizeHistoryLimit(value, DEFAULT_SCAN_HISTORY_LIMIT);
+  historyWrite = historyWrite.then(async () => {
+    const { [SCAN_HISTORY_KEY]: history = [] } = await chrome.storage.local.get(SCAN_HISTORY_KEY);
+    await chrome.storage.local.set({
+      [SCAN_HISTORY_LIMIT_KEY]: limit,
+      [SCAN_HISTORY_KEY]: (Array.isArray(history) ? history : []).slice(0, limit),
+    });
+  }).catch((error) => console.warn('更新扫描历史上限失败:', error));
+  return historyWrite.then(() => limit);
+}
+
+function clearScanHistory() {
+  historyWrite = historyWrite.then(() => chrome.storage.local.set({ [SCAN_HISTORY_KEY]: [] }))
+    .catch((error) => console.warn('清空扫描历史失败:', error));
+  return historyWrite;
+}
+
+async function callAI(systemPrompt, features, extraUserText = '') {
   const cfg = await chrome.storage.local.get(['aiBaseURL', 'aiApiKey', 'aiModel']);
   if (!cfg.aiBaseURL || !cfg.aiApiKey || !cfg.aiModel) {
     throw new Error('请先在设置页配置 AI（baseURL / API Key / 模型）');
   }
-  // body 截一下，别把 token 打爆
+  // body 截一下，别把 token 打爆；js/dom 是页面运行时探测的，也一并给 AI 判断
+  const jsEntries = Object.entries(features.js || {}).slice(0, 40);
   const slim = {
     url: features.url,
     title: features.title,
@@ -95,8 +139,14 @@ async function callAI(systemPrompt, features) {
     faviconHash: features.faviconHash,
     meta: features.meta,
     scripts: (features.scripts || []).slice(0, 30),
+    js: Object.fromEntries(jsEntries),
+    dom: (features.dom || []).slice(0, 40),
     body: (features.body || '').slice(0, 8000),
   };
+  const userContent = [
+    JSON.stringify(slim),
+    extraUserText && `\n\n${extraUserText}`,
+  ].filter(Boolean).join('');
   const resp = await fetch(`${cfg.aiBaseURL.replace(/\/$/, '')}/chat/completions`, {
     method: 'POST',
     headers: {
@@ -107,7 +157,7 @@ async function callAI(systemPrompt, features) {
       model: cfg.aiModel,
       messages: [
         { role: 'system', content: systemPrompt },
-        { role: 'user', content: JSON.stringify(slim) },
+        { role: 'user', content: userContent },
       ],
     }),
   });
@@ -120,6 +170,7 @@ async function customPrompt(key) {
   const storageKeys = {
     identify: 'aiPromptIdentify',
     rule: 'aiPromptRule',
+    optimize: 'aiPromptOptimize',
     bookmark: 'aiPromptBookmark',
   };
   const storageKey = storageKeys[key];
@@ -261,6 +312,7 @@ async function crawlSite(seed, maxPages) {
           const result = await appendHashHit(features, await runMatch(features));
           const hits = await runUserScripts(features, result.hits);
           results.push({ url, title: features.title || url, status: features.status, hits });
+          await recordScanHistory(features, { ...result, hits }, 'crawl');
           // 页面里发现的链接喂回 wasm，过滤去重它管
           globalThis.goCrawlFeed(url, JSON.stringify(features.links || []));
         } catch (e) {
@@ -298,6 +350,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         await chrome.storage.session.set({
           [`result:${tabId}`]: { features, result, at: Date.now() },
         });
+        await recordScanHistory(features, result, 'page');
         await updateIcon(tabId, result.hits?.length || 0);
         sendResponse({ ok: true });
         break;
@@ -308,10 +361,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         break;
       }
       case 'aiIdentify': {
+        // 技术栈识别：AI 返回结构化候选（name/confidence/evidence），解析失败回 raw 文本兜底
         const data = await chrome.storage.session.get(`result:${msg.tabId}`);
         const features = data[`result:${msg.tabId}`]?.features || msg.features;
         const answer = await callAI(await customPrompt('identify'), features);
-        sendResponse({ ok: true, answer });
+        const parsed = GoPainterUtils.techsFromAiReply(answer);
+        sendResponse({ ok: true, ...parsed });
         break;
       }
       case 'aiGenerateRule': {
@@ -322,12 +377,51 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         sendResponse({ ok: true, yaml });
         break;
       }
+      case 'aiCreateRule': {
+        // 新建缺失规则：name 可选（AI 候选一键转带技术名，或手动输入）
+        const data = await chrome.storage.session.get(`result:${msg.tabId}`);
+        const features = data[`result:${msg.tabId}`]?.features;
+        if (!features) throw new Error('没有当前页面的特征，请先刷新页面');
+        const name = String(msg.name || '').trim();
+        const extra = name
+          ? `目标技术名：${name}。请为这个技术生成一条规则，id 用 kebab-case（如 ${name} 的小写短横线形式），只输出 YAML。`
+          : '请为站点上检测到的新技术生成一条规则，只输出 YAML。';
+        const yaml = extractYaml(await callAI(await customPrompt('rule'), features, extra));
+        sendResponse({ ok: true, yaml });
+        break;
+      }
+      case 'aiOptimizeRule': {
+        // 优化现有规则：找规则 + 站点特征一起给 AI，返回规范化后强制同 id 的 YAML
+        const data = await chrome.storage.session.get(`result:${msg.tabId}`);
+        const features = data[`result:${msg.tabId}`]?.features;
+        if (!features) throw new Error('没有当前页面的特征，请先刷新页面');
+        const { rules = [] } = await chrome.storage.local.get('rules');
+        const rule = rules.find((r) => r.id === msg.ruleId);
+        if (!rule) throw new Error(`规则 ${msg.ruleId} 不存在`);
+        const extra = `页面特征已给出。\n当前规则(YAML)：\n${jsyaml.dump(rule)}\n\n请基于该页面特征优化此规则，保持 id 不变，只输出优化后的 YAML。`;
+        const yaml = extractYaml(await callAI(await customPrompt('optimize'), features, extra));
+        // 先清洗 + 规范化再强制同 id，保证「覆盖入库」语义，预览即入库真身
+        const docs = [];
+        jsyaml.loadAll(yaml, (d) => docs.push(d));
+        const clean = GoPainterUtils.sanitizeRuleDocs(docs);
+        if (!clean.length) throw new Error('优化结果里没有有效规则');
+        await ensureWasm();
+        const out = JSON.parse(globalThis.goNormalizeRules(JSON.stringify(clean)));
+        if (out.error) throw new Error(out.error);
+        const optimized = (out.rules || []).map((r) => ({ ...r, id: rule.id }));
+        if (!optimized.length) throw new Error('优化结果里没有有效规则');
+        sendResponse({ ok: true, yaml: jsyaml.dump(optimized), ruleName: rule.name });
+        break;
+      }
       case 'addRule': {
-        // popup 把 AI 给的 YAML 发回来，解析入库（同 id 覆盖）
+        // popup 把 AI 给的 YAML 发回来，解析入库（同 id 覆盖）。
+        // 先清洗再走 wasm：AI 输出常见标量/浮点/单对象偏差，goNormalizeRules 一处不对就丢整条规则
         const docs = [];
         jsyaml.loadAll(msg.yaml, (d) => docs.push(d));
+        const clean = GoPainterUtils.sanitizeRuleDocs(docs);
+        if (!clean.length) throw new Error('YAML 里没有有效规则');
         await ensureWasm();
-        const out = JSON.parse(globalThis.goNormalizeRules(JSON.stringify(docs)));
+        const out = JSON.parse(globalThis.goNormalizeRules(JSON.stringify(clean)));
         if (out.error) throw new Error(out.error);
         if (!out.rules?.length) throw new Error('YAML 里没有有效规则');
         const { rules: existing = [] } = await chrome.storage.local.get('rules');
@@ -338,8 +432,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         break;
       }
       case 'normalizeRules': {
+        // 文件导入也先清洗（YAML 手写常有标量/数组混淆）
+        let rawDocs = msg.docsJSON;
+        try {
+          const parsed = JSON.parse(rawDocs);
+          if (Array.isArray(parsed)) {
+            const clean = GoPainterUtils.sanitizeRuleDocs(parsed);
+            rawDocs = JSON.stringify(clean);
+          }
+        } catch { /* 不是合法 JSON 就让 wasm 报错 */ }
         await ensureWasm();
-        const out = JSON.parse(globalThis.goNormalizeRules(msg.docsJSON));
+        const out = JSON.parse(globalThis.goNormalizeRules(rawDocs));
         if (out.error) throw new Error(out.error);
         sendResponse({ ok: true, rules: out.rules });
         break;
@@ -365,6 +468,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
       case 'getDefaultPrompts': {
         sendResponse({ ok: true, prompts: DEFAULT_PROMPTS });
+        break;
+      }
+      case 'setScanHistoryLimit': {
+        const limit = await setScanHistoryLimit(msg.limit);
+        sendResponse({ ok: true, limit });
+        break;
+      }
+      case 'clearScanHistory': {
+        await clearScanHistory();
+        sendResponse({ ok: true });
         break;
       }
       case 'organizeBookmarks': {

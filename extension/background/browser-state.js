@@ -136,5 +136,6 @@ async function flushIcons(tabId) {
   result.hits = await runUserScripts(stored.features, result.hits);
   stored.result = result;
   await chrome.storage.session.set({ [key]: stored });
+  await recordScanHistory(stored.features, result, 'page');
   await updateIcon(tabId, result.hits?.length || 0);
 }
