@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN ">
 <head>
   <meta charset="UTF-8">
   <style>
@@ -24,6 +24,7 @@
 
     /* 顶部横幅 */
     .banner {
+      position: relative; /* ui-rework 的绿色状态点需要这个包含块 */
       padding: 14px 16px 12px;
       background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 60%, #a855f7 100%);
       color: #fff;
@@ -227,6 +228,7 @@
     }
     @keyframes spin { to { transform: rotate(360deg); } }
   </style>
+  <link rel="stylesheet" href="ui-rework.css">
 </head>
 <body>
   <div class="banner">
