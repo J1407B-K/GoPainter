@@ -334,6 +334,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     switch (msg.type) {
       case 'pageFeatures': {
         const tabId = sender.tab?.id;
+        const pageUrl = msg.features?.url;
+        const navigationVersion = currentNavigationVersion(tabId);
+        // content script 的上报可能在异步 favicon 哈希期间过期。
+        // 先挡一次，避免已经离开的页面启动无意义的计算。
+        if (!(await isCurrentTabPage(tabId, pageUrl, navigationVersion))) {
+          sendResponse({ ok: true, stale: true });
+          break;
+        }
         const net = responseCache.get(tabId) || { status: 0, headers: {} };
         const features = await enrichFeatures({
           ...msg.features,
@@ -347,6 +355,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         features.faviconHash = features.faviconHashes[0] || 0;
         const result = await appendHashHit(features, await runMatch(features));
         result.hits = await runUserScripts(features, result.hits);
+        // 上面的哈希请求可能很慢；页面已变化时不写旧缓存、不更新图标。
+        if (!(await isCurrentTabPage(tabId, pageUrl, navigationVersion))) {
+          sendResponse({ ok: true, stale: true });
+          break;
+        }
         await chrome.storage.session.set({
           [`result:${tabId}`]: { features, result, at: Date.now() },
         });

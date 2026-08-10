@@ -131,9 +131,13 @@ async function rescanAllTabs() {
   for (const [key, val] of Object.entries(all)) {
     if (!key.startsWith('result:') || !val?.features) continue;
     const tabId = Number(key.slice(7));
+    const navigationVersion = currentNavigationVersion(tabId);
     try {
+      // 不要用上一次导航留下的缓存去改当前页面的图标。
+      if (!(await isCurrentTabPage(tabId, val.features.url, navigationVersion))) continue;
       const result = await appendHashHit(val.features, await runMatch(val.features));
       result.hits = await runUserScripts(val.features, result.hits);
+      if (!(await isCurrentTabPage(tabId, val.features.url, navigationVersion))) continue;
       await chrome.storage.session.set({ [key]: { ...val, result } });
       await updateIcon(tabId, result.hits?.length || 0);
     } catch { /* 单个 tab 重扫失败就算了 */ }

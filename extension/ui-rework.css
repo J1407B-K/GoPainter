@@ -1,83 +1,547 @@
-/* GoPainter visual system — a light, quiet investigation workspace. */
+/* GoPainter design system — modern light, precise surfaces.
+ * One accent, semantic status colors, layered shadows, quiet hierarchy.
+ * Scoped per page via html:has(...) so the same file serves popup/options/sidepanel. */
+
 :root {
-  --gp-bg: #f5f7fb;
+  --gp-bg: #e8ebf2;
   --gp-surface: #ffffff;
-  --gp-text: #182033;
-  --gp-muted: #6f7890;
-  --gp-line: #e5e9f2;
+  --gp-text: #18181b;
+  --gp-text-2: #5b6472;
+  --gp-text-3: #8a93a5;
+  --gp-line: #d0d4e0;
+  --gp-line-strong: #b9bfd0;
   --gp-accent: #5b5bd6;
-  --gp-accent-soft: #f0efff;
-  --gp-success: #148765;
-  --gp-success-soft: #eaf8f2;
-  --gp-danger: #c94b5f;
-  --gp-mono: "SF Mono", "Cascadia Code", Consolas, monospace;
+  --gp-accent-hover: #4545c7;
+  --gp-accent-soft: #eef0ff;
+  --gp-success: #059669;
+  --gp-success-soft: #ecfdf5;
+  --gp-warn: #d97706;
+  --gp-warn-soft: #fffbeb;
+  --gp-danger: #dc2626;
+  --gp-danger-soft: #fef2f2;
+  --gp-shadow-card: 0 1px 2px rgba(16, 24, 40, .06), 0 2px 6px rgba(16, 24, 40, .07);
+  --gp-shadow-lift: 0 6px 18px rgba(16, 24, 40, .12), 0 2px 6px rgba(16, 24, 40, .07);
+  --gp-radius: 10px;
+  --gp-radius-sm: 8px;
+  --gp-radius-lg: 14px;
+  --gp-mono: "SF Mono", "Cascadia Code", Consolas, "JetBrains Mono", monospace;
+  --gp-font: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
 }
 
-/* Popup */
+/* =====================================================================
+ * POPUP  (html:has(#page-info))
+ * ===================================================================== */
+
 html:has(#page-info), html:has(#page-info) body { width: 400px; max-width: 400px; }
-html:has(#page-info) body { background: var(--gp-bg); color: var(--gp-text); font: 13px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif; }
-html:has(#page-info) .banner { padding: 17px 18px 14px; background: var(--gp-surface); color: var(--gp-text); border-bottom: 1px solid var(--gp-line); }
-html:has(#page-info) .banner:after { display: block; content: ""; position: absolute; width: 8px; height: 8px; right: 18px; top: 22px; border-radius: 50%; background: var(--gp-success); box-shadow: 0 0 0 4px var(--gp-success-soft); }
-html:has(#page-info) .banner h1 { font-size: 16px; letter-spacing: -.25px; }
-html:has(#page-info) .banner .sub { margin-top: 3px; color: var(--gp-muted); font-size: 11px; }
+html:has(#page-info) body {
+  background: var(--gp-bg); color: var(--gp-text);
+  font: 13px/1.5 var(--gp-font);
+}
+
+/* --- banner: gradient brand block, white text, status dot --- */
+html:has(#page-info) .banner {
+  position: relative;
+  display: flex; align-items: center; gap: 10px;
+  padding: 15px 17px 14px;
+  background: linear-gradient(135deg, #5b5bd6 0%, #7c5cd6 55%, #9a5cd6 100%);
+  box-shadow: inset 0 -1px 0 rgba(0, 0, 0, .08), 0 2px 8px rgba(91, 91, 214, .25);
+}
+html:has(#page-info) .banner h1 {
+  display: flex; align-items: center; gap: 9px;
+  margin: 0; font-size: 15px; font-weight: 700; letter-spacing: -.01em; color: #fff;
+}
+/* emoji in a frosted chip */
+html:has(#page-info) .gp-logo {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; font-size: 15px; flex-shrink: 0;
+  background: rgba(255, 255, 255, .18); border: 1px solid rgba(255, 255, 255, .25);
+  border-radius: 8px;
+}
+html:has(#page-info) .banner .sub { margin: 0; color: rgba(255, 255, 255, .8); font-size: 11px; }
+/* online dot */
+html:has(#page-info) .banner:after {
+  content: ""; position: absolute; right: 15px; top: 50%; transform: translateY(-50%);
+  width: 8px; height: 8px; border-radius: 50%;
+  background: #4ade80; box-shadow: 0 0 0 3px rgba(74, 222, 128, .3);
+}
+
+/* --- container & page info card --- */
 html:has(#page-info) .container { padding: 14px; }
-html:has(#page-info) .page-info { padding: 13px; margin-bottom: 14px; background: var(--gp-surface); border: 1px solid var(--gp-line); border-radius: 12px; box-shadow: 0 2px 6px rgba(26, 35, 57, .035); }
-html:has(#page-info) .page-info .title { font-size: 13px; font-weight: 700; letter-spacing: -.1px; }
-html:has(#page-info) .page-info .url { margin-top: 4px; color: var(--gp-muted); font-size: 10px; }
-html:has(#page-info) .favicon { width: 22px; height: 22px; border-radius: 6px; }
-html:has(#page-info) .favicon.matched { box-shadow: 0 0 0 2px var(--gp-success-soft); }
-html:has(#page-info) .meta-row { gap: 5px; margin-top: 10px; }
-html:has(#page-info) .chip { padding: 3px 7px; color: #596176; background: #f5f6fa; border: 0; border-radius: 5px; font-size: 10px; }
-html:has(#page-info) .chip.ok { color: var(--gp-success); background: var(--gp-success-soft); border: 0; }
-html:has(#page-info) .section-label { margin: 0 2px 7px; color: var(--gp-muted); letter-spacing: .07em; font-size: 10px; }
-html:has(#page-info) .conf-note { margin: -2px 2px 8px; color: var(--gp-muted); }
-html:has(#page-info) .hit, html:has(#page-info) .candidate { padding: 12px; margin-bottom: 7px; background: var(--gp-surface); border: 1px solid var(--gp-line); border-left: 1px solid var(--gp-line); border-radius: 10px; box-shadow: none; animation: none; }
-html:has(#page-info) .hit:before { display: none; }
-html:has(#page-info) .hit .head { align-items: center; }
-html:has(#page-info) .hit .name, html:has(#page-info) .candidate .name { font-size: 13px; font-weight: 700; color: var(--gp-text); }
-html:has(#page-info) .hit .id { color: #8e96a8; font-size: 10px; }
-html:has(#page-info) .hit .conf, html:has(#page-info) .candidate .conf { border: 0; padding: 2px 6px; font-size: 10px; font-weight: 700; }
-html:has(#page-info) .hit .conf.high, html:has(#page-info) .conf.high { color: var(--gp-success); background: var(--gp-success-soft); }
-html:has(#page-info) .hit .conf.mid, html:has(#page-info) .conf.mid { color: var(--gp-accent); background: var(--gp-accent-soft); }
-html:has(#page-info) .hit .conf.low, html:has(#page-info) .conf.low { color: var(--gp-danger); background: #fff0f2; }
-html:has(#page-info) .hit .conf.none, html:has(#page-info) .conf.none { color: var(--gp-muted); background: #f3f5f8; }
-html:has(#page-info) .hit .evidence { margin-top: 9px; gap: 4px; }
-html:has(#page-info) .ev { padding: 5px 7px; background: #f8f9fc; border: 0; border-radius: 5px; }
-html:has(#page-info) .ev .tag { padding: 1px 5px; color: #66708a; background: #ebedf4; border: 0; border-radius: 3px; }
-html:has(#page-info) .ev .detail { color: #4e5870; font-size: 10px; }
+html:has(#page-info) .page-info {
+  padding: 13px 14px; margin-bottom: 12px;
+  background: var(--gp-surface); border: 1px solid var(--gp-line);
+  border-radius: var(--gp-radius); box-shadow: var(--gp-shadow-card);
+}
+html:has(#page-info) .page-info .title-row { display: flex; align-items: center; gap: 9px; }
+html:has(#page-info) .page-info .title { font-size: 13px; font-weight: 700; letter-spacing: -.01em; color: var(--gp-text); }
+html:has(#page-info) .page-info .url { margin-top: 3px; color: var(--gp-text-3); font-size: 11px; font-family: var(--gp-mono); }
+html:has(#page-info) .favicon { width: 22px; height: 22px; border-radius: 7px; border: 1px solid var(--gp-line); flex-shrink: 0; }
+html:has(#page-info) .favicon.matched { box-shadow: 0 0 0 2px var(--gp-success-soft), 0 0 0 4px #fff; }
+html:has(#page-info) .meta-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+html:has(#page-info) .chip {
+  display: inline-flex; align-items: center; padding: 3px 9px;
+  font-size: 10px; font-family: var(--gp-mono); font-weight: 600;
+  color: var(--gp-text-2); background: #f3f4f7; border-radius: 6px;
+}
+html:has(#page-info) .chip.ok { color: var(--gp-success); background: var(--gp-success-soft); }
+
+/* --- section labels --- */
+html:has(#page-info) .section-label {
+  margin: 4px 2px 7px; color: var(--gp-text-3);
+  font-size: 10px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase;
+}
+html:has(#page-info) .conf-note { margin: 0 2px 8px; color: var(--gp-text-3); font-size: 11px; }
+
+/* --- hit cards: white surface, semantic left bar, lift on hover --- */
+html:has(#page-info) .hit {
+  position: relative; overflow: hidden;
+  padding: 12px 13px 12px 15px; margin-bottom: 8px;
+  background: var(--gp-surface); border: 1px solid var(--gp-line);
+  border-radius: var(--gp-radius); box-shadow: var(--gp-shadow-card);
+  transition: box-shadow .15s ease, border-color .15s ease, transform .15s ease;
+}
+html:has(#page-info) .hit:hover { box-shadow: var(--gp-shadow-lift); border-color: var(--gp-line-strong); }
+/* left semantic bar */
+html:has(#page-info) .hit:before {
+  content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+  background: var(--gp-success);
+}
+html:has(#page-info) .hit.hit-ai:before { background: var(--gp-accent); }
+html:has(#page-info) .hit .head { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
+html:has(#page-info) .hit .name, html:has(#page-info) .candidate .name {
+  min-width: 0; font-size: 13px; font-weight: 700; color: var(--gp-text); overflow-wrap: anywhere;
+}
+html:has(#page-info) .hit .tail { display: flex; align-items: center; gap: 6px; flex-shrink: 0; max-width: 55%; min-width: 0; }
+html:has(#page-info) .hit .id {
+  min-width: 0; color: var(--gp-text-3); font-size: 10px; font-family: var(--gp-mono);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+html:has(#page-info) .ai-badge {
+  flex-shrink: 0; font-size: 9px; font-weight: 700; padding: 2px 6px; border-radius: 5px;
+  color: var(--gp-accent); background: var(--gp-accent-soft); letter-spacing: .04em;
+}
+
+/* --- confidence badges --- */
+html:has(#page-info) .conf, html:has(#page-info) .candidate .conf {
+  flex-shrink: 0; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 999px;
+  border: 1px solid transparent;
+}
+html:has(#page-info) .conf.high { color: var(--gp-success); background: var(--gp-success-soft); border-color: #d1fae5; }
+html:has(#page-info) .conf.mid { color: var(--gp-warn); background: var(--gp-warn-soft); border-color: #fde68a; }
+html:has(#page-info) .conf.low { color: var(--gp-danger); background: var(--gp-danger-soft); border-color: #fecaca; }
+html:has(#page-info) .conf.none { color: var(--gp-text-3); background: #f3f4f7; border-color: var(--gp-line); }
+
+/* --- evidence rows --- */
+html:has(#page-info) .hit .evidence { margin-top: 9px; display: flex; flex-direction: column; gap: 4px; }
+html:has(#page-info) .ev {
+  display: flex; gap: 7px; align-items: flex-start; min-width: 0;
+  padding: 4px 8px; background: #f8f9fc; border-radius: 6px;
+}
+html:has(#page-info) .ev .tag {
+  flex-shrink: 0; font-family: var(--gp-mono); font-size: 9px; font-weight: 600;
+  color: var(--gp-text-2); background: #eef0f4; padding: 1px 6px; border-radius: 4px;
+}
+html:has(#page-info) .ev .detail { min-width: 0; font-family: var(--gp-mono); font-size: 10px; color: #4b5563; overflow-wrap: anywhere; }
+
+/* --- footer actions: each card tinted with its own semantic color --- */
+html:has(#page-info) .footer { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 12px; }
+html:has(#page-info) .action-card {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+  padding: 11px 4px 10px;
+  border-radius: var(--gp-radius-sm);
+  cursor: pointer; user-select: none;
+  transition: transform .18s cubic-bezier(.2, .9, .3, 1.3), box-shadow .18s ease, border-color .18s ease, background .18s ease;
+}
+html:has(#page-info) .action-card:hover {
+  box-shadow: var(--gp-shadow-lift); transform: translateY(-2px);
+}
+html:has(#page-info) .action-card:active { transform: translateY(0) scale(.97); }
+html:has(#page-info) .ac-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px; font-size: 16px;
+  border-radius: 9px; border: 1px solid transparent;
+  transition: background .18s ease, transform .18s ease, box-shadow .18s ease;
+}
+html:has(#page-info) .action-card:hover .ac-icon { transform: scale(1.1); }
+html:has(#page-info) .ac-label { font-size: 10px; font-weight: 700; letter-spacing: .01em; }
+
+/* AI 识别 ✨：紫 */
+html:has(#page-info) #ai-btn {
+  background: linear-gradient(160deg, #f0eeff, #e4e3ff);
+  border: 1px solid #d4d3ff;
+}
+html:has(#page-info) #ai-btn .ac-icon { background: #dcdcff; border-color: #c4c2ff; }
+html:has(#page-info) #ai-btn .ac-label { color: #5a53c4; }
+html:has(#page-info) #ai-btn:hover { background: linear-gradient(160deg, #e7e5ff, #d9d8ff); border-color: #b9b7ff; }
+html:has(#page-info) #ai-btn:hover .ac-icon { background: #d0ceff; box-shadow: 0 2px 8px rgba(91, 91, 214, .3); }
+
+/* 新建规则 🛠：靛蓝 */
+html:has(#page-info) #rule-btn {
+  background: linear-gradient(160deg, #eef2ff, #e2e9ff);
+  border: 1px solid #d5e0ff;
+}
+html:has(#page-info) #rule-btn .ac-icon { background: #dfe7ff; border-color: #c6d3ff; }
+html:has(#page-info) #rule-btn .ac-label { color: #3d5cc0; }
+html:has(#page-info) #rule-btn:hover { background: linear-gradient(160deg, #e4eaff, #d6e0ff); border-color: #b9caff; }
+html:has(#page-info) #rule-btn:hover .ac-icon { background: #d5e0ff; box-shadow: 0 2px 8px rgba(59, 91, 219, .3); }
+
+/* 爬取本站 🕷：绿 */
+html:has(#page-info) #crawl-btn {
+  background: linear-gradient(160deg, #ecfdf5, #dcf9ec);
+  border: 1px solid #c3f0db;
+}
+html:has(#page-info) #crawl-btn .ac-icon { background: #d5f5e5; border-color: #b3e9cf; }
+html:has(#page-info) #crawl-btn .ac-label { color: #0b7a54; }
+html:has(#page-info) #crawl-btn:hover { background: linear-gradient(160deg, #e2fbf0, #d0f6e3); border-color: #a9e6c6; }
+html:has(#page-info) #crawl-btn:hover .ac-icon { background: #c6f1dc; box-shadow: 0 2px 8px rgba(5, 150, 105, .28); }
+
+/* 设置 ⚙️：蓝灰 */
+html:has(#page-info) #settings-btn {
+  background: linear-gradient(160deg, #f0f4f8, #e7eef5);
+  border: 1px solid #d8e4ee;
+}
+html:has(#page-info) #settings-btn .ac-icon { background: #dbe6f0; border-color: #c6d6e4; }
+html:has(#page-info) #settings-btn .ac-label { color: #51647c; }
+html:has(#page-info) #settings-btn:hover { background: linear-gradient(160deg, #e8eef5, #dce6ef); border-color: #bcd0e0; }
+html:has(#page-info) #settings-btn:hover .ac-icon { background: #d0deea; box-shadow: 0 2px 8px rgba(107, 124, 147, .28); }
+
+html:has(#page-info) .action-card.disabled { opacity: .45; pointer-events: none; }
+html:has(#page-info) .action-card.running { opacity: .6; }
+html:has(#page-info) .action-card.busy .ac-icon { animation: gp-pulse 1s ease-in-out infinite; }
+@keyframes gp-pulse { 50% { opacity: .35; } }
+
+/* --- entrance animations: hits, candidates, page card fade-slide up --- */
+html:has(#page-info) .page-info { animation: gp-rise .3s cubic-bezier(.2, .9, .3, 1) both; }
+html:has(#page-info) .hit { animation: gp-rise .3s cubic-bezier(.2, .9, .3, 1) both; }
+html:has(#page-info) .hit:nth-child(3) { animation-delay: .03s; }
+html:has(#page-info) .hit:nth-child(4) { animation-delay: .06s; }
+html:has(#page-info) .hit:nth-child(5) { animation-delay: .09s; }
+html:has(#page-info) .candidate { animation: gp-rise .28s cubic-bezier(.2, .9, .3, 1) both; }
+html:has(#page-info) .candidate:nth-child(2) { animation-delay: .03s; }
+html:has(#page-info) .candidate:nth-child(3) { animation-delay: .06s; }
+html:has(#page-info) .footer { animation: gp-rise .32s cubic-bezier(.2, .9, .3, 1) .1s both; }
+@keyframes gp-rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* --- AI candidates: tinted panel to stand out from neutral hit cards --- */
+html:has(#page-info) #ai-result { margin-top: 12px; }
+html:has(#page-info) #ai-result:before {
+  content: "AI 技术栈候选"; display: block; margin-bottom: 8px;
+  font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--gp-accent);
+}
+html:has(#page-info) #ai-candidates { display: flex; flex-direction: column; gap: 8px; max-height: 320px; overflow: auto; }
+html:has(#page-info) .candidate {
+  padding: 12px 14px 12px 15px;
+  background: linear-gradient(135deg, #f5f5ff 0%, #ffffff 60%);
+  border: 1px solid #dcdcff;
+  border-left: 4px solid var(--gp-accent);
+  border-radius: var(--gp-radius); box-shadow: var(--gp-shadow-card);
+  transition: transform .15s ease, box-shadow .15s ease;
+}
+html:has(#page-info) .candidate:hover { transform: translateY(-1px); box-shadow: var(--gp-shadow-lift); }
+html:has(#page-info) .candidate .head { display: flex; align-items: center; gap: 9px; min-width: 0; }
+html:has(#page-info) .candidate .head input[type=checkbox] { flex-shrink: 0; width: 16px; height: 16px; accent-color: var(--gp-accent); cursor: pointer; }
+html:has(#page-info) .candidate .evidence { margin-top: 8px; display: flex; flex-direction: column; gap: 4px; }
+html:has(#page-info) .candidate .actions { display: flex; align-items: center; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+html:has(#page-info) .tag-st {
+  font-size: 10px; font-weight: 700; padding: 2px 9px; border-radius: 999px;
+}
+html:has(#page-info) .tag-st.new { color: var(--gp-accent); background: var(--gp-accent-soft); border: 1px solid #dcdcff; }
+html:has(#page-info) .tag-st.has-rule { color: var(--gp-success); background: var(--gp-success-soft); border: 1px solid #d1fae5; }
+html:has(#page-info) .tag-st.has-hit { color: var(--gp-text-2); background: #eceef3; border: 1px solid var(--gp-line); }
+
+/* --- buttons --- */
+html:has(#page-info) button {
+  font-family: var(--gp-font); font-size: 12px; font-weight: 600;
+  padding: 8px 12px; border-radius: var(--gp-radius-sm);
+  border: 1px solid var(--gp-line); background: var(--gp-surface); color: var(--gp-text-2);
+  cursor: pointer; transition: all .15s ease;
+}
+html:has(#page-info) button:hover:not(:disabled) { background: #f8f9fc; border-color: var(--gp-line-strong); }
+html:has(#page-info) button:disabled { opacity: .5; cursor: wait; }
+html:has(#page-info) button.ghost, html:has(#page-info) .opt-btn {
+  color: var(--gp-accent); background: var(--gp-accent-soft); border: 1px solid #e0e3ff; border-radius: 7px;
+}
+html:has(#page-info) button.ghost:hover:not(:disabled), html:has(#page-info) .opt-btn:hover { background: #e2e5ff; }
+html:has(#page-info) .opt-btn { flex: none; font-size: 11px; padding: 4px 10px; }
 html:has(#page-info) .hit .opt-btn { margin-top: 9px; }
-html:has(#page-info) .footer { grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 12px; }
-html:has(#page-info) .action-card { flex-direction: column; justify-content: center; gap: 3px; padding: 9px 4px; background: var(--gp-surface); border: 1px solid var(--gp-line); border-radius: 9px; }
-html:has(#page-info) .action-card:hover { background: #fafaff; border-color: #cfcff3; transform: none; }
-html:has(#page-info) .ac-icon { font-size: 15px; } html:has(#page-info) .ac-label { color: #535c70; font-size: 10px; }
-html:has(#page-info) .empty { padding: 32px 0 22px; color: var(--gp-muted); } html:has(#page-info) .empty .icon { filter: none; }
-html:has(#page-info) .candidate { border-left: 3px solid var(--gp-accent); } html:has(#page-info) .candidate .actions { margin-top: 8px; }
-html:has(#page-info) .tag-st.has-rule, html:has(#page-info) .tag-st.has-hit { color: var(--gp-muted); background: #f2f4f7; border: 0; } html:has(#page-info) .tag-st.new { color: var(--gp-accent); background: var(--gp-accent-soft); border: 0; }
-html:has(#page-info) .opt-btn, html:has(#page-info) .link-btn, html:has(#page-info) button.ghost { color: var(--gp-accent); background: var(--gp-accent-soft); border: 0; border-radius: 6px; }
-html:has(#page-info) .opt-btn:hover, html:has(#page-info) .link-btn:hover, html:has(#page-info) button.ghost:hover:not(:disabled) { background: #e5e4ff; }
-html:has(#page-info) #rule-yaml { background: #20263a; border: 0; border-radius: 8px; } html:has(#page-info) #rule-name-input, html:has(#page-info) .modal input { color: var(--gp-text); background: var(--gp-surface); border-color: var(--gp-line); }
-html:has(#page-info) #rule-save, html:has(#page-info) #ai-merge, html:has(#page-info) #crawl-start-popup { background: var(--gp-accent); box-shadow: none; border-radius: 7px; }
-html:has(#page-info) #rule-save:hover:not(:disabled), html:has(#page-info) #ai-merge:hover, html:has(#page-info) #crawl-start-popup:hover { background: #4a4ac1; }
-html:has(#page-info) .modal-backdrop { background: rgba(24, 32, 51, .28); backdrop-filter: blur(2px); } html:has(#page-info) .modal { border-radius: 12px; box-shadow: 0 16px 50px rgba(24,32,51,.18); }
+html:has(#page-info) #rule-save, html:has(#page-info) #crawl-start-popup {
+  background: var(--gp-accent); border-color: var(--gp-accent); color: #fff; border-radius: var(--gp-radius-sm);
+  box-shadow: 0 1px 2px rgba(91, 91, 214, .3);
+}
+html:has(#page-info) #rule-save:hover:not(:disabled), html:has(#page-info) #crawl-start-popup:hover {
+  background: var(--gp-accent-hover); border-color: var(--gp-accent-hover);
+}
+/* merge button: gradient + glow, animated */
+html:has(#page-info) #ai-merge {
+  width: 100%; margin-top: 10px; padding: 11px 0;
+  background: linear-gradient(135deg, #7c5cd6, #5b5bd6);
+  border: none; border-radius: var(--gp-radius-sm); color: #fff;
+  font-size: 13px; font-weight: 700; letter-spacing: .02em;
+  box-shadow: 0 4px 14px rgba(91, 91, 214, .35);
+  transition: transform .15s ease, box-shadow .15s ease, filter .15s ease;
+}
+html:has(#page-info) #ai-merge:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(91, 91, 214, .45); filter: brightness(1.05); }
+html:has(#page-info) #ai-merge:disabled { opacity: .6; }
 
-/* Settings */
-html:has(#rule-list) body { background: var(--gp-bg); color: var(--gp-text); }
-html:has(#rule-list) .banner { padding: 25px max(24px, calc((100% - 760px) / 2 + 24px)); background: var(--gp-surface); color: var(--gp-text); border-bottom: 1px solid var(--gp-line); }
-html:has(#rule-list) .banner h1 { font-size: 20px; letter-spacing: -.45px; } html:has(#rule-list) .banner .sub { color: var(--gp-muted); }
-html:has(#rule-list) .container { width: min(760px, 100%); } html:has(#rule-list) .card { padding: 18px; background: var(--gp-surface); border-color: var(--gp-line); border-radius: 12px; box-shadow: 0 2px 7px rgba(26,35,57,.035); }
-html:has(#rule-list) .card h2 { font-size: 15px; } html:has(#rule-list) .muted { color: var(--gp-muted); }
-html:has(#rule-list) input[type=text], html:has(#rule-list) input[type=password], html:has(#rule-list) textarea { color: var(--gp-text); background: #fff; border-color: var(--gp-line); border-radius: 7px; }
-html:has(#rule-list) button { color: #4d5670; background: #f6f7fb; border-color: var(--gp-line); border-radius: 7px; } html:has(#rule-list) button:hover { background: #eff1f7; }
-html:has(#rule-list) button.primary { background: var(--gp-accent); border-color: var(--gp-accent); color: #fff; box-shadow: none; } html:has(#rule-list) button.primary:hover { background: #4a4ac1; }
-html:has(#rule-list) .file-drop { color: var(--gp-muted); background: #fafbfe; border-color: #dce1ec; border-radius: 9px; } html:has(#rule-list) .file-drop:hover { color: var(--gp-accent); background: var(--gp-accent-soft); border-color: #c8c7fb; }
-html:has(#rule-list) .rule-item:nth-child(odd), html:has(#rule-list) .source-item:nth-child(odd), html:has(#rule-list) .hash-item:nth-child(odd), html:has(#rule-list) .script-item:nth-child(odd), html:has(#rule-list) .crawl-item:nth-child(odd), html:has(#rule-list) .history-item:nth-child(odd) { background: #f8f9fc; }
-html:has(#rule-list) .rule-item:hover, html:has(#rule-list) .bm-item:hover { background: var(--gp-accent-soft); } html:has(#rule-list) .rule-item .id, html:has(#rule-list) .hash-item .h, html:has(#rule-list) .crawl-item .u, html:has(#rule-list) .history-item .url { color: var(--gp-muted); }
-html:has(#rule-list) .rule-modal-mask { background: rgba(24,32,51,.28); backdrop-filter: blur(2px); } html:has(#rule-list) .rule-modal { background: var(--gp-surface); border-color: var(--gp-line); box-shadow: 0 16px 50px rgba(24,32,51,.18); } html:has(#rule-list) .rule-modal pre { background: #20263a; color: #e8edff; border: 0; }
+/* --- rule area & inputs --- */
+html:has(#page-info) #rule-area { margin-top: 10px; }
+html:has(#page-info) #rule-name-input, html:has(#page-info) .modal input {
+  width: 100%; padding: 8px 10px; font-size: 12px; font-family: var(--gp-mono);
+  color: var(--gp-text); background: var(--gp-surface);
+  border: 1px solid var(--gp-line); border-radius: var(--gp-radius-sm);
+}
+html:has(#page-info) #rule-name-input:focus, html:has(#page-info) .modal input:focus {
+  outline: none; border-color: var(--gp-accent); box-shadow: 0 0 0 3px var(--gp-accent-soft);
+}
+html:has(#page-info) #rule-yaml {
+  margin: 0; padding: 11px 13px; font-size: 11px; font-family: var(--gp-mono);
+  color: #e6e8f5; background: #1f2437; border-radius: var(--gp-radius-sm);
+  max-height: 220px; overflow: auto; white-space: pre-wrap; word-break: break-all;
+}
+html:has(#page-info) .rule-actions { display: flex; gap: 8px; margin-top: 8px; }
+html:has(#page-info) .rule-actions button { flex: 1; }
+html:has(#page-info) #ai-raw {
+  margin-top: 10px; padding: 11px 13px; white-space: pre-wrap; word-break: break-all;
+  background: var(--gp-surface); border: 1px solid var(--gp-line); border-radius: var(--gp-radius);
+  font-size: 12px; color: var(--gp-text-2); max-height: 240px; overflow: auto;
+}
+html:has(#page-info) #ai-merge { width: 100%; margin-top: 10px; } /* width kept; rest defined above */
 
-/* Crawl panel */
-html:has(#crawl-badge) body { background: var(--gp-bg); color: var(--gp-text); }
-html:has(#crawl-badge) .banner { padding: 15px; background: var(--gp-surface); color: var(--gp-text); border-bottom: 1px solid var(--gp-line); } html:has(#crawl-badge) .banner .badge { color: var(--gp-success); background: var(--gp-success-soft); }
-html:has(#crawl-badge) .card { padding: 14px; background: var(--gp-surface); border-color: var(--gp-line); border-radius: 10px; box-shadow: 0 2px 6px rgba(26,35,57,.035); }
-html:has(#crawl-badge) input[type=text] { color: var(--gp-text); background: var(--gp-surface); border-color: var(--gp-line); border-radius: 7px; }
-html:has(#crawl-badge) button { color: #4d5670; background: #f6f7fb; border-color: var(--gp-line); border-radius: 7px; } html:has(#crawl-badge) button.primary { color:#fff; background: var(--gp-accent); border-color: var(--gp-accent); } html:has(#crawl-badge) button.primary:hover:not(:disabled) { background:#4a4ac1; }
-html:has(#crawl-badge) .crawl-item { margin-bottom: 5px; padding: 8px 9px; background: var(--gp-surface)!important; border-color: var(--gp-line); border-radius: 7px; } html:has(#crawl-badge) .crawl-item .u { color: var(--gp-muted); } html:has(#crawl-badge) .crawl-item .hits, html:has(#crawl-badge) #crawl-status .highlight { color: var(--gp-success); } html:has(#crawl-badge) .section-label { color: var(--gp-muted); letter-spacing: .07em; }
+/* --- crawl modal --- */
+html:has(#page-info) .modal-backdrop {
+  position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
+  padding: 16px; background: rgba(24, 32, 51, .3); backdrop-filter: blur(4px); z-index: 10;
+}
+html:has(#page-info) .modal {
+  width: 100%; padding: 15px; background: var(--gp-surface);
+  border: 1px solid var(--gp-line); border-radius: var(--gp-radius-lg);
+  box-shadow: 0 24px 60px rgba(16, 24, 40, .22);
+}
+html:has(#page-info) .modal h2 { margin: 0 0 9px; font-size: 14px; font-weight: 700; color: var(--gp-text); }
+html:has(#page-info) .modal label { display: block; margin: 10px 0 5px; font-weight: 600; font-size: 11px; color: var(--gp-text-2); }
+html:has(#page-info) .modal-actions { display: flex; gap: 8px; margin-top: 14px; }
+html:has(#page-info) .modal-actions button { flex: 1; }
+
+/* --- empty states --- */
+html:has(#page-info) .empty { text-align: center; color: var(--gp-text-3); padding: 30px 0 20px; font-size: 12px; }
+html:has(#page-info) .empty .icon { font-size: 26px; display: block; margin-bottom: 7px; }
+
+/* =====================================================================
+ * OPTIONS  (html:has(#rule-list))
+ * ===================================================================== */
+
+html:has(#rule-list) body { background: var(--gp-bg); color: var(--gp-text); font: 13px/1.55 var(--gp-font); }
+html:has(#rule-list) .banner {
+  display: flex; align-items: baseline; gap: 11px;
+  padding: 26px max(24px, calc((100% - 760px) / 2 + 24px)) 20px;
+  background: linear-gradient(135deg, #5b5bd6 0%, #7c5cd6 55%, #9a5cd6 100%);
+  box-shadow: inset 0 -1px 0 rgba(0, 0, 0, .08), 0 2px 8px rgba(91, 91, 214, .25);
+}
+html:has(#rule-list) .banner h1 {
+  display: flex; align-items: center; gap: 10px; margin: 0;
+  font-size: 19px; font-weight: 700; letter-spacing: -.02em; color: #fff;
+}
+html:has(#rule-list) .gp-logo {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px; font-size: 17px; flex-shrink: 0;
+  background: rgba(255, 255, 255, .18); border: 1px solid rgba(255, 255, 255, .25);
+  border-radius: 9px;
+}
+html:has(#rule-list) .banner .sub { color: rgba(255, 255, 255, .85); font-size: 12px; }
+html:has(#rule-list) .container { width: min(760px, 100%); padding: 22px 24px 40px; }
+
+html:has(#rule-list) .card {
+  padding: 18px 20px; margin-bottom: 16px;
+  background: var(--gp-surface); border: 1px solid var(--gp-line);
+  border-radius: var(--gp-radius-lg); box-shadow: var(--gp-shadow-card);
+  animation: gp-rise .35s cubic-bezier(.2, .9, .3, 1) both;
+  transition: border-color .18s ease, box-shadow .18s ease;
+}
+html:has(#rule-list) .card:nth-child(2) { animation-delay: .03s; }
+html:has(#rule-list) .card:nth-child(3) { animation-delay: .06s; }
+html:has(#rule-list) .card:nth-child(4) { animation-delay: .09s; }
+html:has(#rule-list) .card:nth-child(5) { animation-delay: .12s; }
+html:has(#rule-list) .card:nth-child(6) { animation-delay: .15s; }
+html:has(#rule-list) .card:hover { border-color: var(--gp-line-strong); box-shadow: var(--gp-shadow-lift); }
+html:has(#rule-list) .card h2 { margin: 0 0 4px; font-size: 15px; font-weight: 700; letter-spacing: -.01em; color: var(--gp-text); }
+html:has(#rule-list) .muted { color: var(--gp-text-2); font-size: 12px; }
+
+html:has(#rule-list) label { display: block; margin: 12px 0 5px; font-weight: 600; font-size: 12px; color: var(--gp-text-2); }
+html:has(#rule-list) input[type=text], html:has(#rule-list) input[type=password], html:has(#rule-list) textarea {
+  width: 100%; padding: 8px 11px; font-size: 12px; font-family: var(--gp-mono);
+  color: var(--gp-text); background: var(--gp-surface);
+  border: 1px solid var(--gp-line); border-radius: var(--gp-radius-sm);
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+html:has(#rule-list) input[type=text]:focus, html:has(#rule-list) input[type=password]:focus, html:has(#rule-list) textarea:focus {
+  outline: none; border-color: var(--gp-accent); box-shadow: 0 0 0 3px var(--gp-accent-soft);
+}
+html:has(#rule-list) .prompt-h { margin: 16px 0 4px; font-size: 13px; font-weight: 700; color: var(--gp-text); }
+
+html:has(#rule-list) button {
+  font-family: var(--gp-font); font-size: 12px; font-weight: 600;
+  padding: 8px 14px; border-radius: var(--gp-radius-sm);
+  border: 1px solid var(--gp-line); background: var(--gp-surface); color: var(--gp-text-2);
+  cursor: pointer; transition: all .15s ease;
+}
+html:has(#rule-list) button:hover:not(:disabled) { background: #f8f9fc; border-color: var(--gp-line-strong); }
+html:has(#rule-list) button:disabled { opacity: .5; cursor: wait; }
+html:has(#rule-list) button.primary {
+  background: var(--gp-accent); border-color: var(--gp-accent); color: #fff;
+  box-shadow: 0 1px 2px rgba(91, 91, 214, .3);
+}
+html:has(#rule-list) button.primary:hover:not(:disabled) { background: var(--gp-accent-hover); border-color: var(--gp-accent-hover); }
+html:has(#rule-list) button.danger { color: var(--gp-danger); border-color: #fecaca; background: #fff; }
+html:has(#rule-list) button.danger:hover:not(:disabled) { background: var(--gp-danger-soft); }
+html:has(#rule-list) .reset-btn { padding: 5px 12px; font-size: 11px; margin-top: 6px; }
+
+html:has(#rule-list) .file-drop {
+  padding: 14px; text-align: center; color: var(--gp-text-2);
+  background: #fafbfe; border: 1px dashed var(--gp-line-strong); border-radius: var(--gp-radius-sm);
+  cursor: pointer; transition: all .15s ease;
+}
+html:has(#rule-list) .file-drop:hover { color: var(--gp-accent); border-color: var(--gp-accent); background: var(--gp-accent-soft); }
+
+/* --- list rows --- */
+html:has(#rule-list) #rule-list, html:has(#rule-list) #source-list, html:has(#rule-list) #hash-list,
+html:has(#rule-list) #script-list, html:has(#rule-list) #crawl-results, html:has(#rule-list) #history-list {
+  margin-top: 10px;
+}
+html:has(#rule-list) .rule-item, html:has(#rule-list) .source-item, html:has(#rule-list) .hash-item,
+html:has(#rule-list) .script-item, html:has(#rule-list) .crawl-item, html:has(#rule-list) .history-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 12px; margin-bottom: 4px;
+  background: var(--gp-surface); border: 1px solid var(--gp-line);
+  border-radius: var(--gp-radius-sm); transition: background .12s ease, border-color .12s ease;
+}
+html:has(#rule-list) .rule-item:hover, html:has(#rule-list) .source-item:hover, html:has(#rule-list) .hash-item:hover,
+html:has(#rule-list) .script-item:hover, html:has(#rule-list) .crawl-item:hover, html:has(#rule-list) .history-item:hover {
+  background: #f8f9fc; border-color: var(--gp-line-strong);
+}
+html:has(#rule-list) .rule-item .id, html:has(#rule-list) .hash-item .h,
+html:has(#rule-list) .crawl-item .u, html:has(#rule-list) .history-item .url {
+  color: var(--gp-text-3); font-family: var(--gp-mono); font-size: 11px;
+}
+html:has(#rule-list) .source-item a { color: var(--gp-accent); text-decoration: none; }
+html:has(#rule-list) .source-item a:hover { text-decoration: underline; }
+html:has(#rule-list) .history-item .hits, html:has(#rule-list) .crawl-item .hits { color: var(--gp-success); font-weight: 600; }
+html:has(#rule-list) .crawl-item.failed .t { color: var(--gp-danger); font-weight: 700; }
+html:has(#rule-list) .crawl-item.failed .hits { color: var(--gp-danger); }
+
+/* --- rule detail modal --- */
+html:has(#rule-list) .rule-modal-mask {
+  position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
+  padding: 18px; background: rgba(24, 32, 51, .3); backdrop-filter: blur(4px); z-index: 20;
+}
+html:has(#rule-list) .rule-modal-mask.open { display: flex; }
+html:has(#rule-list) .rule-modal {
+  width: min(560px, 100%); background: var(--gp-surface);
+  border: 1px solid var(--gp-line); border-radius: var(--gp-radius-lg);
+  box-shadow: 0 24px 60px rgba(16, 24, 40, .22);
+}
+html:has(#rule-list) .rule-modal-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid var(--gp-line); }
+html:has(#rule-list) .rule-modal-head #rule-modal-title { font-size: 14px; font-weight: 700; color: var(--gp-text); }
+html:has(#rule-list) .rule-modal-close {
+  border: none; background: none; color: var(--gp-text-3); font-size: 18px; cursor: pointer; padding: 2px 6px;
+}
+html:has(#rule-list) .rule-modal-close:hover { color: var(--gp-text); background: #f3f4f7; border-radius: 6px; }
+html:has(#rule-list) .rule-modal pre {
+  margin: 0; padding: 14px 18px; font-family: var(--gp-mono); font-size: 11px;
+  color: #e6e8f5; background: #1f2437; max-height: 380px; overflow: auto; white-space: pre-wrap;
+}
+html:has(#rule-list) .rule-modal .rule-modal-actions { display: flex; gap: 8px; padding: 12px 18px; border-top: 1px solid var(--gp-line); justify-content: flex-end; }
+
+/* --- bookmark groups --- */
+html:has(#rule-list) .bm-group {
+  position: sticky; top: 0; z-index: 1;
+  padding: 7px 10px; margin: 10px 0 4px;
+  background: var(--gp-surface); border: 1px solid var(--gp-line); border-radius: 7px;
+  font-weight: 700; font-size: 12px; color: var(--gp-text);
+}
+html:has(#rule-list) .bm-item { padding: 8px 12px; border-radius: 7px; font-size: 12px; }
+html:has(#rule-list) .bm-item:hover { background: var(--gp-accent-soft); }
+html:has(#rule-list) .bm-item input[type=checkbox] { accent-color: var(--gp-accent); }
+
+/* --- msg / error --- */
+html:has(#rule-list) #msg { margin-top: 12px; font-size: 12px; color: var(--gp-text-2); }
+html:has(#rule-list) #msg.error { color: var(--gp-danger); }
+
+/* =====================================================================
+ * SIDEPANEL  (html:has(#crawl-badge))
+ * ===================================================================== */
+
+html:has(#crawl-badge) body { background: var(--gp-bg); color: var(--gp-text); font: 13px/1.55 var(--gp-font); }
+html:has(#crawl-badge) .banner {
+  display: flex; align-items: center; gap: 9px;
+  padding: 14px 16px;
+  background: linear-gradient(135deg, #5b5bd6 0%, #7c5cd6 55%, #9a5cd6 100%);
+  box-shadow: inset 0 -1px 0 rgba(0, 0, 0, .08), 0 2px 8px rgba(91, 91, 214, .25);
+}
+html:has(#crawl-badge) .banner h1 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 14px; font-weight: 700; color: #fff; }
+html:has(#crawl-badge) .gp-logo {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; font-size: 14px; flex-shrink: 0;
+  background: rgba(255, 255, 255, .18); border: 1px solid rgba(255, 255, 255, .25);
+  border-radius: 7px;
+}
+html:has(#crawl-badge) .banner .badge {
+  font-size: 10px; font-weight: 600; padding: 3px 10px; border-radius: 999px;
+  color: #fff; background: rgba(255, 255, 255, .18);
+}
+html:has(#crawl-badge) .banner .badge.running { color: #4ade80; background: rgba(74, 222, 128, .18); animation: gp-pulse 1.2s ease-in-out infinite; }
+
+html:has(#crawl-badge) .container { padding: 14px; }
+html:has(#crawl-badge) .card {
+  padding: 15px; margin-bottom: 12px;
+  background: var(--gp-surface); border: 1px solid var(--gp-line);
+  border-radius: var(--gp-radius); box-shadow: var(--gp-shadow-card);
+  animation: gp-rise .3s cubic-bezier(.2, .9, .3, 1) both;
+}
+html:has(#crawl-badge) label { display: block; margin: 10px 0 5px; font-weight: 600; font-size: 12px; color: var(--gp-text-2); }
+html:has(#crawl-badge) input[type=text] {
+  width: 100%; padding: 8px 11px; font-size: 12px; font-family: var(--gp-mono);
+  color: var(--gp-text); background: var(--gp-surface);
+  border: 1px solid var(--gp-line); border-radius: var(--gp-radius-sm);
+}
+html:has(#crawl-badge) input[type=text]:focus { outline: none; border-color: var(--gp-accent); box-shadow: 0 0 0 3px var(--gp-accent-soft); }
+html:has(#crawl-badge) .btn-row { display: flex; gap: 8px; margin-top: 12px; }
+html:has(#crawl-badge) button {
+  flex: 1; font-family: var(--gp-font); font-size: 12px; font-weight: 600;
+  padding: 9px 0; border-radius: var(--gp-radius-sm);
+  border: 1px solid var(--gp-line); background: var(--gp-surface); color: var(--gp-text-2);
+  cursor: pointer; transition: all .15s ease;
+}
+html:has(#crawl-badge) button:hover:not(:disabled) { background: #f8f9fc; border-color: var(--gp-line-strong); }
+html:has(#crawl-badge) button.primary {
+  background: var(--gp-accent); border-color: var(--gp-accent); color: #fff;
+  box-shadow: 0 1px 2px rgba(91, 91, 214, .3);
+}
+html:has(#crawl-badge) button.primary:hover:not(:disabled) { background: var(--gp-accent-hover); border-color: var(--gp-accent-hover); }
+html:has(#crawl-badge) button.danger { color: var(--gp-danger); border-color: #fecaca; }
+html:has(#crawl-badge) button.danger:hover:not(:disabled) { background: var(--gp-danger-soft); }
+html:has(#crawl-badge) button:disabled { opacity: .5; cursor: wait; }
+
+html:has(#crawl-badge) #crawl-status { margin-top: 11px; font-size: 12px; color: var(--gp-text-2); }
+html:has(#crawl-badge) #crawl-status .highlight { color: var(--gp-accent); font-weight: 700; }
+html:has(#crawl-badge) .section-label {
+  margin: 4px 2px 7px; color: var(--gp-text-3);
+  font-size: 10px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase;
+}
+html:has(#crawl-badge) .res-list { max-height: 55vh; overflow: auto; }
+html:has(#crawl-badge) .crawl-item {
+  padding: 8px 11px; margin-bottom: 5px;
+  background: var(--gp-surface); border: 1px solid var(--gp-line);
+  border-radius: var(--gp-radius-sm); font-size: 12px;
+  animation: gp-rise .25s cubic-bezier(.2, .9, .3, 1) both;
+  transition: border-color .15s ease, background .15s ease;
+}
+html:has(#crawl-badge) .crawl-item:hover { border-color: var(--gp-line-strong); background: #f8f9fc; }
+html:has(#crawl-badge) .crawl-item .u { font-family: var(--gp-mono); color: var(--gp-text-3); word-break: break-all; }
+html:has(#crawl-badge) .crawl-item .hits { color: var(--gp-success); font-weight: 600; }
+html:has(#crawl-badge) .crawl-item.failed .t { color: var(--gp-danger); font-weight: 700; }
+html:has(#crawl-badge) .crawl-item.failed .hits { color: var(--gp-danger); }
+html:has(#crawl-badge) .empty { text-align: center; color: var(--gp-text-3); padding: 16px 0; font-size: 12px; }

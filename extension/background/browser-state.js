@@ -20,6 +20,7 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   responseCache.delete(tabId);
   clearTabIcons(tabId);
   iconJobs.delete(tabId);
+  tabNavigationVersions.delete(tabId);
   chrome.storage.session.remove(`result:${tabId}`);
 });
 
@@ -31,6 +32,25 @@ const ICONS = (state) => ({
 });
 
 const iconJobs = new Map(); // tabId -> { pendingHitCount, running }
+// 同 URL 刷新时只比较 URL 不够：旧文档和新文档的地址相同。每次 loading
+// 增加版本号，让所有已开始的异步任务都能识别自己是否已过期。
+const tabNavigationVersions = new Map();
+
+function currentNavigationVersion(tabId) {
+  return tabNavigationVersions.get(tabId) || 0;
+}
+
+// 指纹计算会包含网络请求（例如 favicon 哈希）。在它完成之前标签页可能已经
+// 导航到另一张页面；旧页面的结果绝不能再覆盖新页面的图标或缓存。
+async function isCurrentTabPage(tabId, url, navigationVersion = currentNavigationVersion(tabId)) {
+  if (tabId == null || tabId < 0 || !url) return false;
+  try {
+    const tab = await chrome.tabs.get(tabId);
+    return tab.url === url && currentNavigationVersion(tabId) === navigationVersion;
+  } catch {
+    return false;
+  }
+}
 
 async function applyIcon(tabId, hitCount) {
   if (tabId == null || tabId < 0) return;
@@ -67,26 +87,14 @@ function updateIcon(tabId, hitCount) {
   });
 }
 
-async function shouldKeepExistingHitIcon(tabId) {
-  try {
-    const [tab, data] = await Promise.all([
-      chrome.tabs.get(tabId),
-      chrome.storage.session.get(`result:${tabId}`),
-    ]);
-    const stored = data[`result:${tabId}`];
-    return stored?.features?.url === tab.url && (stored.result?.hits?.length || 0) > 0;
-  } catch {
-    return false;
-  }
-}
-
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   if (changeInfo.status === 'loading') {
     // 每次导航都是一张新页面；不能把上一页网络包里的 icon 带进来参与匹配。
+    responseCache.delete(tabId);
+    tabNavigationVersions.set(tabId, currentNavigationVersion(tabId) + 1);
     clearTabIcons(tabId);
-    shouldKeepExistingHitIcon(tabId).then((keep) => {
-      if (!keep) updateIcon(tabId, 0).catch(() => {});
-    });
+    // 这里必须同步排队：异步读取旧缓存后再置灰，可能反过来覆盖新页面的命中。
+    updateIcon(tabId, 0).catch(() => {});
   }
 });
 
@@ -119,6 +127,7 @@ chrome.webRequest.onCompleted.addListener(
 );
 
 async function flushIcons(tabId) {
+  const navigationVersion = currentNavigationVersion(tabId);
   const st = tabIcons.get(tabId);
   if (!st || !st.pending.size) return;
   const urls = [...st.pending];
@@ -128,6 +137,7 @@ async function flushIcons(tabId) {
   const data = await chrome.storage.session.get(key);
   const stored = data[key];
   if (!stored) return; // 页面还没上报特征，pageFeatures 流程会带上这些 icon
+  if (!(await isCurrentTabPage(tabId, stored.features?.url, navigationVersion))) return;
 
   const newHashes = await hashIcons(urls);
   if (!newHashes.length) return;
@@ -142,6 +152,8 @@ async function flushIcons(tabId) {
   // 有新哈希就完整重跑一遍匹配（规则 + 哈希库 + 脚本），毫秒级
   const result = await appendHashHit(stored.features, await runMatch(stored.features));
   result.hits = await runUserScripts(stored.features, result.hits);
+  // 哈希和匹配期间可能已经发生导航，再确认一次才提交。
+  if (!(await isCurrentTabPage(tabId, stored.features?.url, navigationVersion))) return;
   stored.result = result;
   await chrome.storage.session.set({ [key]: stored });
   await recordScanHistory(stored.features, result, 'page');
