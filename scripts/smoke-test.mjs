@@ -48,7 +48,7 @@ const features = {
   body: '<html><script src="/wp-content/themes/x.js"></script></html>',
   headers: { server: 'nginx', 'content-type': 'text/html' },
   status: 200,
-  faviconHash: 42,
+  faviconHashes: [42],
 };
 
 const out = JSON.parse(globalThis.goMatch(JSON.stringify(rules), JSON.stringify(features)));
@@ -91,7 +91,7 @@ pass &&= ex.title === 'Test Page'
 
 // 多 icon 哈希：faviconHashes 里任意一个命中规则的 icon_hash 都算
 const multiIcon = JSON.parse(globalThis.goMatch(JSON.stringify(rules), JSON.stringify({
-  ...features, faviconHash: 0, faviconHashes: [111, -1234567890],
+  ...features, faviconHashes: [111, -1234567890],
 })));
 console.log('multiIcon hits =', multiIcon.hits.map((h) => h.id).join(','));
 pass &&= multiIcon.hits.some((h) => h.id === 'gitea');
@@ -215,6 +215,21 @@ pass &&= ehole.rules?.length === 1
   && ehole.rules[0].matchers.length === 2
   && ehole.rules[0].matchers.some((m) => m.type === 'icon_hash' && m.hash[0] === -123456 && m.hash[1] === 123);
 
+// dom probe id 计算：与 background/matching.js 的 probeId、wasm 的 probeID 同一套
+// 字节序列 + FNV-1a，冒烟测试里手算一份来构造 domHits
+function probeId(p) {
+  const keys = Object.keys(p.attrs || {}).sort();
+  const s = p.sel + '\u0000' + (p.text || '') + '\u0000' +
+    keys.map((k) => `${k}=${p.attrs[k]}`).join('\u0001');
+  const bytes = new TextEncoder().encode(s);
+  let h = 0x811c9dc5;
+  for (let i = 0; i < bytes.length; i++) {
+    h ^= bytes[i];
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return 'dom:' + h.toString(16).padStart(8, '0');
+}
+
 // js / dom / implies 三件套
 const probeRules = [
   {
@@ -230,7 +245,7 @@ const probeRules = [
 const probeFeatures = {
   ...features,
   js: { 'React.version': '18.2.0' },       // React.version 在，Vue 不在
-  dom: ['html', 'div.shopify-section'],     // 两个选择器都中
+  domHits: { [probeId({ sel: 'html' })]: true, [probeId({ sel: 'div.shopify-section' })]: true },
 };
 const probeOut = JSON.parse(globalThis.goMatch(JSON.stringify(probeRules), JSON.stringify(probeFeatures)));
 const probeNames = probeOut.hits.map((h) => h.name);
@@ -296,13 +311,14 @@ pass &&= wagtail.matchers[0].dom[0].attrs?.['data-block-key'] === '^[a-z0-9]{5}$
 const apple = noise.rules.find((r) => r.id === 'apple-sign-in');
 pass &&= apple.matchers[0].dom[0].sel === 'button' && apple.matchers[0].dom[0].text === 'Sign in with Apple';
 
-// 带条件的 dom 探测匹配（条件评估在 content.js，wasm 只看选择器在不在命中列表里）
+// 带条件的 dom 探测匹配（条件评估在 content.js，wasm 只看 probe id 在不在命中集合里）
 const domRules = [{
   id: 'wagtail', name: 'Wagtail',
   matchers: [{ type: 'dom', dom: [{ sel: '[data-block-key]', attrs: { 'data-block-key': '^[a-z0-9]{5}$' } }] }],
 }];
-const domHit = JSON.parse(globalThis.goMatch(JSON.stringify(domRules), JSON.stringify({ ...features, dom: ['[data-block-key]'] })));
-const domMiss = JSON.parse(globalThis.goMatch(JSON.stringify(domRules), JSON.stringify({ ...features, dom: ['other'] })));
+const wagProbe = probeId({ sel: '[data-block-key]', attrs: { 'data-block-key': '^[a-z0-9]{5}$' } });
+const domHit = JSON.parse(globalThis.goMatch(JSON.stringify(domRules), JSON.stringify({ ...features, domHits: { [wagProbe]: true } })));
+const domMiss = JSON.parse(globalThis.goMatch(JSON.stringify(domRules), JSON.stringify({ ...features, domHits: { [probeId({ sel: 'other' })]: true } })));
 pass &&= domHit.hits.length === 1 && domMiss.hits.length === 0;
 
 // excludes：A 命中后 B 被压制

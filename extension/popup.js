@@ -115,9 +115,10 @@ function render({ features, result }) {
   }
   const server = features.headers?.['server'];
   if (server) metaRow.appendChild(makeChip(`server: ${server}`));
-  if (features.faviconHash) {
-    const extra = (features.faviconHashes?.length || 1) - 1;
-    metaRow.appendChild(makeChip(`icon_hash: ${features.faviconHash}` + (extra > 0 ? ` +${extra}` : '')));
+  const iconHashes = (features.faviconHashes || []).filter((h) => Number.isFinite(h));
+  if (iconHashes.length) {
+    const extra = iconHashes.length - 1;
+    metaRow.appendChild(makeChip(`icon_hash: ${iconHashes[0]}` + (extra > 0 ? ` +${extra}` : '')));
   }
 
   // 命中结果

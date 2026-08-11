@@ -13,14 +13,28 @@ func jsError(format string, args ...any) string {
 	return `{"error":` + fmt.Sprintf("%q", fmt.Sprintf(format, args...)) + `}`
 }
 
+// 规则 JSON 解析缓存：同一规则集反复调 goMatch（重扫/爬虫）时不再每次 unmarshal
+// 大规则包。规则一变 JSON 字符串必变，字符串不同就自动重新解析。
+// engine.Match 只读不改 rules，跨调用共享解析结果安全。
+var (
+	lastRulesKey   string
+	lastRulesCache []engine.Rule
+)
+
 // goMatch(rulesJSON, featuresJSON) -> {"hits":[...]}
 func match(_ js.Value, args []js.Value) any {
 	if len(args) < 2 {
 		return jsError("match(rulesJSON, featuresJSON) 需要两个参数")
 	}
 	var rules []engine.Rule
-	if err := json.Unmarshal([]byte(args[0].String()), &rules); err != nil {
+	key := args[0].String()
+	if key == lastRulesKey {
+		rules = lastRulesCache
+	} else if err := json.Unmarshal([]byte(key), &rules); err != nil {
 		return jsError("规则 JSON 解析失败: %s", err)
+	} else {
+		lastRulesKey = key
+		lastRulesCache = rules
 	}
 	var features engine.Features
 	if err := json.Unmarshal([]byte(args[1].String()), &features); err != nil {

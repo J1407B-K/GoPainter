@@ -39,7 +39,7 @@ const DEFAULT_PROMPTS = {
     '      words: [字符串]        # type=word 用',
     '      regex: [字符串]        # type=regex 用',
     '      status: [整数]         # type=status 用',
-    '      hash: [整数]           # type=icon_hash 用，直接用用户给的 faviconHash 数字，别自己编',
+    '      hash: [整数]           # type=icon_hash 用，直接用用户给的 faviconHashes 数字，别自己编',
     '      condition: and 或 or   # matcher 内部多条件组合，默认 or',
     '      negative: true         # 可选，取反',
     '      confidence: 0-100      # 可选，这条 matcher 的信号强度；没把握就别写，弱信号给低点',
@@ -48,7 +48,7 @@ const DEFAULT_PROMPTS = {
     '用户特征：',
     '  url: https://demo.example.com',
     '  title: Demo - Joomla!',
-    '  faviconHash: -452104223',
+    '  faviconHashes: [-452104223]',
     '  meta: {"generator": "Joomla! - Open Source Content Management"}',
     '  scripts: ["/media/system/js/core.js", "/media/vendor/jquery/js/jquery.min.js"]',
     '应输出：',
@@ -70,7 +70,7 @@ const DEFAULT_PROMPTS = {
     '',
     '要求：',
     '- 挑稳定特征：generator meta、框架特有路径/script、响应头、favicon 哈希，别选随时会变的文案',
-    '- faviconHash 非 0 时可以作为一条 icon_hash matcher，hash 直接用该数字',
+    '- faviconHashes 非空时可以作为一条 icon_hash matcher，hash 直接用里面的数字',
     '- 一个 YAML 文档只写一条规则（以 "- id:" 开头）',
     '- 只输出 YAML，不要 ```yaml 代码块，不要解释文字',
     '- 别写 JS 表达式/DSL，只用上面列出的字段',
@@ -79,7 +79,7 @@ const DEFAULT_PROMPTS = {
     '你是 Web 指纹规则优化专家。下面「用户消息」里会给出：页面特征 + 当前规则的 YAML。',
     '请基于该页面特征优化这条规则：',
     '- 保持 id 不变（同 id 覆盖入库），可微调 name；保留当前已有 matcher，不要删除或替换它们',
-    '- 从当前页面尚未使用的稳定特征中补充 1-2 条 matcher：优先 generator meta、框架特有 script 路径、响应头、favicon 哈希（hash 直接用页面 faviconHash 数字）、js 全局变量（window.x）、dom 选择器；没有可靠的新特征时保持原规则不变',
+    '- 从当前页面尚未使用的稳定特征中补充 1-2 条 matcher：优先 generator meta、框架特有 script 路径、响应头、favicon 哈希（hash 直接用页面 faviconHashes 数字）、js 全局变量（window.x）、dom 选择器；没有可靠的新特征时保持原规则不变',
     '- 只输出一个 YAML 文档（以 "- id:" 开头），不要 ```yaml 代码块，不要解释文字',
     '- 严格照抄 schema 字段：type(word|regex|status|icon_hash|js|dom) / part(body|title|url|header|raw|meta|script) / words / regex / status / hash / js(数组,{path,pattern}) / dom(数组,{sel,text,attrs}) / condition / negative / confidence(0-100)',
     '- 别写 JS 表达式/DSL',
@@ -131,16 +131,18 @@ async function callAI(systemPrompt, features, extraUserText = '') {
   }
   // body 截一下，别把 token 打爆；js/dom 是页面运行时探测的，也一并给 AI 判断
   const jsEntries = Object.entries(features.js || {}).slice(0, 40);
+  // domHits 里是 probe id，AI 看不懂，反查回选择器
+  const domSelectors = (await matchedDomSelectors(features)).slice(0, 40);
   const slim = {
     url: features.url,
     title: features.title,
     status: features.status,
     headers: features.headers,
-    faviconHash: features.faviconHash,
+    faviconHashes: features.faviconHashes || [],
     meta: features.meta,
     scripts: (features.scripts || []).slice(0, 30),
     js: Object.fromEntries(jsEntries),
-    dom: (features.dom || []).slice(0, 40),
+    dom: domSelectors,
     body: (features.body || '').slice(0, 8000),
   };
   const userContent = [
@@ -193,11 +195,10 @@ async function fetchFeatures(url) {
     const html = (await resp.text()).slice(0, 200_000);
     const headers = {};
     resp.headers.forEach((v, k) => { headers[k] = v; });
-    const features = await enrichFeatures({ url, title: '', body: html, headers, status: resp.status, faviconHash: 0 });
+    const features = await enrichFeatures({ url, title: '', body: html, headers, status: resp.status });
     // 页面里挂的 icon 全部算哈希，icon_hash 规则和哈希库对书签/爬取也能生效。
     // 注意：fetch 拿不到 Set-Cookie（API 硬限制），cookie 类指纹对书签无效
     features.faviconHashes = await hashIcons(features.favicons || []);
-    features.faviconHash = features.faviconHashes[0] || 0;
     return features;
   } finally {
     clearTimeout(timer);
@@ -228,9 +229,9 @@ async function organizeBookmarks(onlyIds, useAI) {
   const groups = new Map(); // 指纹名 -> [bookmark]
   const bookmarkPrompt = useAI ? await customPrompt('bookmark') : null;
 
-  // 5 路并发抓取
+  // 8 路并发抓取
   const queue = [...all];
-  await Promise.all(Array.from({ length: 5 }, async () => {
+  await Promise.all(Array.from({ length: 8 }, async () => {
     while (queue.length) {
       const bm = queue.shift();
       try {
@@ -303,7 +304,7 @@ async function crawlSite(seed, maxPages) {
   try {
     for (;;) {
       if (crawl.stop) break;
-      const batch = JSON.parse(globalThis.goCrawlBatch(5));
+      const batch = JSON.parse(globalThis.goCrawlBatch(8));
       if (batch.error) throw new Error(batch.error);
       if (!batch.urls?.length) break; // 没 URL 可取了（队列空或到上限）
       await Promise.all(batch.urls.map(async (url) => {
@@ -352,7 +353,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const netIcons = tabIcons.get(tabId)?.seen || new Set();
         const candidates = [features.favicon, ...(features.favicons || []), ...netIcons].filter(Boolean);
         features.faviconHashes = await hashIcons(candidates);
-        features.faviconHash = features.faviconHashes[0] || 0;
         const result = await appendHashHit(features, await runMatch(features));
         result.hits = await runUserScripts(features, result.hits);
         // 上面的哈希请求可能很慢；页面已变化时不写旧缓存、不更新图标。

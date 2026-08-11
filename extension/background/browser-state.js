@@ -143,7 +143,7 @@ async function flushIcons(tabId) {
   if (!newHashes.length) return;
 
   // 只挑出没见过的新哈希；没有就省了这次重匹配
-  const existing = new Set([...(stored.features.faviconHashes || []), stored.features.faviconHash].filter(Boolean));
+  const existing = new Set((stored.features.faviconHashes || []).filter(Boolean));
   const fresh = newHashes.filter((h) => !existing.has(h));
   if (!fresh.length) return;
 

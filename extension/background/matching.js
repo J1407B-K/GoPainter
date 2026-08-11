@@ -2,18 +2,23 @@
 
 async function hashIconUrl(url) {
   if (!url || !/^https?:/.test(url)) return 0;
+  // 坏 icon 域可能一直不响应，没有超时整次扫描会被挂住
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 4000);
   try {
-    const resp = await fetch(url);
+    const resp = await fetch(url, { signal: ctrl.signal });
     if (!resp.ok) return 0;
     const buf = new Uint8Array(await resp.arrayBuffer());
-    let bin = '';
-    for (const b of buf) bin += String.fromCharCode(b);
+    // 逐字节 String.fromCharCode 慢；latin1 解码字节即字符，语义一致，快 4-8x
+    const bin = new TextDecoder('latin1').decode(buf);
     // fofa 标准是 python codecs.encode 出来的 base64，每 76 个字符折行
     const b64 = btoa(bin).replace(/.{76}/g, '$&\n') + '\n';
     await ensureWasm();
     return globalThis.goMmh3(b64);
   } catch {
     return 0;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -53,11 +58,23 @@ async function enrichFeatures(features) {
   return features;
 }
 
+// 序列化后的 rules JSON 缓存：重扫/爬虫对同一规则集反复调 goMatch，省得每次
+// 都 JSON.stringify 上万条规则。规则一变在 storage.onChanged 里置空。
+let rulesJsonCache = null;
+
+async function getRulesJSON() {
+  if (rulesJsonCache === null) {
+    const { rules = [] } = await chrome.storage.local.get('rules');
+    rulesJsonCache = JSON.stringify(rules);
+  }
+  return rulesJsonCache;
+}
+
 async function runMatch(features) {
-  const { rules = [] } = await chrome.storage.local.get('rules');
-  if (rules.length === 0) return { hits: [], note: 'no_rules' };
+  const rulesJSON = await getRulesJSON();
+  if (rulesJSON === '[]') return { hits: [], note: 'no_rules' };
   await ensureWasm();
-  return JSON.parse(globalThis.goMatch(JSON.stringify(rules), JSON.stringify(features)));
+  return JSON.parse(globalThis.goMatch(rulesJSON, JSON.stringify(features)));
 }
 
 // favicon 哈希库命中也当成一个指纹，并进 hits（规则命中优先，同名的不重复加）
@@ -122,6 +139,7 @@ let probeCache = null; // 规则里的 js/dom 探测清单，规则变了就失�
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== 'local' || (!changes.rules && !changes.customHashes)) return;
   probeCache = null;
+  rulesJsonCache = null;
   clearTimeout(rescanTimer);
   rescanTimer = setTimeout(rescanAllTabs, 500); // 防抖，连续导入合并成一次
 });
@@ -147,17 +165,46 @@ async function rescanAllTabs() {
 async function getProbeList() {
   if (!probeCache) {
     const { rules = [] } = await chrome.storage.local.get('rules');
-    const paths = new Set(), domMap = new Map(); // sel+条件 JSON → probe
+    const paths = new Set(), probeMap = new Map(); // probe id → probe（含 id）
+    const add = (p) => {
+      const id = probeId(p);
+      if (!probeMap.has(id)) probeMap.set(id, { id, ...p });
+    };
     for (const r of rules) {
       for (const m of r.matchers || []) {
         if (m.type === 'js') for (const p of m.js || []) paths.add(p.path);
         if (m.type === 'dom') {
-          for (const s of m.words || []) domMap.set(s, { sel: s });
-          for (const p of m.dom || []) domMap.set(JSON.stringify(p), p);
+          for (const s of m.words || []) add({ sel: s });
+          for (const p of m.dom || []) add(p);
         }
       }
     }
-    probeCache = { paths: [...paths], selectors: [...domMap.values()] };
+    probeCache = { paths: [...paths], probes: [...probeMap.values()] };
   }
   return probeCache;
+}
+
+// dom probe → 稳定 id。与 wasm 侧 probeID 用同一套字节序列 + FNV-1a，
+// 两边算出的 id 必须一致，content.js 才认。attrs 键排序后拼，顺序不影响 id。
+function probeId(p) {
+  const keys = Object.keys(p.attrs || {}).sort();
+  const s = p.sel + '\u0000' + (p.text || '') + '\u0000' +
+    keys.map((k) => `${k}=${p.attrs[k]}`).join('\u0001');
+  const bytes = new TextEncoder().encode(s);
+  let h = 0x811c9dc5;
+  for (let i = 0; i < bytes.length; i++) {
+    h ^= bytes[i];
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return 'dom:' + h.toString(16).padStart(8, '0');
+}
+
+// 命中的 probe id 反查回选择器，给 AI 用（id 是黑盒，AI 看不懂）
+async function matchedDomSelectors(features) {
+  if (!features?.domHits) return [];
+  const list = await getProbeList();
+  const byId = new Map(list.probes.map((p) => [p.id, p.sel]));
+  return Object.keys(features.domHits)
+    .map((id) => byId.get(id))
+    .filter(Boolean);
 }

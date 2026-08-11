@@ -40,7 +40,7 @@
   }
 
   function faviconHashValues(features = {}) {
-    return [...new Set([features.faviconHash, ...(features.faviconHashes || [])].filter(Boolean))];
+    return [...new Set((features.faviconHashes || []).filter(Boolean))];
   }
 
   function mergeRules(existingRules = [], rulesToAdd = []) {
@@ -292,7 +292,7 @@
       url: String(features.url || ''),
       title: String(features.title || ''),
       status: Number.isInteger(features.status) ? features.status : 0,
-      faviconHash: Number.isFinite(features.faviconHash) ? features.faviconHash : 0,
+      faviconHashes: (features.faviconHashes || []).map((h) => (Number.isFinite(h) ? h : 0)),
       source,
       at,
       hits: (result.hits || []).map((hit) => ({
@@ -344,7 +344,7 @@
           url: item.url,
           title: item.title || '',
           status: item.status || 0,
-          faviconHash: item.faviconHash || 0,
+          faviconHashes: item.faviconHashes || [],
         },
         detections: (item.hits || []).map((hit) => ({
           id: hit.id || '',
@@ -363,7 +363,7 @@
     ];
     const rows = [];
     for (const item of history) {
-      const base = [new Date(item.at).toISOString(), item.source, item.url, item.title, item.status, item.faviconHash];
+      const base = [new Date(item.at).toISOString(), item.source, item.url, item.title, item.status, (item.faviconHashes || []).join(' ')];
       const hits = item.hits || [];
       if (!hits.length) {
         rows.push([...base, '', '', '', '', '', '', ''].map(csvCell).join(','));

@@ -12,7 +12,7 @@ func dslFeatures() *Features {
 		Body:        "<html>WordPress content with wp-content dir</html>",
 		Status:      200,
 		Headers:     map[string]string{"server": "nginx"},
-		FaviconHash: -12345,
+		FaviconHashes: []int32{-12345},
 		Meta:        map[string]string{"generator": "WordPress 6.5"},
 		Scripts:     []string{"/wp-content/theme.js", "/assets/app.js"},
 	}
@@ -101,7 +101,7 @@ func TestDslEvalCore(t *testing.T) {
 		{`contains(body, "x") || contains(title, "x")`, false},
 	}
 	for _, c := range cases {
-		got, err := dslEval(c.expr, f)
+		got, err := dslEval(c.expr, newMatchCtx(f))
 		if err != nil {
 			t.Errorf("dslEval(%q) 出错: %v", c.expr, err)
 			continue
@@ -115,12 +115,12 @@ func TestDslEvalCore(t *testing.T) {
 func TestDslEvalPrecedence(t *testing.T) {
 	f := dslFeatures()
 	// && 优先于 ||：a || (b && c)
-	got, err := dslEval(`false || true && true`, f)
+	got, err := dslEval(`false || true && true`, newMatchCtx(f))
 	if err != nil || !got {
 		t.Errorf("优先级 && > || 应求值为 true, got=%v err=%v", got, err)
 	}
 	// 括号改变
-	got, _ = dslEval(`(false || true) && false`, f)
+	got, _ = dslEval(`(false || true) && false`, newMatchCtx(f))
 	if got {
 		t.Error("带括号表达式应求值为 false")
 	}
@@ -129,12 +129,12 @@ func TestDslEvalPrecedence(t *testing.T) {
 func TestDslEvalShortCircuit(t *testing.T) {
 	f := dslFeatures()
 	// 左边 false 时右边不应求值；未知函数放右边不应报错
-	got, err := dslEval(`false && notafunc(body, "x")`, f)
+	got, err := dslEval(`false && notafunc(body, "x")`, newMatchCtx(f))
 	if err != nil || got {
 		t.Errorf("&& 短路应返回 false 不报错, got=%v err=%v", got, err)
 	}
 	// 左边 true 时右边短路
-	got, err = dslEval(`true || notafunc(body, "x")`, f)
+	got, err = dslEval(`true || notafunc(body, "x")`, newMatchCtx(f))
 	if err != nil || !got {
 		t.Errorf("|| 短路应返回 true 不报错, got=%v err=%v", got, err)
 	}
@@ -151,7 +151,7 @@ func TestDslEvalErrors(t *testing.T) {
 		{`contains(body, "a") &&`, "表达式突然结束"},
 	}
 	for _, c := range cases {
-		_, err := dslEval(c.expr, f)
+		_, err := dslEval(c.expr, newMatchCtx(f))
 		if err == nil || !strings.Contains(err.Error(), c.wantSub) {
 			t.Errorf("dslEval(%q) 应报 %q，实际 %v", c.expr, c.wantSub, err)
 		}

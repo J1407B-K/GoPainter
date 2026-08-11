@@ -26,8 +26,7 @@
     const hit = [];
     for (const p of probes) {
       try {
-        const origSel = typeof p === 'string' ? p : p.sel;
-        let sel = origSel;
+        let sel = p.sel;
         // 有属性条件但选择器是 * 或裸标签时，把属性名拼成预筛选择器，
         // 不然 querySelector('*') 只会检查第一个元素的属性，语义错了
         if (p.attrs && !sel.includes('[')) {
@@ -51,7 +50,7 @@
           break;
         }
         if (!ok) continue;
-        hit.push(origSel); // 匹配侧按原始选择器对，推原始的那个
+        hit.push(p.id); // 推 probe id，背景那边按 id 对
       } catch { /* 坏选择器/坏正则跳过 */ }
     }
     return hit;
@@ -62,14 +61,16 @@
     const link = document.querySelector('link[rel~="icon"], link[rel="shortcut icon"]');
     if (link?.href) favicon = link.href;
 
-    // 规则里要探哪些 js 路径和选择器，问 background 要
-    let js = {}, dom = [];
+    // 规则里要探哪些 js 路径和 dom probe，问 background 要
+    let js = {}, domHits = {};
     try {
       const probes = await chrome.runtime.sendMessage({ type: 'getProbes' });
       if (probes?.ok) {
-        [js, dom] = await Promise.all([
+        [js, domHits] = await Promise.all([
           probeJs(probes.paths || []),
-          Promise.resolve(probeDom(probes.selectors || [])),
+          Promise.resolve(probeDom(probes.probes || [])).then((ids) =>
+            Object.fromEntries(ids.map((id) => [id, true]))
+          ),
         ]);
       }
     } catch { /* background 没起来就裸采 */ }
@@ -84,7 +85,7 @@
           body: document.documentElement.outerHTML.slice(0, 200_000),
           favicon,
           js,
-          dom,
+          domHits,
         },
       },
       () => void chrome.runtime.lastError // SW 没起来之类的就不管了

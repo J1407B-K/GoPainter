@@ -315,7 +315,7 @@ func dslEq(a, b any) bool {
 	return dslStr(a) == dslStr(b)
 }
 
-func dslEvalNode(n *dslNode, f *Features) (any, error) {
+func dslEvalNode(n *dslNode, c *matchCtx) (any, error) {
 	switch n.op {
 	case "string":
 		return n.name, nil
@@ -332,35 +332,36 @@ func dslEvalNode(n *dslNode, f *Features) (any, error) {
 		case "false":
 			return false, nil
 		case "body":
-			return f.Body, nil
+			return c.f.Body, nil
 		case "title":
-			return f.Title, nil
+			return c.f.Title, nil
 		case "url":
-			return f.URL, nil
+			return c.f.URL, nil
 		case "header":
-			return headerString(f), nil
+			return c.header, nil
 		case "raw":
-			return headerString(f) + f.Body, nil
+			return c.raw, nil
 		case "meta":
-			var b strings.Builder
-			for k, v := range f.Meta {
-				fmt.Fprintf(&b, "%s: %s\n", k, v)
-			}
-			return b.String(), nil
+			return c.meta, nil
 		case "script":
-			return strings.Join(f.Scripts, "\n"), nil
+			return c.script, nil
 		case "status", "status_code":
-			return int64(f.Status), nil
+			return int64(c.f.Status), nil
 		case "favicon_hash":
-			return int64(f.FaviconHash), nil
+			// 多 icon 取第一个（与 icon_hash matcher 的"任一命中"语义不同，
+			// dsl 是标量比较，只能给一个数；页面没 icon 时返回 0）
+			if len(c.f.FaviconHashes) == 0 {
+				return int64(0), nil
+			}
+			return int64(c.f.FaviconHashes[0]), nil
 		}
 		return nil, fmt.Errorf("未知标识符 %q（支持 body/title/url/header/raw/meta/script/status/favicon_hash）", n.name)
 	case "not":
-		v, err := dslEvalNode(n.args[0], f)
+		v, err := dslEvalNode(n.args[0], c)
 		return !dslBool(v), err
 	case "and":
 		for _, a := range n.args {
-			v, err := dslEvalNode(a, f)
+			v, err := dslEvalNode(a, c)
 			if err != nil {
 				return nil, err
 			}
@@ -371,7 +372,7 @@ func dslEvalNode(n *dslNode, f *Features) (any, error) {
 		return true, nil
 	case "or":
 		for _, a := range n.args {
-			v, err := dslEvalNode(a, f)
+			v, err := dslEvalNode(a, c)
 			if err != nil {
 				return nil, err
 			}
@@ -381,11 +382,11 @@ func dslEvalNode(n *dslNode, f *Features) (any, error) {
 		}
 		return false, nil
 	case "eq", "ne":
-		a, err := dslEvalNode(n.args[0], f)
+		a, err := dslEvalNode(n.args[0], c)
 		if err != nil {
 			return nil, err
 		}
-		b, err := dslEvalNode(n.args[1], f)
+		b, err := dslEvalNode(n.args[1], c)
 		if err != nil {
 			return nil, err
 		}
@@ -398,11 +399,11 @@ func dslEvalNode(n *dslNode, f *Features) (any, error) {
 		if len(n.args) != 2 {
 			return nil, fmt.Errorf("%s 要两个参数", n.name)
 		}
-		a, err := dslEvalNode(n.args[0], f)
+		a, err := dslEvalNode(n.args[0], c)
 		if err != nil {
 			return nil, err
 		}
-		b, err := dslEvalNode(n.args[1], f)
+		b, err := dslEvalNode(n.args[1], c)
 		if err != nil {
 			return nil, err
 		}
@@ -422,12 +423,12 @@ func dslEvalNode(n *dslNode, f *Features) (any, error) {
 }
 
 // dslEval 评估一条表达式，语法/求值错误也算不匹配
-func dslEval(expr string, f *Features) (bool, error) {
+func dslEval(expr string, c *matchCtx) (bool, error) {
 	ast, err := dslParse(expr)
 	if err != nil {
 		return false, err
 	}
-	v, err := dslEvalNode(ast, f)
+	v, err := dslEvalNode(ast, c)
 	if err != nil {
 		return false, err
 	}

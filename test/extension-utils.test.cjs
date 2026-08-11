@@ -29,8 +29,8 @@ test('filterAndSortHits preserves unannotated hits and sorts confidence stably',
   assert.deepEqual(hits.map((hit) => hit.id), ['first', 'plain', 'highest', 'too-low', 'same-score']);
 });
 
-test('faviconHashValues removes duplicate and empty values', () => {
-  assert.deepEqual(faviconHashValues({ faviconHash: 12, faviconHashes: [0, 12, -8, -8] }), [12, -8]);
+test('faviconHashValues removes duplicates and empty values', () => {
+  assert.deepEqual(faviconHashValues({ faviconHashes: [0, 12, -8, -8] }), [12, -8]);
 });
 
 test('mergeRules updates duplicate ids while retaining existing rule order', () => {
@@ -57,11 +57,11 @@ test('extractYaml removes a YAML fence and leaves ordinary YAML alone', () => {
 });
 
 test('scan history stores a compact report and replaces an older scan of the same URL', () => {
-  const entry = scanHistoryEntry({ url: 'https://example.com', title: 'Example', status: 200, faviconHash: -8 }, {
+  const entry = scanHistoryEntry({ url: 'https://example.com', title: 'Example', status: 200, faviconHashes: [-8] }, {
     hits: [{ id: 'nginx', name: 'Nginx', confidence: 90, evidence: [{ type: 'word', part: 'header', detail: 'server: nginx' }] }],
   }, 'page', 100);
   assert.deepEqual(entry, {
-    url: 'https://example.com', title: 'Example', status: 200, faviconHash: -8, source: 'page', at: 100,
+    url: 'https://example.com', title: 'Example', status: 200, faviconHashes: [-8], source: 'page', at: 100,
     hits: [{ id: 'nginx', name: 'Nginx', confidence: 90, evidence: [{ matcher: 'word', location: 'header', matched: 'server: nginx' }] }],
   });
   const out = mergeScanHistory([{ url: 'https://example.com', at: 1 }, { url: 'https://old.example', at: 2 }], entry, 2);
@@ -69,7 +69,7 @@ test('scan history stores a compact report and replaces an older scan of the sam
 });
 
 test('scanHistoryCsv escapes commas, quotes and newlines for spreadsheet import', () => {
-  const csv = scanHistoryCsv([{ at: 0, source: 'page', url: 'https://example.com/a,b', title: 'A "quoted" title', status: 200, faviconHash: 0,
+  const csv = scanHistoryCsv([{ at: 0, source: 'page', url: 'https://example.com/a,b', title: 'A "quoted" title', status: 200, faviconHashes: [0],
     hits: [{ name: 'Nginx', confidence: 90, evidence: [{ type: 'word', part: 'header', detail: 'server: nginx\nnext' }] }],
   }]);
   assert.match(csv, /^time,source,url,title,status,favicon_hash,fingerprint_id,fingerprint_name,confidence,matcher,location,matched,expression\r\n/);
@@ -79,7 +79,7 @@ test('scanHistoryCsv escapes commas, quotes and newlines for spreadsheet import'
 });
 
 test('scanHistoryReport separates actual matches from optional rule expressions', () => {
-  const report = scanHistoryReport([{ at: 0, source: 'page', url: 'https://example.com', title: '', status: 200, faviconHash: 0,
+  const report = scanHistoryReport([{ at: 0, source: 'page', url: 'https://example.com', title: '', status: 200, faviconHashes: [],
     hits: [{ id: 'c3-js', name: 'C3.js', confidence: null, evidence: [
       { type: 'regex', part: 'script', detail: 'c3.js', pattern: 'c3(?:\\.min)?\\.js' },
       { type: 'word', part: 'body', detail: 'hello' },

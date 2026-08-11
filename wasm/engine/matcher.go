@@ -4,6 +4,8 @@ package engine
 import (
 	"fmt"
 	"regexp"
+	"slices"
+	"sort"
 	"strings"
 )
 
@@ -54,19 +56,19 @@ type Matcher struct {
 
 // 页面特征，JS 侧采集完传进来
 type Features struct {
-	URL         string            `json:"url"`
-	Title       string            `json:"title"`
-	Body        string            `json:"body"`
-	Headers     map[string]string `json:"headers"` // 键都是小写
-	Status      int               `json:"status"`
-	FaviconHash int32             `json:"faviconHash"`
-	Meta        map[string]string `json:"meta"`    // meta 标签 name/property -> content
-	Scripts     []string          `json:"scripts"` // script src 列表
-	Links       []string          `json:"links"`   // 页面链接，爬虫用，不参与匹配
-	// 一个站点可能有好几个 icon（不同尺寸/路径），每个都算哈希来匹配
+	URL     string            `json:"url"`
+	Title   string            `json:"title"`
+	Body    string            `json:"body"`
+	Headers map[string]string `json:"headers"` // 键都是小写
+	Status  int               `json:"status"`
+	Meta    map[string]string `json:"meta"`    // meta 标签 name/property -> content
+	Scripts []string          `json:"scripts"` // script src 列表
+	Links   []string          `json:"links"`   // 页面链接，爬虫用，不参与匹配
+	// 一个站点可能有好几个 icon（不同尺寸/路径），每个都算哈希来匹配。
+	// 空数组 = 没有 favicon；[0] = 真实哈希就是 0，两者不混为一谈
 	FaviconHashes []int32           `json:"faviconHashes"`
-	Js            map[string]string `json:"js"`  // 页面运行时全局变量路径 -> 值摘要（MAIN world 探测）
-	Dom           []string          `json:"dom"` // 命中的 CSS 选择器列表（content script 探测）
+	Js            map[string]string `json:"js"`      // 页面运行时全局变量路径 -> 值摘要（MAIN world 探测）
+	DomHits       map[string]bool   `json:"domHits"` // 命中的 dom probe id 集合（content script 探测）
 }
 
 // 命中证据：哪个类型、在哪个位置、命中了什么
@@ -85,11 +87,18 @@ type Hit struct {
 	Confidence *int `json:"confidence"`
 }
 
-// headerString 拼 "k: v\n" 形式的响应头文本，partText 和 dsl 都用
+// headerString 拼 "k: v\n" 形式的响应头文本，partText 和 dsl 都用。
+// 键排序，保证同样一组头在任何时候拼出的字符串都一样
+// （map 遍历顺序随机，不排序会导致 raw/header 拼出来的内容不稳定）
 func headerString(f *Features) string {
+	keys := make([]string, 0, len(f.Headers))
+	for k := range f.Headers {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
 	var b strings.Builder
-	for k, v := range f.Headers {
-		fmt.Fprintf(&b, "%s: %s\n", k, v)
+	for _, k := range keys {
+		fmt.Fprintf(&b, "%s: %s\n", k, f.Headers[k])
 	}
 	return b.String()
 }
@@ -97,6 +106,12 @@ func headerString(f *Features) string {
 // 规则库一大，每次匹配现编译正则就是灾难，编译结果缓存起来
 // （wasm 单实例常驻，JS 调用是串行的，不用加锁）
 var regexCache = make(map[string]*regexp.Regexp)
+
+// ClearRegexCache 清空正则编译缓存。规则集一变（rulesetFor 重建）就调一次，
+// 旧规则的正则不再占用 WASM 内存；规则没变时缓存照常复用。
+func ClearRegexCache() {
+	regexCache = make(map[string]*regexp.Regexp)
+}
 
 // recover 兜底接住普通 panic；栈溢出接不住，靠 safeCompile 里的驯化+深度检查事前拦
 func compileRegex(pattern string) (re *regexp.Regexp, err error) {
@@ -110,31 +125,170 @@ func compileRegex(pattern string) (re *regexp.Regexp, err error) {
 	return re, err
 }
 
-func partText(m Matcher, f *Features) string {
+// matchCtx 是一次 Match 的上下文：页面特征 + 各 part 预计算好的文本。
+// word 匹配要小写比较，几千条规则每条都 ToLower 整个 body 是之前最大的坑
+// （N 条规则 = N 次全量小写化 + 分配，WASM GC 扛不住）。这里每个 part 只
+// 算一次，全部规则复用。
+type matchCtx struct {
+	f *Features
+
+	// 原文（regex/raw/dsl 用），一次性拼好，省得每条 matcher 重拼
+	header string
+	meta   string
+	script string
+	// raw = header + body，nuclei 的 raw part 也是这个语义，单独拼一次
+	raw string
+
+	// 小写版（word 匹配用），每个 part 只小写一次
+	lowerBody   string
+	lowerTitle  string
+	lowerURL    string
+	lowerHeader string
+	lowerMeta   string
+	lowerScript string
+	lowerRaw    string
+
+	// body word 命中集合：attachBodyIndex 扫一次 lowerBody 得到，
+	// 有索引时 body 的 word matcher 从 O(词数×body) 退化成 map 查询
+	bodyWordHits map[string]bool
+}
+
+func newMatchCtx(f *Features) *matchCtx {
+	c := &matchCtx{f: f}
+	c.header = headerString(f)
+	c.meta = metaString(f)
+	c.script = strings.Join(f.Scripts, "\n")
+	c.lowerBody = strings.ToLower(f.Body)
+	c.lowerTitle = strings.ToLower(f.Title)
+	c.lowerURL = strings.ToLower(f.URL)
+	c.lowerHeader = strings.ToLower(c.header)
+	c.lowerMeta = strings.ToLower(c.meta)
+	c.lowerScript = strings.ToLower(c.script)
+	c.raw = c.header + f.Body
+	c.lowerRaw = c.lowerHeader + c.lowerBody
+	return c
+}
+
+// attachBodyIndex 接入 body word 索引（可选）。有索引时 body 的 word matcher
+// 走命中集合，避免每条规则都去扫描大 body。
+func (c *matchCtx) attachBodyIndex(idx *bodyWordIndex) {
+	if idx == nil {
+		return
+	}
+	c.bodyWordHits = idx.scan(c.lowerBody)
+}
+
+func metaString(f *Features) string {
+	keys := make([]string, 0, len(f.Meta))
+	for k := range f.Meta {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var b strings.Builder
+	for _, k := range keys {
+		fmt.Fprintf(&b, "%s: %s\n", k, f.Meta[k])
+	}
+	return b.String()
+}
+
+// partText 取原文（regex 等大小写敏感场景用）
+func (c *matchCtx) partText(m Matcher) string {
 	switch m.Part {
 	case "title":
-		return f.Title
+		return c.f.Title
 	case "url":
-		return f.URL
+		return c.f.URL
 	case "header":
-		return headerString(f)
+		return c.header
 	case "raw":
-		return headerString(f) + f.Body
+		return c.raw
 	case "meta":
-		var b strings.Builder
-		for k, v := range f.Meta {
-			fmt.Fprintf(&b, "%s: %s\n", k, v)
-		}
-		return b.String()
+		return c.meta
 	case "script":
-		return strings.Join(f.Scripts, "\n")
+		return c.script
 	default:
-		return f.Body
+		return c.f.Body
 	}
 }
 
-func evalMatcher(m Matcher, f *Features) (bool, []Evidence) {
-	var results []bool
+// partTextLower 取小写版（word 匹配用），与逐次 strings.ToLower 语义一致
+func (c *matchCtx) partTextLower(m Matcher) string {
+	switch m.Part {
+	case "title":
+		return c.lowerTitle
+	case "url":
+		return c.lowerURL
+	case "header":
+		return c.lowerHeader
+	case "raw":
+		return c.lowerRaw
+	case "meta":
+		return c.lowerMeta
+	case "script":
+		return c.lowerScript
+	default:
+		return c.lowerBody
+	}
+}
+
+// 单个条件的求值结果三态：命中 / 未命中 / 无效。
+// 无效 = 条件本身坏了（正则编译失败、dsl 报错、未知 matcher 类型）。
+// 关键区别：negative 只能反转"有效的未命中"，无效既不命中也不能被 negative 反成命中——
+// 否则一条写坏的正则配 negative 会凭空造出幽灵指纹。
+type evalResult int
+
+const (
+	evalMiss    evalResult = iota // 有效的未命中
+	evalHit                       // 命中
+	evalInvalid                   // 条件无效
+)
+
+func boolResult(ok bool) evalResult {
+	if ok {
+		return evalHit
+	}
+	return evalMiss
+}
+
+// 按 and/or 聚合三态结果，空结果集算未命中。与 SQL 的 NULL 语义一致：
+// and 里有 false 就定死 false，否则有 invalid 算 invalid；or 里有 true 就定死 true，否则有 invalid 算 invalid。
+func combine3(results []evalResult, condition string) evalResult {
+	if len(results) == 0 {
+		return evalMiss
+	}
+	if condition == "and" {
+		invalid := false
+		for _, r := range results {
+			switch r {
+			case evalMiss:
+				return evalMiss
+			case evalInvalid:
+				invalid = true
+			}
+		}
+		if invalid {
+			return evalInvalid
+		}
+		return evalHit
+	}
+	invalid := false
+	for _, r := range results {
+		switch r {
+		case evalHit:
+			return evalHit
+		case evalInvalid:
+			invalid = true
+		}
+	}
+	if invalid {
+		return evalInvalid
+	}
+	return evalMiss
+}
+
+func evalMatcher(m Matcher, c *matchCtx) (bool, []Evidence) {
+	f := c.f
+	var results []evalResult
 	var ev []Evidence
 	part := m.Part
 	if part == "" {
@@ -143,28 +297,39 @@ func evalMatcher(m Matcher, f *Features) (bool, []Evidence) {
 
 	switch m.Type {
 	case "word":
-		text := partText(m, f)
-		cmpText := strings.ToLower(text)
+		// body 有索引走命中集合；空词与 strings.Contains("")=true 对齐
+		if c.bodyWordHits != nil && part == "body" {
+			for _, w := range m.Words {
+				ok := w == "" || c.bodyWordHits[strings.ToLower(w)]
+				results = append(results, boolResult(ok))
+				if ok {
+					ev = append(ev, Evidence{Type: "word", Part: part, Detail: w})
+				}
+			}
+			break
+		}
+		cmpText := c.partTextLower(m)
 		for _, w := range m.Words {
 			ok := strings.Contains(cmpText, strings.ToLower(w))
-			results = append(results, ok)
+			results = append(results, boolResult(ok))
 			if ok {
 				ev = append(ev, Evidence{Type: "word", Part: part, Detail: w})
 			}
 		}
 	case "regex":
-		text := partText(m, f)
+		text := c.partText(m)
 		for _, r := range m.Regex {
 			re, err := compileRegex("(?i)" + r)
 			if err != nil {
 				re, err = compileRegex(r)
 			}
 			if err != nil {
-				results = append(results, false)
+				// 正则是坏的，这条件判无效而不是未命中：negative 不能拿它当"没出现"
+				results = append(results, evalInvalid)
 				continue
 			}
 			ok := re.MatchString(text)
-			results = append(results, ok)
+			results = append(results, boolResult(ok))
 			if ok {
 				detail := re.FindString(text)
 				if len(detail) > 120 {
@@ -179,35 +344,29 @@ func evalMatcher(m Matcher, f *Features) (bool, []Evidence) {
 	case "status":
 		for _, s := range m.Status {
 			ok := f.Status == s
-			results = append(results, ok)
+			results = append(results, boolResult(ok))
 			if ok {
 				ev = append(ev, Evidence{Type: "status", Detail: fmt.Sprintf("状态码 %d", s)})
 			}
 		}
 	case "icon_hash":
 		// 页面的所有 icon 哈希都参与比对，不知道哪个图案才是指纹库里那个
-		all := append([]int32{f.FaviconHash}, f.FaviconHashes...)
 		for _, h := range m.Hash {
-			ok := false
-			for _, fh := range all {
-				if fh == h {
-					ok = true
-					break
-				}
-			}
-			results = append(results, ok)
+			ok := slices.Contains(f.FaviconHashes, h)
+			results = append(results, boolResult(ok))
 			if ok {
 				ev = append(ev, Evidence{Type: "icon_hash", Detail: fmt.Sprintf("mmh3 %d", h)})
 			}
 		}
 	case "dsl":
 		for _, expr := range m.Dsl {
-			ok, err := dslEval(expr, f)
+			ok, err := dslEval(expr, c)
 			if err != nil {
-				results = append(results, false)
+				// dsl 语法/求值出错判无效，同上 negative 不能反转
+				results = append(results, evalInvalid)
 				continue
 			}
-			results = append(results, ok)
+			results = append(results, boolResult(ok))
 			if ok {
 				ev = append(ev, Evidence{Type: "dsl", Detail: expr})
 			}
@@ -215,63 +374,106 @@ func evalMatcher(m Matcher, f *Features) (bool, []Evidence) {
 	case "js":
 		for _, p := range m.Js {
 			val, exists := f.Js[p.Path]
-			ok := exists
-			if ok && p.Pattern != "" {
-				re, err := compileRegex(p.Pattern)
-				ok = err == nil && re.MatchString(val)
+			if !exists {
+				results = append(results, evalMiss)
+				continue
 			}
-			results = append(results, ok)
+			if p.Pattern == "" {
+				results = append(results, evalHit)
+				ev = append(ev, Evidence{Type: "js", Detail: jsProbeDetail(p.Path, val)})
+				continue
+			}
+			re, err := compileRegex(p.Pattern)
+			if err != nil {
+				results = append(results, evalInvalid)
+				continue
+			}
+			ok := re.MatchString(val)
+			results = append(results, boolResult(ok))
 			if ok {
-				detail := "window." + p.Path
-				if val != "" {
-					detail += " = " + val
-				}
-				ev = append(ev, Evidence{Type: "js", Detail: detail})
+				ev = append(ev, Evidence{Type: "js", Detail: jsProbeDetail(p.Path, val)})
 			}
 		}
 	case "dom":
-		// 探测结果 f.Dom 里存的是命中的选择器
+		// 探测结果 f.DomHits 里存的是命中的 probe id；同一组 sel/text/attrs
+		// 在 JS 侧和这里算出同一个 id，命中即存在
 		for _, sel := range m.Words {
-			ok := false
-			for _, hit := range f.Dom {
-				if hit == sel {
-					ok = true
-					break
-				}
-			}
-			results = append(results, ok)
+			ok := f.DomHits[probeID(DomProbe{Sel: sel})]
+			results = append(results, boolResult(ok))
 			if ok {
 				ev = append(ev, Evidence{Type: "dom", Detail: sel})
 			}
 		}
 		for _, p := range m.Dom {
-			ok := false
-			for _, hit := range f.Dom {
-				if hit == p.Sel {
-					ok = true
-					break
-				}
-			}
-			results = append(results, ok)
+			ok := f.DomHits[probeID(p)]
+			results = append(results, boolResult(ok))
 			if ok {
 				ev = append(ev, Evidence{Type: "dom", Detail: p.Sel})
 			}
 		}
+	default:
+		// 未知 matcher 类型：整条 matcher 无效，不产出证据，negative 也不反转
+		results = append(results, evalInvalid)
 	}
 
-	matched := combine(results, m.Condition)
+	state := combine3(results, m.Condition)
 	if m.Negative {
-		if matched {
+		switch state {
+		case evalHit:
+			return false, nil
+		case evalMiss:
+			// negative 命中 = 东西确实不在，证据就一句话，不罗列具体条件
+			return true, []Evidence{{Type: m.Type, Part: part, Detail: "negative 成立：原条件未满足"}}
+		default: // evalInvalid：条件坏了，negative 不反转
 			return false, nil
 		}
-		// negative 命中 = 东西确实不在，证据就是"没出现"
-		terms := append(append(append([]string{}, m.Words...), m.Regex...), m.Dsl...)
-		return true, []Evidence{{Type: m.Type, Part: part, Detail: "未出现（negative）: " + strings.Join(terms, ", ")}}
 	}
-	if !matched {
+	if state != evalHit {
 		return false, nil
 	}
 	return true, ev
+}
+
+func jsProbeDetail(path, val string) string {
+	detail := "window." + path
+	if val != "" {
+		detail += " = " + val
+	}
+	return detail
+}
+
+// probeID 把 dom probe 算成稳定 id：sel/text/attrs 全参与，同一内容在任何侧
+// 算出同一个值。JS 侧（background/matching.js 的 probeId）用同一套字节序列 + FNV-1a
+// 算出来，两边对得上。attrs 键排序后再拼，顺序不影响 id。
+func probeID(p DomProbe) string {
+	keys := make([]string, 0, len(p.Attrs))
+	for k := range p.Attrs {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var b strings.Builder
+	b.WriteString(p.Sel)
+	b.WriteByte(0)
+	b.WriteString(p.Text)
+	b.WriteByte(0)
+	for i, k := range keys {
+		if i > 0 {
+			b.WriteByte(1)
+		}
+		b.WriteString(k)
+		b.WriteByte('=')
+		b.WriteString(p.Attrs[k])
+	}
+	return fmt.Sprintf("dom:%08x", fnv1a32(b.String()))
+}
+
+func fnv1a32(s string) uint32 {
+	h := uint32(2166136261)
+	for i := 0; i < len(s); i++ {
+		h ^= uint32(s[i])
+		h *= 16777619
+	}
+	return h
 }
 
 // 按 and/or 聚合，默认 or；空列表算不匹配
@@ -302,13 +504,13 @@ func validConfidence(c *int) (int, bool) {
 	return *c, true
 }
 
-func matchRule(r Rule, f *Features) (bool, []Evidence, *int) {
+func matchRule(r Rule, c *matchCtx) (bool, []Evidence, *int) {
 	results := make([]bool, 0, len(r.Matchers))
 	var ev []Evidence
 	var conf *int
 	and := r.MatchersCondition == "and"
 	for _, m := range r.Matchers {
-		ok, sub := evalMatcher(m, f)
+		ok, sub := evalMatcher(m, c)
 		results = append(results, ok)
 		ev = append(ev, sub...)
 		if !ok {
@@ -341,12 +543,8 @@ func matchRule(r Rule, f *Features) (bool, []Evidence, *int) {
 
 // implies 级联：命中 A 就补上 A 声明的技术，一轮轮推到没有新东西为止。
 // 被推导的技术不需要有自己的规则，直接给一条裸命中
-func applyImplies(hits []Hit, rules []Rule) []Hit {
-	byName := make(map[string]*Rule, len(rules))
-	for i := range rules {
-		byName[strings.ToLower(rules[i].Name)] = &rules[i]
-		byName[strings.ToLower(rules[i].ID)] = &rules[i]
-	}
+// byName 由 rulesetFor 一次性预计算（小写 name/id -> *Rule），避免每次调用重建大 map
+func applyImplies(hits []Hit, byName map[string]*Rule) []Hit {
 	have := make(map[string]bool, len(hits))
 	for _, h := range hits {
 		have[strings.ToLower(h.Name)] = true
@@ -379,13 +577,8 @@ func applyImplies(hits []Hit, rules []Rule) []Hit {
 }
 
 // excludes 排除：命中的规则声明了排除谁，就把谁从结果里踢掉。
-// 在 implies 之后跑，推导出来的也能被排掉
-func applyExcludes(hits []Hit, rules []Rule) []Hit {
-	byName := make(map[string]*Rule, len(rules))
-	for i := range rules {
-		byName[strings.ToLower(rules[i].Name)] = &rules[i]
-		byName[strings.ToLower(rules[i].ID)] = &rules[i]
-	}
+// 在 implies 之后跑，推导出来的也能被排掉。byName 同上由 rulesetFor 预计算
+func applyExcludes(hits []Hit, byName map[string]*Rule) []Hit {
 	banned := make(map[string]bool)
 	for _, h := range hits {
 		r, ok := byName[strings.ToLower(h.Name)]

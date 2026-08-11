@@ -7,13 +7,21 @@ import (
 
 func Match(rules []Rule, features Features) []Hit {
 	hits := make([]Hit, 0)
+	c := newMatchCtx(&features) // 各 part 预计算一次，所有规则复用
+	rs := rulesetFor(rules)     // body word 自动机 + byName 查找，整包只算一次
+	if rs != nil {
+		c.attachBodyIndex(rs.idx)
+	}
 	for _, r := range rules {
-		if ok, ev, conf := matchRule(r, &features); ok {
+		if ok, ev, conf := matchRule(r, c); ok {
 			hits = append(hits, Hit{ID: r.ID, Name: r.Name, Evidence: ev, Confidence: conf})
 		}
 	}
-	hits = applyImplies(hits, rules)
-	return applyExcludes(hits, rules)
+	if rs == nil {
+		return hits
+	}
+	hits = applyImplies(hits, rs.byName)
+	return applyExcludes(hits, rs.byName)
 }
 
 func Mmh3Sum32(data string) int32 {
@@ -60,8 +68,9 @@ func ConvertEHoleJSON(fingerJSON string) ([]Rule, error) {
 func DslEvalMany(exprs []string, features Features) ([]bool, []string) {
 	results := make([]bool, 0, len(exprs))
 	errs := make([]string, 0, len(exprs))
+	c := newMatchCtx(&features)
 	for _, e := range exprs {
-		ok, err := dslEval(e, &features)
+		ok, err := dslEval(e, c)
 		results = append(results, ok)
 		if err != nil {
 			errs = append(errs, err.Error())
