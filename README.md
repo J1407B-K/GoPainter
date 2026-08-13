@@ -2,7 +2,7 @@
 
 **English** | [简体中文](./README_CN.md)
 
-Web asset fingerprinting for the browser. A **TinyGo**-compiled WASM matching engine with optional LLM-assisted identification.
+Web asset fingerprinting for the browser. A **standard Go**-compiled WASM matching engine with optional LLM-assisted identification.
 
 GoPainter provides the engine — detection and crawling. The fingerprint definitions (rules) come from community rule sources or your own YAML files; the repository ships no rule data itself.
 
@@ -13,7 +13,7 @@ While you browse, GoPainter fingerprints the current site automatically and surf
 - **YAML fingerprint rules** — word / regex / status / icon_hash matchers, with `and`/`or` combinations and `negative` inversion
 - **nuclei template compatibility** — imports automatically extract the HTTP matchers subset, so the large community template library is directly usable
 - **Third-party rule sources** — Wappalyzer / EHole / nuclei-templates can be pulled and converted in one click; whether to download is your choice
-- **TinyGo WASM engine** — matching logic in Go, compiled to a ~750KB WASM binary with millisecond matching
+- **[Performance-focused Go WASM engine](BENCHMARK.md)** — a ~4.5MB production binary with safe regex-literal AC prefiltering (one body scan for word + regex candidates, non-ASCII bytes skipped) and predictable scan latency; TinyGo remains an optional ~935KB size-oriented build
 - **Hit evidence** — each fingerprint carries the specific keyword, regex, status code, or hash that matched
 - **Icon state indicator** — gray = no match, colored + badge = N matches
 - **LLM-assisted tech-stack identification** — feed headers/body/js/dom to any OpenAI-compatible endpoint; AI returns structured candidates (confidence + evidence) you can merge into the hit list, or turn into rules
@@ -21,27 +21,14 @@ While you browse, GoPainter fingerprints the current site automatically and surf
 
 ## Quick start
 
-### 1. Install TinyGo
+### 1. Install Go
 
-**macOS**
-```bash
-brew tap tinygo-org/tools
-brew install tinygo
-```
+Building only needs the standard Go toolchain (`make build` compiles the WASM with standard Go by default).
 
-**Windows**
-```powershell
-winget install TinyGo.TinyGo
-# or via Scoop: scoop install tinygo
-```
+- macOS: `brew install go`
+- Windows / Linux: see the [Go download page](https://go.dev/dl/)
 
-**Linux**
-```bash
-sudo pacman -S tinygo        # Arch
-sudo apt install tinygo      # Debian/Ubuntu (or use a prebuilt package from the official site)
-```
-
-Other installation options: [TinyGo official docs](https://tinygo.org/getting-started/install/).
+> For a smaller WASM binary (~925K, but with 140–300ms GC tail-latency spikes at steady-state p99), install [TinyGo](https://tinygo.org/getting-started/install/) and run `make build-tinygo`.
 
 ### 2. Build the WASM engine
 
@@ -174,7 +161,8 @@ Returned items need at least `id` and `name`. An `id` that already exists is ski
 
 | command | description |
 |---|---|
-| `make build` | Build WASM on macOS/Linux. Prefers TinyGo; falls back to the standard Go toolchain if TinyGo is missing |
+| `make build` | Build WASM on macOS/Linux (standard Go) |
+| `make build-tinygo` | Size-optimized TinyGo build (~925K, with GC tail-latency spikes) |
 | `make test` | Run Go and JS unit tests, then the WASM smoke test |
 | `make test-go` | Run only the Go unit tests (js/wasm target, executed via node; no build required) |
 | `make test-js` | Run only the Node unit tests for shared extension logic |
@@ -201,7 +189,6 @@ sidepanel    crawl progress / start-stop (Side Panel, alongside the page)
 ```
 
 Core boundary: **the WASM does pure computation only** (JSON in, JSON out; no network, YAML, or DOM).
-This sidesteps TinyGo's weak spots (incomplete reflection, missing stdlib) entirely.
 Matching, mmh3, HTML feature extraction, and nuclei conversion all live in Go.
 
 ## Directory layout
@@ -243,7 +230,7 @@ Matching, mmh3, HTML feature extraction, and nuclei conversion all live in Go.
 ## Roadmap
 
 **Done**
-- [x] TinyGo WASM matching engine (word / regex / status / icon_hash)
+- [x] Go WASM matching engine (word / regex / status / icon_hash)
 - [x] nuclei template import compatibility (http matchers subset)
 - [x] hit evidence display
 - [x] icon state indicator (gray/colored + badge)
@@ -268,7 +255,7 @@ Matching, mmh3, HTML feature extraction, and nuclei conversion all live in Go.
 - [x] scan history and report export (JSON/CSV)
 - [x] Go unit tests (matcher / dsl / mmh3 / extract / normalize / crawl / convert, `make test-go`)
 - [x] JS unit tests (confidence filtering, rule merging, favicon hash de-duplication, YAML extraction; `make test-js`)
-- [ ] further WASM size reduction (currently ~750KB, target < 300KB, parked)
+- [ ] WASM size reduction (standard Go ~4.4MB; use TinyGo build if smaller size is needed, parked)
 
 ## License
 

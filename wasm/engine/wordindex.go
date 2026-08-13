@@ -25,6 +25,10 @@ type bodyWordIndex struct {
 	words []string
 	nodes []acNode
 	root  int32
+	// 词典是否含非 ASCII 字节。为 false 时 scan 可直接跳过非 ASCII 字节——索引词全 ASCII，
+	// 非 ASCII 字节不可能匹配任何词，重置即可，
+	// 省中文页里每个中文字节触发的 fail 跳转。
+	hasNonASCIIWord bool
 }
 
 // ruleset 是整包规则的一次性预计算结果：
@@ -35,6 +39,10 @@ type bodyWordIndex struct {
 type ruleset struct {
 	idx    *bodyWordIndex
 	byName map[string]*Rule
+	// 整包规则里是否有人声明了 implies / excludes。全空时 Match 直接跳过
+	// applyImplies/applyExcludes，省掉对每个命中做 ToLower + map 查找的线性开销。
+	hasImplies  bool
+	hasExcludes bool
 }
 
 // 单槽缓存：同一规则切片（bridge 里解析后复用）只预计算一次。
@@ -60,7 +68,25 @@ func rulesetFor(rules []Rule) *ruleset {
 		idx:    buildBodyWordIndex(rules),
 		byName: buildByName(rules),
 	}
+	rsVal.hasImplies, rsVal.hasExcludes = scanImpliesExcludes(rules)
 	return rsVal
+}
+
+// scanImpliesExcludes 扫一遍规则，看是否有人声明了 implies/excludes。
+// 只在规则集重建时跑一次，之后缓存复用。
+func scanImpliesExcludes(rules []Rule) (hasImplies, hasExcludes bool) {
+	for i := range rules {
+		if len(rules[i].Implies) > 0 {
+			hasImplies = true
+		}
+		if len(rules[i].Excludes) > 0 {
+			hasExcludes = true
+		}
+		if hasImplies && hasExcludes {
+			return
+		}
+	}
+	return
 }
 
 func buildByName(rules []Rule) map[string]*Rule {
@@ -72,26 +98,45 @@ func buildByName(rules []Rule) map[string]*Rule {
 	return m
 }
 
-// 收集规则里 part=body（含未写 part 默认 body）的 word matcher 词，去重、小写、丢空串
+// 收集规则里 part=body（含未写 part 默认 body）的 word matcher 词 + body regex 的必需字面量，
+// 去重、小写、丢空串。regex 字面量也进同一个 AC：预筛判定时查同一个命中集合，
+// 把每条正则的「字面量在不在 body」从 Contains 扫全文退化成 map 查询。
 func bodyWords(rules []Rule) []string {
 	seen := make(map[string]struct{})
 	var out []string
+	add := func(w string) {
+		lw := strings.ToLower(w)
+		if lw == "" {
+			return
+		}
+		if _, ok := seen[lw]; ok {
+			return
+		}
+		seen[lw] = struct{}{}
+		out = append(out, lw)
+	}
 	for i := range rules {
 		for j := range rules[i].Matchers {
 			m := &rules[i].Matchers[j]
-			if m.Type != "word" || (m.Part != "" && m.Part != "body") {
-				continue
-			}
-			for _, w := range m.Words {
-				lw := strings.ToLower(w)
-				if lw == "" {
+			bodyPart := m.Part == "" || m.Part == "body"
+			if m.Type == "word" {
+				if !bodyPart {
 					continue
 				}
-				if _, ok := seen[lw]; ok {
-					continue
+				for _, w := range m.Words {
+					add(w)
 				}
-				seen[lw] = struct{}{}
-				out = append(out, lw)
+			} else if m.Type == "regex" && bodyPart {
+				for _, r := range m.Regex {
+					for _, lit := range regexLiterals(r) {
+						// 非 ASCII regex literal 从不参与预筛（SimpleFold 边界见
+						// regexNodeExcluded），不必放进 AC；否则仅一条 Unicode regex
+						// 就会关闭中文页的 ASCII 字节快速路径。
+						if isASCIIStr(lit) {
+							add(lit)
+						}
+					}
+				}
 			}
 		}
 	}
@@ -121,6 +166,19 @@ func buildBodyWordIndex(rules []Rule) *bodyWordIndex {
 		ix.nodes[cur].output = append(ix.nodes[cur].output, int32(wi))
 	}
 	ix.buildFail()
+	// 任一位置含非 ASCII 都必须关闭快速路径，不能只检查 root：词 "a中b" 的
+	// root 子节点仍是 ASCII 'a'，但跳过中间 UTF-8 字节会漏掉该词。
+	for _, w := range words {
+		for i := 0; i < len(w); i++ {
+			if w[i] >= 0x80 {
+				ix.hasNonASCIIWord = true
+				break
+			}
+		}
+		if ix.hasNonASCIIWord {
+			break
+		}
+	}
 	return ix
 }
 
@@ -204,6 +262,12 @@ func (ix *bodyWordIndex) scan(text string) map[string]bool {
 	cur := ix.root
 	for i := 0; i < len(text); i++ {
 		c := text[i]
+		// 索引词全 ASCII 时，非 ASCII 字节不可能匹配任何词：重置后跳过，
+		// 省中文页里每个中文字节触发的 fail 跳转（语义不变）。
+		if c >= 0x80 && !ix.hasNonASCIIWord {
+			cur = ix.root
+			continue
+		}
 		for cur != ix.root {
 			if n := ix.child(cur, c); n >= 0 {
 				cur = n

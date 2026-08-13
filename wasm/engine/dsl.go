@@ -340,7 +340,7 @@ func dslEvalNode(n *dslNode, c *matchCtx) (any, error) {
 		case "header":
 			return c.header, nil
 		case "raw":
-			return c.raw, nil
+			return c.rawText(), nil
 		case "meta":
 			return c.meta, nil
 		case "script":

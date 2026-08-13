@@ -1,4 +1,5 @@
-# 优先用 TinyGo（产物几百 KB），没装就回退标准 Go（4MB 左右，也能跑）
+# 生产默认用标准 Go（无 TinyGo 的 GC 尾延迟尖峰，产物约 4.4MB，详见 BENCHMARK.md）。
+# 体积优先时用 `make build-tinygo`（约 925K，但稳态 p99 有 140-300ms 尖峰）。
 
 WASM_OUT := extension/wasm/matcher.wasm
 EXEC_JS  := extension/wasm/wasm_exec.js
@@ -22,12 +23,7 @@ test:
 	node scripts/smoke-test.mjs
 
 build:
-ifeq ($(shell command -v tinygo 2>/dev/null),)
-	@echo "未检测到 tinygo，回退到标准 Go 构建（产物约 4MB，装 tinygo 后可降到几百 KB）"
 	@$(MAKE) build-go
-else
-	@$(MAKE) build-tinygo
-endif
 
 build-tinygo:
 	tinygo build -target wasm -no-debug -o $(WASM_OUT) ./wasm

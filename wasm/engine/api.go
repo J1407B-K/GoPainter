@@ -20,8 +20,13 @@ func Match(rules []Rule, features Features) []Hit {
 	if rs == nil {
 		return hits
 	}
-	hits = applyImplies(hits, rs.byName)
-	return applyExcludes(hits, rs.byName)
+	if rs.hasImplies {
+		hits = applyImplies(hits, rs.byName)
+	}
+	if rs.hasExcludes {
+		hits = applyExcludes(hits, rs.byName)
+	}
+	return hits
 }
 
 func Mmh3Sum32(data string) int32 {

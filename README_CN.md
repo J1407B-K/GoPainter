@@ -2,7 +2,7 @@
 
 [English](./README.md) | **简体中文**
 
-基于 YAML 指纹规则的 Web 资产测绘工具：**TinyGo** 编译的 WASM 匹配引擎 + AI 辅助识别。
+基于 YAML 指纹规则的 Web 资产测绘工具：**标准 Go** 编译的 WASM 匹配引擎 + AI 辅助识别。
 
 GoPainter 只负责检测与爬取（引擎），规则（颜料）来自社区规则源或你自己的 YAML，仓库本身不内置任何规则数据。
 
@@ -13,7 +13,7 @@ GoPainter 只负责检测与爬取（引擎），规则（颜料）来自社区�
 - 🧩 **YAML 指纹规则**：word / regex / status / icon_hash / dsl / js / dom 七种 matcher，支持 and/or 组合与 negative 取反
 - 🔁 **兼容 nuclei 模板**：导入时自动提取 http matchers 子集，社区海量规则可直接使用
 - 🌐 **第三方规则源**：Wappalyzer / EHole / nuclei-templates 一键拉取转换，是否下载由你决定，仓库本身不含任何规则数据
-- ⚡ **TinyGo WASM 引擎**：匹配逻辑用 Go 编写，编译产物仅约 750KB，毫秒级匹配
+- ⚡ **[性能导向的 Go WASM 引擎](BENCHMARK_CN.md)**：生产构建约 4.5MB，以安全的正则字面量 AC 预筛换取稳定扫描延迟（一次 body 扫描服务 word + regex 候选，非 ASCII 字节跳过）；TinyGo 约 935KB 的小体积构建仍可选
 - 🔍 **命中证据展示**：每个指纹附带具体命中的关键词/正则/状态码/哈希
 - 🎨 **图标状态感知**：灰色 = 未命中，彩色 + 角标数字 = 命中数
 - ✨ **AI 技术栈识别**：把 header/body/js/dom 交给任意 OpenAI 兼容接口，AI 返回带置信度与证据的结构化候选，可勾选合并进命中列表，也能一键转成规则
@@ -21,27 +21,14 @@ GoPainter 只负责检测与爬取（引擎），规则（颜料）来自社区�
 
 ## 快速开始
 
-### 1. 安装 TinyGo
+### 1. 安装 Go
 
-**macOS**
-```bash
-brew tap tinygo-org/tools
-brew install tinygo
-```
+构建只需标准 Go 工具链（`make build` 默认用标准 Go 编译 WASM）。
 
-**Windows**
-```powershell
-winget install TinyGo.TinyGo
-# 或者用 Scoop: scoop install tinygo
-```
+- macOS：`brew install go`
+- Windows / Linux：见 [Go 官方下载页](https://go.dev/dl/)
 
-**Linux**
-```bash
-sudo pacman -S tinygo        # Arch
-sudo apt install tinygo      # Debian/Ubuntu（或参考官网用预编译包）
-```
-
-其他安装方式见 [TinyGo 官方文档](https://tinygo.org/getting-started/install/)。
+> 想产出体积更小的 WASM（约 925K，但稳态 p99 有 140–300ms 的 GC 尾延迟尖峰）可额外装 [TinyGo](https://tinygo.org/getting-started/install/) 后跑 `make build-tinygo`。
 
 ### 2. 构建 WASM 引擎
 
@@ -176,7 +163,8 @@ if (features.body.includes('hello-world-cta')) {
 
 | 命令 | 说明 |
 |---|---|
-| `make build` | macOS/Linux 构建 WASM。优先 TinyGo，未安装 TinyGo 时回退标准 Go |
+| `make build` | macOS/Linux 构建 WASM（标准 Go） |
+| `make build-tinygo` | 体积优先的 TinyGo 构建（约 925K，稳态 p99 有 GC 尖峰） |
 | `make test` | 跑 Go、JS 单元测试，再跑 WASM 冒烟测试 |
 | `make test-go` | 只跑 Go 单元测试（js/wasm 目标，经 node 执行，无需先构建） |
 | `make test-js` | 只跑扩展共享逻辑的 Node 单元测试 |
@@ -202,8 +190,7 @@ popup        结果与证据展示 / AI 按钮
 sidepanel    爬取进度实时展示 / 启停（Side Panel，与页面并存）
 ```
 
-核心边界：**WASM 只做纯计算**（进 JSON 出 JSON，不碰网络/YAML/DOM），
-因此 TinyGo 的短板（反射不完整、标准库缺失）完全不会影响。
+核心边界：**WASM 只做纯计算**（进 JSON 出 JSON，不碰网络/YAML/DOM）。
 匹配、mmh3、HTML 特征提取、nuclei 模板转换全部在 Go 里。
 
 ## 目录
@@ -245,7 +232,7 @@ sidepanel    爬取进度实时展示 / 启停（Side Panel，与页面并存）
 ## 路线图
 
 **已完成** ✅
-- [x] TinyGo WASM 匹配引擎（word / regex / status / icon_hash）
+- [x] Go WASM 匹配引擎（word / regex / status / icon_hash）
 - [x] nuclei 模板导入兼容（http matchers 子集）
 - [x] 命中证据展示
 - [x] 图标状态感知（灰色/彩色 + 角标）
@@ -271,7 +258,7 @@ sidepanel    爬取进度实时展示 / 启停（Side Panel，与页面并存）
 
 **进行中 / 计划** 🚧
 - [ ] 规则集管理：分组启用/禁用、远程规则源订阅与自动更新
-- [ ] wasm 体积进一步优化（当前 ~750KB，目标 < 300KB，暂搁置）
+- [ ] wasm 体积优化（标准 Go 约 4.4MB；如需小体积可用 TinyGo 构建，暂搁置）
 
 ## License
 

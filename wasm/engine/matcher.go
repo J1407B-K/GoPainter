@@ -4,9 +4,12 @@ package engine
 import (
 	"fmt"
 	"regexp"
+	regexpsyntax "regexp/syntax"
 	"slices"
 	"sort"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 type Rule struct {
@@ -111,6 +114,7 @@ var regexCache = make(map[string]*regexp.Regexp)
 // 旧规则的正则不再占用 WASM 内存；规则没变时缓存照常复用。
 func ClearRegexCache() {
 	regexCache = make(map[string]*regexp.Regexp)
+	regexASTCache = make(map[string]*regexpsyntax.Regexp)
 }
 
 // recover 兜底接住普通 panic；栈溢出接不住，靠 safeCompile 里的驯化+深度检查事前拦
@@ -125,6 +129,136 @@ func compileRegex(pattern string) (re *regexp.Regexp, err error) {
 	return re, err
 }
 
+// 正则「必需字面量」预筛，基于 regexp/syntax 的 AST 按分支保守判定。
+//
+// 安全模型：要安全跳过整个正则，必须证明它的每一条可匹配路径都被排除。
+//   - Concat（序列）：任一子节点被排除 → 整个序列被排除（序列要求全部匹配）
+//   - Alternate（交替）：全部分支被排除 → 交替被排除；任一分支仍可能 → 不能排除
+//   - Literal：字面量不在文本里 → 该分支被排除
+//   - 其他（CharClass / Repeat(min=0) / Quest / Star / 锚点等）：无法证明 → 永不排除
+// 这样 (?:foo|[0-9]+) 的数字分支是 CharClass，永不排除 → 永不误跳过（宁少跳，绝不 false negative）。
+//
+// AST 按 pattern 缓存（跟 regexCache 一起失效），避免每次匹配重复解析。
+
+var regexASTCache = make(map[string]*regexpsyntax.Regexp)
+
+// regexAST 取正则的解析 AST（缓存）。解析失败返回 nil。
+func regexAST(pattern string) *regexpsyntax.Regexp {
+	if n := regexASTCache[pattern]; n != nil {
+		return n
+	}
+	parsed, err := regexpsyntax.Parse(pattern, regexpsyntax.Perl)
+	if err != nil {
+		regexASTCache[pattern] = nil // 解析失败，之后不再试
+		return nil
+	}
+	regexASTCache[pattern] = parsed
+	return parsed
+}
+
+// regexLiterals 提取正则里所有 OpLiteral 的小写串（去重）。预筛的每个必需字面量
+// 都要进 body AC 索引，否则预筛 map 查 miss 会误判「不在文本」→ 误跳过。
+func regexLiterals(pattern string) []string {
+	n := regexAST(pattern)
+	if n == nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []string
+	var walk func(node *regexpsyntax.Regexp)
+	walk = func(node *regexpsyntax.Regexp) {
+		if node.Op == regexpsyntax.OpLiteral && len(node.Rune) > 0 {
+			s := strings.ToLower(string(node.Rune))
+			if !seen[s] {
+				seen[s] = true
+				out = append(out, s)
+			}
+		}
+		for _, s := range node.Sub {
+			walk(s)
+		}
+	}
+	walk(n)
+	return out
+}
+
+// regexCanSkip 判断正则能否安全跳过：AST 全部分支都被排除 → true。
+// 解析失败或任何分支无法证明被排除 → false（跑正则确认，语义不变）。
+// hasFoldSensitive：part 文本含非 ASCII 时传入 true（此时一律不预筛，见 regexNodeExcluded）。
+// litInText：非空时用「查命中集合」代替 Contains 判字面量在不在文本（body 有 AC 索引时传）；
+//           为 nil 则退化为 strings.Contains（非 body 小文本用）。
+func regexCanSkip(pattern, lowerText string, hasFoldSensitive bool, litInText func(string) bool) bool {
+	n := regexAST(pattern)
+	if n == nil {
+		return false
+	}
+	return regexNodeExcluded(n, lowerText, hasFoldSensitive, litInText)
+}
+
+// regexNodeExcluded 递归判定一个 AST 节点是否「必然不匹配」。
+func regexNodeExcluded(n *regexpsyntax.Regexp, lowerText string, hasFoldSensitive bool, litInText func(string) bool) bool {
+	switch n.Op {
+	case regexpsyntax.OpLiteral:
+		lit := strings.ToLower(string(n.Rune))
+		// 非 ASCII literal：strings.ToLower 与 regexp 的 SimpleFold 可能分歧
+		// （(?i)σ 匹配 ς，但 ToLower 不折叠），无法安全证明排除 → 跑原正则。
+		if !isASCIIStr(lit) {
+			return false
+		}
+		// part 含 ſ/K（与 ASCII s/k 折叠等价）：该 ASCII literal 保守不排除。
+		// 纯中文/纯 ASCII 的 part 不受影响，预筛照常。
+		if hasFoldSensitive {
+			return false
+		}
+		if litInText != nil {
+			// 字面量不在 AC 命中集合 → 必然不匹配（索引里含全部字面量，查 miss 即不在）
+			return !litInText(lit)
+		}
+		// 非索引路径：Contains 查小写文本
+		return !strings.Contains(lowerText, lit)
+	case regexpsyntax.OpConcat:
+		// 序列：全部子项都要匹配，任一子项被排除 → 整个序列被排除
+		for _, s := range n.Sub {
+			if regexNodeExcluded(s, lowerText, hasFoldSensitive, litInText) {
+				return true
+			}
+		}
+		return false
+	case regexpsyntax.OpAlternate:
+		// 交替：全部子分支被排除 → 交替被排除；任一分支仍可能 → 不能排除
+		for _, s := range n.Sub {
+			if !regexNodeExcluded(s, lowerText, hasFoldSensitive, litInText) {
+				return false
+			}
+		}
+		return true
+	case regexpsyntax.OpCapture:
+		if len(n.Sub) == 1 {
+			return regexNodeExcluded(n.Sub[0], lowerText, hasFoldSensitive, litInText)
+		}
+		return false
+	case regexpsyntax.OpPlus:
+		// 至少一次，内层必需
+		if len(n.Sub) == 1 {
+			return regexNodeExcluded(n.Sub[0], lowerText, hasFoldSensitive, litInText)
+		}
+		return false
+	case regexpsyntax.OpRepeat:
+		if n.Min == 0 {
+			return false // 可匹配空（省略）→ 不能排除
+		}
+		if len(n.Sub) == 1 {
+			return regexNodeExcluded(n.Sub[0], lowerText, hasFoldSensitive, litInText)
+		}
+		return false
+	case regexpsyntax.OpStar, regexpsyntax.OpQuest:
+		return false // 可匹配空
+	default:
+		// CharClass / AnyChar / 锚点 / EmptyMatch 等：无法证明，保守不排除
+		return false
+	}
+}
+
 // matchCtx 是一次 Match 的上下文：页面特征 + 各 part 预计算好的文本。
 // word 匹配要小写比较，几千条规则每条都 ToLower 整个 body 是之前最大的坑
 // （N 条规则 = N 次全量小写化 + 分配，WASM GC 扛不住）。这里每个 part 只
@@ -136,8 +270,14 @@ type matchCtx struct {
 	header string
 	meta   string
 	script string
-	// raw = header + body，nuclei 的 raw part 也是这个语义，单独拼一次
-	raw string
+	// raw = header + body（nuclei 的 raw part 也是这个语义）。体量大、又只有
+	// part=raw / dsl 里 raw 才用，绝大多数规则用不到——惰性拼，省掉每次匹配
+	// 一份 ~body 大小的拷贝。
+	raw     string
+	rawDone bool
+	// raw 的小写版，同样惰性
+	lowerRaw     string
+	lowerRawDone bool
 
 	// 小写版（word 匹配用），每个 part 只小写一次
 	lowerBody   string
@@ -146,11 +286,79 @@ type matchCtx struct {
 	lowerHeader string
 	lowerMeta   string
 	lowerScript string
-	lowerRaw    string
 
 	// body word 命中集合：attachBodyIndex 扫一次 lowerBody 得到，
 	// 有索引时 body 的 word matcher 从 O(词数×body) 退化成 map 查询
 	bodyWordHits map[string]bool
+
+	// 每个 part 文本是否含「与 ASCII 折叠敏感」的非 ASCII（惰性缓存）：正则预筛用。
+	// 只有 ſ/K 这类才禁用预筛；纯中文/纯 ASCII 不受影响。
+	foldSens map[string]bool
+}
+
+// foldSensitiveRunes：与 ASCII 字母有 SimpleFold 折叠关系的非 ASCII rune 集合。
+// 只有这些字符会让 strings.ToLower 与 regexp 的 (?i) 折叠语义分歧（如 ſ↔s、K↔k），
+// 预筛需禁用。中文/emoji/CJK 无大小写折叠，不在集合里——含它们的页面仍可安全预筛。
+var foldSensitiveRunes = func() map[rune]bool {
+	m := make(map[rune]bool)
+	for _, r := range "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ" {
+		for f := unicode.SimpleFold(r); f != r; f = unicode.SimpleFold(f) {
+			if f >= 0x80 {
+				m[f] = true
+			}
+		}
+	}
+	return m
+}()
+
+// isASCIIStr 判断字符串是否纯 ASCII（用于「非 ASCII literal 不预筛」的边界判断）。
+func isASCIIStr(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] >= 0x80 {
+			return false
+		}
+	}
+	return true
+}
+
+// partHasFoldSensitive 返回 matcher 的 part 文本是否含「与 ASCII 有折叠关系的非 ASCII
+// 字符」（如 ſ/K，惰性缓存一次）。含这类字符才禁用预筛；纯中文/纯 ASCII 都不禁。
+func (c *matchCtx) partHasFoldSensitive(m Matcher) bool {
+	part := m.Part
+	if part == "" {
+		part = "body"
+	}
+	if v, ok := c.foldSens[part]; ok {
+		return v
+	}
+	text := c.partText(m)
+	v := false
+	for i := 0; i < len(text); i++ {
+		if text[i] < 0x80 {
+			continue
+		}
+		r, size := utf8.DecodeRuneInString(text[i:])
+		if foldSensitiveRunes[r] {
+			v = true
+			break
+		}
+		i += size - 1
+	}
+	if c.foldSens == nil {
+		c.foldSens = make(map[string]bool)
+	}
+	c.foldSens[part] = v
+	return v
+}
+
+// regexLitLookup 返回「字面量是否在 part 文本」的判定器，给正则预筛用。
+// body 有 AC 索引（bodyWordHits 含 regex 字面量）时查 map（O(1)）；其他 part 或
+// 无索引时返回 nil（调用方退化为 Contains 小文本）。
+func (c *matchCtx) regexLitLookup(m Matcher) func(string) bool {
+	if (m.Part == "" || m.Part == "body") && c.bodyWordHits != nil {
+		return func(lit string) bool { return c.bodyWordHits[lit] }
+	}
+	return nil
 }
 
 func newMatchCtx(f *Features) *matchCtx {
@@ -164,9 +372,25 @@ func newMatchCtx(f *Features) *matchCtx {
 	c.lowerHeader = strings.ToLower(c.header)
 	c.lowerMeta = strings.ToLower(c.meta)
 	c.lowerScript = strings.ToLower(c.script)
-	c.raw = c.header + f.Body
-	c.lowerRaw = c.lowerHeader + c.lowerBody
 	return c
+}
+
+// rawText / lowerRawText 惰性返回 header+body（及小写版）。只有 part=raw 的
+// matcher 或 dsl 里的 raw 才触发拼接；无 raw 规则时这些分配直接省掉。
+func (c *matchCtx) rawText() string {
+	if !c.rawDone {
+		c.raw = c.header + c.f.Body
+		c.rawDone = true
+	}
+	return c.raw
+}
+
+func (c *matchCtx) lowerRawText() string {
+	if !c.lowerRawDone {
+		c.lowerRaw = c.lowerHeader + c.lowerBody
+		c.lowerRawDone = true
+	}
+	return c.lowerRaw
 }
 
 // attachBodyIndex 接入 body word 索引（可选）。有索引时 body 的 word matcher
@@ -201,7 +425,7 @@ func (c *matchCtx) partText(m Matcher) string {
 	case "header":
 		return c.header
 	case "raw":
-		return c.raw
+		return c.rawText()
 	case "meta":
 		return c.meta
 	case "script":
@@ -221,7 +445,7 @@ func (c *matchCtx) partTextLower(m Matcher) string {
 	case "header":
 		return c.lowerHeader
 	case "raw":
-		return c.lowerRaw
+		return c.lowerRawText()
 	case "meta":
 		return c.lowerMeta
 	case "script":
@@ -250,46 +474,56 @@ func boolResult(ok bool) evalResult {
 	return evalMiss
 }
 
-// 按 and/or 聚合三态结果，空结果集算未命中。与 SQL 的 NULL 语义一致：
-// and 里有 false 就定死 false，否则有 invalid 算 invalid；or 里有 true 就定死 true，否则有 invalid 算 invalid。
-func combine3(results []evalResult, condition string) evalResult {
-	if len(results) == 0 {
-		return evalMiss
-	}
-	if condition == "and" {
-		invalid := false
-		for _, r := range results {
-			switch r {
-			case evalMiss:
-				return evalMiss
-			case evalInvalid:
-				invalid = true
-			}
-		}
-		if invalid {
-			return evalInvalid
-		}
-		return evalHit
-	}
-	invalid := false
-	for _, r := range results {
-		switch r {
-		case evalHit:
-			return evalHit
-		case evalInvalid:
-			invalid = true
-		}
-	}
-	if invalid {
-		return evalInvalid
-	}
-	return evalMiss
+// triState 增量聚合 matcher 内多个子条件（多个 words / regex 等）的三态结果。
+// 之前先建 []evalResult 再 combine3，每条 matcher 一次切片分配——大规则集里
+// 这是按规则数线性累积的 GC 负担。这里边算边折，语义与 combine3 完全一致：
+// and 有 miss 定 miss，否则有 invalid 算 invalid；or 有 hit 定 hit，否则有 invalid 算 invalid。
+type triState struct {
+	val  evalResult
+	have bool
 }
 
-func evalMatcher(m Matcher, c *matchCtx) (bool, []Evidence) {
+func (t *triState) add(r evalResult, condition string) {
+	if !t.have {
+		t.val = r
+		t.have = true
+		return
+	}
+	if condition == "and" {
+		switch {
+		case t.val == evalMiss || r == evalMiss:
+			t.val = evalMiss
+		case t.val == evalInvalid || r == evalInvalid:
+			t.val = evalInvalid
+		default:
+			t.val = evalHit
+		}
+		return
+	}
+	switch {
+	case t.val == evalHit || r == evalHit:
+		t.val = evalHit
+	case t.val == evalInvalid || r == evalInvalid:
+		t.val = evalInvalid
+	default:
+		t.val = evalMiss
+	}
+}
+
+// result 返回折叠结果；没有任何子条件（空结果集）算未命中。
+func (t *triState) result() evalResult {
+	if !t.have {
+		return evalMiss
+	}
+	return t.val
+}
+
+// evalMatcherInto 求值单个 matcher，证据直接追加进调用方共享的 ev 切片。
+// 之前 evalMatcher 内部自建 ev、返回后再被 matchRule 拷贝一次，命中多的规则集里
+// 这两次切片分配按命中数线性累积；共享切片把命中路径的分配砍半。
+func evalMatcherInto(m Matcher, c *matchCtx, ev *[]Evidence) bool {
 	f := c.f
-	var results []evalResult
-	var ev []Evidence
+	st := triState{}
 	part := m.Part
 	if part == "" {
 		part = "body"
@@ -301,9 +535,9 @@ func evalMatcher(m Matcher, c *matchCtx) (bool, []Evidence) {
 		if c.bodyWordHits != nil && part == "body" {
 			for _, w := range m.Words {
 				ok := w == "" || c.bodyWordHits[strings.ToLower(w)]
-				results = append(results, boolResult(ok))
+				st.add(boolResult(ok), m.Condition)
 				if ok {
-					ev = append(ev, Evidence{Type: "word", Part: part, Detail: w})
+					*ev = append(*ev, Evidence{Type: "word", Part: part, Detail: w})
 				}
 			}
 			break
@@ -311,13 +545,15 @@ func evalMatcher(m Matcher, c *matchCtx) (bool, []Evidence) {
 		cmpText := c.partTextLower(m)
 		for _, w := range m.Words {
 			ok := strings.Contains(cmpText, strings.ToLower(w))
-			results = append(results, boolResult(ok))
+			st.add(boolResult(ok), m.Condition)
 			if ok {
-				ev = append(ev, Evidence{Type: "word", Part: part, Detail: w})
+				*ev = append(*ev, Evidence{Type: "word", Part: part, Detail: w})
 			}
 		}
 	case "regex":
 		text := c.partText(m)
+		lowerText := c.partTextLower(m)
+		hasFoldSensitive := c.partHasFoldSensitive(m)
 		for _, r := range m.Regex {
 			re, err := compileRegex("(?i)" + r)
 			if err != nil {
@@ -325,11 +561,18 @@ func evalMatcher(m Matcher, c *matchCtx) (bool, []Evidence) {
 			}
 			if err != nil {
 				// 正则是坏的，这条件判无效而不是未命中：negative 不能拿它当"没出现"
-				results = append(results, evalInvalid)
+				st.add(evalInvalid, m.Condition)
+				continue
+			}
+			// 必需字面量预过滤：AST 证明必然不匹配才跳过（含非 ASCII 的 part 不预筛，
+			// 避免 ToLower 与 SimpleFold 的折叠差异造成误跳过）。body 有 AC 索引时查
+			// 命中集合，否则 Contains 小文本。
+			if regexCanSkip(r, lowerText, hasFoldSensitive, c.regexLitLookup(m)) {
+				st.add(evalMiss, m.Condition)
 				continue
 			}
 			ok := re.MatchString(text)
-			results = append(results, boolResult(ok))
+			st.add(boolResult(ok), m.Condition)
 			if ok {
 				detail := re.FindString(text)
 				if len(detail) > 120 {
@@ -338,24 +581,24 @@ func evalMatcher(m Matcher, c *matchCtx) (bool, []Evidence) {
 				if detail == "" {
 					detail = "（零宽匹配）"
 				}
-				ev = append(ev, Evidence{Type: "regex", Part: part, Detail: detail, Pattern: r})
+				*ev = append(*ev, Evidence{Type: "regex", Part: part, Detail: detail, Pattern: r})
 			}
 		}
 	case "status":
 		for _, s := range m.Status {
 			ok := f.Status == s
-			results = append(results, boolResult(ok))
+			st.add(boolResult(ok), m.Condition)
 			if ok {
-				ev = append(ev, Evidence{Type: "status", Detail: fmt.Sprintf("状态码 %d", s)})
+				*ev = append(*ev, Evidence{Type: "status", Detail: fmt.Sprintf("状态码 %d", s)})
 			}
 		}
 	case "icon_hash":
 		// 页面的所有 icon 哈希都参与比对，不知道哪个图案才是指纹库里那个
 		for _, h := range m.Hash {
 			ok := slices.Contains(f.FaviconHashes, h)
-			results = append(results, boolResult(ok))
+			st.add(boolResult(ok), m.Condition)
 			if ok {
-				ev = append(ev, Evidence{Type: "icon_hash", Detail: fmt.Sprintf("mmh3 %d", h)})
+				*ev = append(*ev, Evidence{Type: "icon_hash", Detail: fmt.Sprintf("mmh3 %d", h)})
 			}
 		}
 	case "dsl":
@@ -363,35 +606,35 @@ func evalMatcher(m Matcher, c *matchCtx) (bool, []Evidence) {
 			ok, err := dslEval(expr, c)
 			if err != nil {
 				// dsl 语法/求值出错判无效，同上 negative 不能反转
-				results = append(results, evalInvalid)
+				st.add(evalInvalid, m.Condition)
 				continue
 			}
-			results = append(results, boolResult(ok))
+			st.add(boolResult(ok), m.Condition)
 			if ok {
-				ev = append(ev, Evidence{Type: "dsl", Detail: expr})
+				*ev = append(*ev, Evidence{Type: "dsl", Detail: expr})
 			}
 		}
 	case "js":
 		for _, p := range m.Js {
 			val, exists := f.Js[p.Path]
 			if !exists {
-				results = append(results, evalMiss)
+				st.add(evalMiss, m.Condition)
 				continue
 			}
 			if p.Pattern == "" {
-				results = append(results, evalHit)
-				ev = append(ev, Evidence{Type: "js", Detail: jsProbeDetail(p.Path, val)})
+				st.add(evalHit, m.Condition)
+				*ev = append(*ev, Evidence{Type: "js", Detail: jsProbeDetail(p.Path, val)})
 				continue
 			}
 			re, err := compileRegex(p.Pattern)
 			if err != nil {
-				results = append(results, evalInvalid)
+				st.add(evalInvalid, m.Condition)
 				continue
 			}
 			ok := re.MatchString(val)
-			results = append(results, boolResult(ok))
+			st.add(boolResult(ok), m.Condition)
 			if ok {
-				ev = append(ev, Evidence{Type: "js", Detail: jsProbeDetail(p.Path, val)})
+				*ev = append(*ev, Evidence{Type: "js", Detail: jsProbeDetail(p.Path, val)})
 			}
 		}
 	case "dom":
@@ -399,39 +642,47 @@ func evalMatcher(m Matcher, c *matchCtx) (bool, []Evidence) {
 		// 在 JS 侧和这里算出同一个 id，命中即存在
 		for _, sel := range m.Words {
 			ok := f.DomHits[probeID(DomProbe{Sel: sel})]
-			results = append(results, boolResult(ok))
+			st.add(boolResult(ok), m.Condition)
 			if ok {
-				ev = append(ev, Evidence{Type: "dom", Detail: sel})
+				*ev = append(*ev, Evidence{Type: "dom", Detail: sel})
 			}
 		}
 		for _, p := range m.Dom {
 			ok := f.DomHits[probeID(p)]
-			results = append(results, boolResult(ok))
+			st.add(boolResult(ok), m.Condition)
 			if ok {
-				ev = append(ev, Evidence{Type: "dom", Detail: p.Sel})
+				*ev = append(*ev, Evidence{Type: "dom", Detail: p.Sel})
 			}
 		}
 	default:
 		// 未知 matcher 类型：整条 matcher 无效，不产出证据，negative 也不反转
-		results = append(results, evalInvalid)
+		st.add(evalInvalid, m.Condition)
 	}
 
-	state := combine3(results, m.Condition)
+	state := st.result()
 	if m.Negative {
 		switch state {
 		case evalHit:
-			return false, nil
+			return false
 		case evalMiss:
 			// negative 命中 = 东西确实不在，证据就一句话，不罗列具体条件
-			return true, []Evidence{{Type: m.Type, Part: part, Detail: "negative 成立：原条件未满足"}}
+			*ev = append(*ev, Evidence{Type: m.Type, Part: part, Detail: "negative 成立：原条件未满足"})
+			return true
 		default: // evalInvalid：条件坏了，negative 不反转
-			return false, nil
+			return false
 		}
 	}
 	if state != evalHit {
-		return false, nil
+		return false
 	}
-	return true, ev
+	return true
+}
+
+// evalMatcher 两参签名，测试用；热路径走 evalMatcherInto。
+func evalMatcher(m Matcher, c *matchCtx) (bool, []Evidence) {
+	var ev []Evidence
+	ok := evalMatcherInto(m, c, &ev)
+	return ok, ev
 }
 
 func jsProbeDetail(path, val string) string {
@@ -476,27 +727,6 @@ func fnv1a32(s string) uint32 {
 	return h
 }
 
-// 按 and/or 聚合，默认 or；空列表算不匹配
-func combine(results []bool, condition string) bool {
-	if len(results) == 0 {
-		return false
-	}
-	if condition == "and" {
-		for _, r := range results {
-			if !r {
-				return false
-			}
-		}
-		return true
-	}
-	for _, r := range results {
-		if r {
-			return true
-		}
-	}
-	return false
-}
-
 func validConfidence(c *int) (int, bool) {
 	if c == nil || *c < 0 || *c > 100 {
 		return 0, false
@@ -505,28 +735,36 @@ func validConfidence(c *int) (int, bool) {
 }
 
 func matchRule(r Rule, c *matchCtx) (bool, []Evidence, *int) {
-	results := make([]bool, 0, len(r.Matchers))
+	and := r.MatchersCondition == "and"
 	var ev []Evidence
 	var conf *int
-	and := r.MatchersCondition == "and"
-	for _, m := range r.Matchers {
-		ok, sub := evalMatcher(m, c)
-		results = append(results, ok)
-		ev = append(ev, sub...)
+	// 边算边折叠 and/or，省掉 results []bool 这个每条规则一次的切片分配
+	hit := false
+	have := false
+	for i := range r.Matchers {
+		ok := evalMatcherInto(r.Matchers[i], c, &ev)
+		if !have {
+			hit = ok
+			have = true
+		} else if and {
+			hit = hit && ok
+		} else {
+			hit = hit || ok
+		}
 		if !ok {
 			continue
 		}
-		c, ok := validConfidence(m.Confidence)
-		if !ok {
+		mc, valid := validConfidence(r.Matchers[i].Confidence)
+		if !valid {
 			continue
 		}
 		// or 取最强的已标注信号，and 取已标注信号里的短板
-		if conf == nil || (and && c < *conf) || (!and && c > *conf) {
-			v := c
+		if conf == nil || (and && mc < *conf) || (!and && mc > *conf) {
+			v := mc
 			conf = &v
 		}
 	}
-	if !combine(results, r.MatchersCondition) {
+	if !have || !hit {
 		return false, nil, nil
 	}
 	if rc, ok := validConfidence(r.Confidence); ok {

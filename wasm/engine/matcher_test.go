@@ -16,24 +16,6 @@ func TestHeaderString(t *testing.T) {
 	}
 }
 
-func TestCombine(t *testing.T) {
-	if combine(nil, "") {
-		t.Error("空结果集应判不匹配")
-	}
-	if combine([]bool{false, false}, "") {
-		t.Error("or 全 false 应不匹配")
-	}
-	if !combine([]bool{false, true}, "") {
-		t.Error("or 任一 true 应匹配")
-	}
-	if combine([]bool{true, false}, "and") {
-		t.Error("and 有 false 应不匹配")
-	}
-	if !combine([]bool{true, true}, "and") {
-		t.Error("and 全 true 应匹配")
-	}
-}
-
 // ip 转 *int，测试里大量用来标注置信度
 func ip(v int) *int { return &v }
 
