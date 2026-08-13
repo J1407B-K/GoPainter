@@ -111,7 +111,12 @@
     .empty .icon { font-size: 26px; display: block; margin-bottom: 6px; }
 
     /* 底部操作小卡片 */
-    .footer { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
+    .footer { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
+    #agent-trace { margin-top: 9px; font: 11px/1.5 var(--mono); color: var(--muted); }
+    #agent-trace details { border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; background: var(--card); }
+    #agent-trace summary { cursor: pointer; color: var(--text); font-family: -apple-system, "Segoe UI", "PingFang SC", sans-serif; font-weight: 600; }
+    .agent-trace-row { padding: 4px 0; border-top: 1px solid var(--border); overflow-wrap: anywhere; }
+    .agent-trace-row:first-of-type { margin-top: 5px; }
     .action-card {
       display: flex; flex-direction: column; align-items: center; gap: 4px;
       padding: 10px 0 8px; background: var(--card); border: 1px solid var(--border);
@@ -194,11 +199,24 @@
     }
     #ai-merge:hover { background: #4f46e5; }
     #ai-merge:disabled { opacity: .5; cursor: wait; }
-    #ai-raw {
+    #ai-raw, #agent-result {
       margin-top: 10px; padding: 10px 12px; white-space: pre-wrap; word-break: break-all;
       background: var(--card); border: 1px solid var(--border); border-radius: 10px;
       font-size: 12px; max-height: 240px; overflow: auto;
     }
+    #ai-raw h3, #agent-result h3 { margin: 10px 0 5px; font-size: 13px; color: var(--text); }
+    #ai-raw h3:first-child, #agent-result h3:first-child { margin-top: 0; }
+    #ai-raw p, #agent-result p { margin: 6px 0; }
+    #ai-raw ul, #ai-raw ol, #agent-result ul, #agent-result ol { margin: 5px 0; padding-left: 19px; }
+    #ai-raw li, #agent-result li { margin: 3px 0; }
+    #ai-raw code, #agent-result code { padding: 1px 4px; border-radius: 4px; background: var(--accent-soft); font-family: var(--mono); font-size: 11px; }
+    #ai-raw pre, #agent-result pre { margin: 7px 0; padding: 8px; overflow: auto; border-radius: 6px; background: #1f2329; color: #e6e6e6; font: 11px/1.45 var(--mono); white-space: pre-wrap; }
+    #ai-raw a, #agent-result a { color: var(--accent); overflow-wrap: anywhere; }
+    #agent-result { white-space: normal; }
+    #agent-result .md-table-wrap { margin: 7px 0; overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; }
+    #agent-result .md-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+    #agent-result .md-table th { padding: 7px 8px; text-align: left; color: var(--muted); background: #f6f7fb; font-weight: 700; white-space: nowrap; }
+    #agent-result .md-table td { padding: 7px 8px; vertical-align: top; border-top: 1px solid var(--border); line-height: 1.45; }
     /* AI 合并进命中列表的卡片：紫色左边框 + AI 徽章 */
     .hit.hit-ai { border-left-color: var(--accent); }
     .ai-badge {
@@ -215,12 +233,22 @@
       padding: 14px; box-shadow: 0 12px 30px rgba(31, 35, 41, .18);
     }
     .modal h2 { margin: 0 0 8px; font-size: 14px; }
+    .modal-description { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.55; white-space: pre-wrap; }
     .modal label { display: block; margin: 10px 0 4px; font-weight: 700; font-size: 12px; }
-    .modal input {
+    .modal input, .modal select {
       width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px;
       font-size: 12px; font-family: var(--mono);
     }
-    .modal input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+    .modal input:focus, .modal select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+    .modal .modal-check { display: flex; align-items: flex-start; gap: 7px; margin-top: 12px; font-weight: 500; line-height: 1.4; }
+    .modal .modal-check input { width: auto; margin: 2px 0 0; accent-color: var(--accent); }
+    #agent-modal .modal { max-height: calc(100vh - 32px); overflow: auto; }
+    #agent-outcome { display: flex; align-items: center; gap: 9px; margin-top: 12px; padding: 10px 11px; border-radius: 9px; font-size: 12px; font-weight: 700; }
+    #agent-outcome .outcome-icon { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 50%; color: #fff; font-size: 15px; }
+    #agent-outcome.success { color: #166534; background: var(--green-soft); border: 1px solid #bbf7d0; }
+    #agent-outcome.success .outcome-icon { background: var(--green); }
+    #agent-outcome.warning { color: #9a3412; background: #fff7ed; border: 1px solid #fed7aa; }
+    #agent-outcome.warning .outcome-icon { background: #ea580c; }
     .modal-actions { display: flex; gap: 8px; margin-top: 12px; }
     .modal-actions button { flex: 1; }
     #crawl-start-popup { background: var(--accent); color: #fff; }
@@ -254,14 +282,11 @@
     <div id="hits"></div>
 
     <div class="footer">
-      <div class="action-card" id="ai-btn" role="button">
-        <span class="ac-icon">✨</span><span class="ac-label">AI 识别</span>
-      </div>
-      <div class="action-card" id="rule-btn" role="button">
-        <span class="ac-icon">🛠</span><span class="ac-label">新建规则</span>
-      </div>
       <div class="action-card" id="crawl-btn" role="button">
         <span class="ac-icon">🕷</span><span class="ac-label">爬取本站</span>
+      </div>
+      <div class="action-card" id="agent-btn" role="button">
+        <span class="ac-icon">🤖</span><span class="ac-label">Agent</span>
       </div>
       <div class="action-card" id="settings-btn" role="button">
         <span class="ac-icon">⚙️</span><span class="ac-label">设置</span>
@@ -294,6 +319,40 @@
       <div class="modal-actions">
         <button id="crawl-start-popup">开始爬取</button>
         <button id="crawl-cancel-popup" class="ghost">取消</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="agent-modal">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="agent-modal-title">
+      <h2 id="agent-modal-title">Agent</h2>
+      <label for="agent-goal">目标</label>
+      <select id="agent-goal">
+        <option value="identify-site">识别当前网站</option>
+        <option value="research-rule">研究指纹规则</option>
+        <option value="optimize-rule">优化规则建议</option>
+      </select>
+      <div id="agent-input-field">
+        <label for="agent-input">技术名或规则 ID</label>
+        <input id="agent-input" type="text" placeholder="例如 React、wordpress 或规则 ID">
+      </div>
+      <div id="agent-trace"></div>
+      <div id="agent-outcome" style="display:none"></div>
+      <div id="agent-result" style="display:none"></div>
+      <div class="modal-actions">
+        <button id="agent-run">执行</button>
+        <button id="agent-cancel" class="ghost">取消</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="agent-permission-modal" style="z-index:20">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="agent-permission-title">
+      <h2 id="agent-permission-title">需要授权</h2>
+      <p id="agent-permission-description" class="modal-description"></p>
+      <div class="modal-actions">
+        <button id="agent-permission-allow">允许本次调用</button>
+        <button id="agent-permission-deny" class="ghost">拒绝</button>
       </div>
     </div>
   </div>

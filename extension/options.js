@@ -762,11 +762,13 @@ const PROMPT_KEYS = ['identify', 'rule', 'optimize', 'bookmark'];
 let defaultPrompts = {};
 
 async function loadAiConfig() {
-  const keys = ['aiBaseURL', 'aiApiKey', 'aiModel', 'aiPromptIdentify', 'aiPromptRule', 'aiPromptOptimize', 'aiPromptBookmark'];
+  const keys = ['aiBaseURL', 'aiApiKey', 'aiModel', 'agentProtocol', 'agentToolVerifiedAt', 'aiPromptIdentify', 'aiPromptRule', 'aiPromptOptimize', 'aiPromptBookmark'];
   const cfg = await chrome.storage.local.get(keys);
   document.getElementById('ai-base-url').value = cfg.aiBaseURL || '';
   document.getElementById('ai-api-key').value = cfg.aiApiKey || '';
   document.getElementById('ai-model').value = cfg.aiModel || '';
+  document.getElementById('agent-protocol').value = cfg.agentProtocol || 'openai-chat';
+  if (cfg.agentToolVerifiedAt) document.getElementById('agent-test-status').textContent = `上次验证成功：${new Date(cfg.agentToolVerifiedAt).toLocaleString()}`;
   document.getElementById('prompt-identify').value = cfg.aiPromptIdentify || '';
   document.getElementById('prompt-rule').value = cfg.aiPromptRule || '';
   document.getElementById('prompt-optimize').value = cfg.aiPromptOptimize || '';
@@ -786,12 +788,40 @@ document.getElementById('save-ai').addEventListener('click', async () => {
     aiBaseURL: document.getElementById('ai-base-url').value.trim(),
     aiApiKey: document.getElementById('ai-api-key').value.trim(),
     aiModel: document.getElementById('ai-model').value.trim(),
+    agentProtocol: document.getElementById('agent-protocol').value,
     aiPromptIdentify: document.getElementById('prompt-identify').value.trim(),
     aiPromptRule: document.getElementById('prompt-rule').value.trim(),
     aiPromptOptimize: document.getElementById('prompt-optimize').value.trim(),
     aiPromptBookmark: document.getElementById('prompt-bookmark').value.trim(),
   });
   showMsg('AI 配置已保存');
+});
+
+document.getElementById('test-agent-tools').addEventListener('click', async (e) => {
+  const button = e.currentTarget;
+  const status = document.getElementById('agent-test-status');
+  button.disabled = true;
+  status.className = 'muted';
+  status.textContent = '测试中：将执行 ping 工具调用并回填结果…';
+  try {
+    const config = {
+      baseURL: document.getElementById('ai-base-url').value.trim(),
+      apiKey: document.getElementById('ai-api-key').value.trim(),
+      model: document.getElementById('ai-model').value.trim(),
+      protocol: document.getElementById('agent-protocol').value,
+    };
+    const response = await chrome.runtime.sendMessage({ type: 'testAgentTools', config });
+    if (!response?.ok) throw new Error(response?.error || '测试未完成');
+    const verifiedAt = new Date().toISOString();
+    await chrome.storage.local.set({ agentToolVerifiedAt: verifiedAt, agentProtocol: config.protocol });
+    status.className = 'muted';
+    status.textContent = `验证成功：${response.result.protocol} → ${response.result.tool} → ${response.result.result.value}`;
+  } catch (error) {
+    status.textContent = `验证失败：${error.message}`;
+    status.className = 'error';
+  } finally {
+    button.disabled = false;
+  }
 });
 
 // 「恢复默认」就是清空自定义，运行时自动回退到默认提示词

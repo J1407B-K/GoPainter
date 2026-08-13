@@ -2,7 +2,6 @@
 
 const statusEl = document.getElementById('status');
 const hitsEl = document.getElementById('hits');
-const aiBtn = document.getElementById('ai-btn');
 const aiResult = document.getElementById('ai-result');
 const aiCandidates = document.getElementById('ai-candidates');
 const aiRaw = document.getElementById('ai-raw');
@@ -16,6 +15,20 @@ const ruleSave = document.getElementById('rule-save');
 const ruleDiscard = document.getElementById('rule-discard');
 const pageInfo = document.getElementById('page-info');
 const ruleSetQuick = document.getElementById('ruleset-quick');
+const agentGoal = document.getElementById('agent-goal');
+const agentRun = document.getElementById('agent-run');
+const agentInput = document.getElementById('agent-input');
+const agentBtn = document.getElementById('agent-btn');
+const agentTrace = document.getElementById('agent-trace');
+const agentModal = document.getElementById('agent-modal');
+const agentCancel = document.getElementById('agent-cancel');
+const agentInputField = document.getElementById('agent-input-field');
+const agentResult = document.getElementById('agent-result');
+const agentOutcome = document.getElementById('agent-outcome');
+const agentPermissionModal = document.getElementById('agent-permission-modal');
+const agentPermissionDescription = document.getElementById('agent-permission-description');
+const agentPermissionAllow = document.getElementById('agent-permission-allow');
+const agentPermissionDeny = document.getElementById('agent-permission-deny');
 
 let currentTabId = null;
 let currentTabUrl = '';
@@ -84,7 +97,7 @@ async function init() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab?.id || !/^https?:/.test(tab.url || '')) {
     statusEl.innerHTML = '<span class="icon">🚫</span>当前页面不支持分析（仅 http/https）';
-    for (const id of ['ai-btn', 'rule-btn', 'crawl-btn']) {
+    for (const id of ['crawl-btn', 'agent-btn']) {
       document.getElementById(id).classList.add('disabled');
     }
     return;
@@ -264,21 +277,136 @@ chrome.storage.onChanged.addListener(async (changes, area) => {
   if (currentData) render(currentData);
 });
 
-aiBtn.addEventListener('click', async () => {
-  setBusy(aiBtn, true, '分析中…');
+function syncAgentInput() {
+  const needsInput = agentGoal.value !== 'identify-site';
+  agentInputField.style.display = needsInput ? '' : 'none';
+  agentInput.required = needsInput;
+}
+
+function closeAgentModal() {
+  agentModal.style.display = 'none';
+}
+
+function showAgentMessage(text) {
+  agentResult.style.display = 'block';
+  renderMarkdown(agentResult, text);
+}
+
+function showAgentOutcome(status, steps = null) {
+  const complete = status === 'complete';
+  agentOutcome.className = complete ? 'success' : 'warning';
+  agentOutcome.style.display = 'flex';
+  agentOutcome.replaceChildren();
+  const icon = document.createElement('span');
+  icon.className = 'outcome-icon';
+  icon.textContent = complete ? '✓' : '!';
+  const text = document.createElement('span');
+  text.textContent = complete
+    ? `Agent 已完成${steps ? ` · ${steps} 步` : ''}`
+    : `Agent 未完成${steps ? ` · ${steps} 步` : ''}`;
+  agentOutcome.append(icon, text);
+}
+
+agentBtn.addEventListener('click', () => {
+  syncAgentInput();
+  agentTrace.replaceChildren();
+  agentOutcome.style.display = 'none';
+  agentResult.style.display = 'none';
+  agentResult.replaceChildren();
+  agentModal.style.display = 'flex';
+  (agentGoal.value === 'identify-site' ? agentGoal : agentInput).focus();
+});
+
+agentGoal.addEventListener('change', syncAgentInput);
+agentCancel.addEventListener('click', closeAgentModal);
+agentModal.addEventListener('click', (event) => {
+  if (event.target === agentModal) closeAgentModal();
+});
+
+function permissionDescription(request) {
+  if (request.name === 'web_search') {
+    const query = request.input?.query ? `\n搜索词：${request.input.query}` : '';
+    return `Agent 请求联网搜索公开网页（DuckDuckGo）。搜索结果属于外部不可信内容，并会产生一次网络请求。${query}`;
+  }
+  return `Agent 请求调用工具「${request.name}」。该调用需要你的明确授权。`;
+}
+
+function renderAgentTrace(trace = []) {
+  if (!trace.length) { agentTrace.innerHTML = ''; return; }
+  const details = document.createElement('details');
+  details.open = true;
+  const summary = document.createElement('summary');
+  summary.textContent = `执行记录（${trace.length} 项，不含模型私有推理）`;
+  details.appendChild(summary);
+  for (const item of trace) {
+    const row = document.createElement('div');
+    row.className = 'agent-trace-row';
+    row.textContent = `第 ${item.step} 步 · ${item.message}`;
+    details.appendChild(row);
+  }
+  agentTrace.replaceChildren(details);
+}
+
+agentRun.addEventListener('click', async () => {
+  const goalId = agentGoal.value;
+  const input = agentInput.value.trim();
+  if (goalId !== 'identify-site' && !input) {
+    showAgentMessage('研究或优化规则时，请填写技术名或规则 ID。');
+    return;
+  }
+  setBusy(agentRun, true, '执行中…');
+  const liveTrace = [];
+  renderAgentTrace(liveTrace);
+  agentResult.style.display = 'none';
+  agentResult.replaceChildren();
+  agentOutcome.style.display = 'none';
   try {
-    const resp = await chrome.runtime.sendMessage({ type: 'aiIdentify', tabId: currentTabId });
-    if (!resp.ok) throw new Error(resp.error);
-    if (resp.techs?.length) {
-      renderAiCandidates(resp.techs);
-    } else {
-      // AI 没给出结构化候选，原文兜底展示
-      showAiMessage(resp.raw || 'AI 未识别出技术栈');
-    }
-  } catch (e) {
-    showAiMessage(`出错：${e.message}`);
+    const result = await new Promise((resolve, reject) => {
+      const port = chrome.runtime.connect({ name: 'gopainter-agent' });
+      let settled = false;
+      const finish = (callback, value) => {
+        if (settled) return;
+        settled = true;
+        callback(value);
+      };
+      port.onMessage.addListener((message) => {
+        if (message.type === 'trace') {
+          liveTrace.push(message.item);
+          renderAgentTrace(liveTrace);
+        } else if (message.type === 'permission') {
+          agentPermissionDescription.textContent = permissionDescription(message.request);
+          agentPermissionModal.style.display = 'flex';
+          const respond = (granted) => {
+            agentPermissionModal.style.display = 'none';
+            port.postMessage({ type: 'permissionResponse', granted });
+          };
+          agentPermissionAllow.onclick = () => respond(true);
+          agentPermissionDeny.onclick = () => respond(false);
+        } else if (message.type === 'complete') {
+          port.disconnect();
+          finish(resolve, message.result);
+        } else if (message.type === 'error') {
+          port.disconnect();
+          finish(reject, new Error(message.error));
+        }
+      });
+      port.onDisconnect.addListener(() => {
+        const lastError = chrome.runtime.lastError;
+        if (lastError) finish(reject, new Error(lastError.message));
+      });
+      port.postMessage({
+        type: 'runAgent', goalId, tabId: currentTabId, input,
+      });
+    });
+    renderAgentTrace(result.trace);
+    showAgentOutcome(result.status, result.steps);
+    const citations = result.citations?.length ? `\n来源：${result.citations.join('、')}` : '';
+    showAgentMessage(`${result.summary || result.text || ''}${citations}`);
+  } catch (error) {
+    showAgentOutcome('incomplete');
+    showAgentMessage(`Agent 出错：${error.message}`);
   } finally {
-    setBusy(aiBtn, false);
+    setBusy(agentRun, false);
   }
 });
 
@@ -348,13 +476,6 @@ document.getElementById('settings-btn').addEventListener('click', () => {
 });
 
 // --- AI 规则：新建 / 基于当前命中页面优化已有规则 ---
-
-const ruleBtn = document.getElementById('rule-btn');
-
-// footer「新建规则」：打开新建模式，技术名可手动填
-ruleBtn.addEventListener('click', () => {
-  openRuleCreate('');
-});
 
 // 新建模式：填技术名后点「生成」，或从 AI 候选一键触发
 ruleGenerate.addEventListener('click', async () => {
@@ -550,11 +671,95 @@ aiMerge.addEventListener('click', () => {
   if (currentData) render(currentData);
 });
 
+function appendMarkdownInline(parent, text) {
+  const pattern = /(\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\(https?:\/\/[^\s)]+\))/g;
+  let cursor = 0;
+  for (const match of String(text).matchAll(pattern)) {
+    parent.append(document.createTextNode(text.slice(cursor, match.index)));
+    const token = match[0];
+    if (token.startsWith('**')) {
+      const strong = document.createElement('strong');
+      strong.textContent = token.slice(2, -2);
+      parent.append(strong);
+    } else if (token.startsWith('`')) {
+      const code = document.createElement('code');
+      code.textContent = token.slice(1, -1);
+      parent.append(code);
+    } else {
+      const [, label, href] = token.match(/^\[([^\]]+)\]\(([^)]+)\)$/) || [];
+      const link = document.createElement('a');
+      link.textContent = label || token;
+      link.href = href || '#';
+      link.target = '_blank';
+      link.rel = 'noreferrer';
+      parent.append(link);
+    }
+    cursor = match.index + token.length;
+  }
+  parent.append(document.createTextNode(text.slice(cursor)));
+}
+
+// 轻量、安全的 Markdown：所有模型文本均以 DOM 节点写入，绝不使用 innerHTML。
+function renderMarkdown(target, markdown) {
+  target.replaceChildren();
+  const lines = String(markdown || '').replace(/\r/g, '').split('\n');
+  let list = null, listType = '', codeLines = null;
+  const closeList = () => { list = null; listType = ''; };
+  const paragraph = (text) => { const el = document.createElement('p'); appendMarkdownInline(el, text); target.append(el); };
+  const tableCells = (line) => line.trim().replace(/^\||\|$/g, '').split('|').map((cell) => cell.trim());
+  const tableSeparator = (line) => /^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(line);
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index];
+    if (line.startsWith('```')) {
+      if (codeLines === null) { closeList(); codeLines = []; } else { const pre = document.createElement('pre'); pre.textContent = codeLines.join('\n'); target.append(pre); codeLines = null; }
+      continue;
+    }
+    if (codeLines !== null) { codeLines.push(line); continue; }
+    if (line.includes('|') && tableSeparator(lines[index + 1] || '')) {
+      closeList();
+      const headers = tableCells(line);
+      const wrap = document.createElement('div');
+      wrap.className = 'md-table-wrap';
+      const table = document.createElement('table');
+      table.className = 'md-table';
+      const thead = document.createElement('thead');
+      const headerRow = document.createElement('tr');
+      for (const header of headers) { const th = document.createElement('th'); appendMarkdownInline(th, header); headerRow.append(th); }
+      thead.append(headerRow); table.append(thead);
+      const tbody = document.createElement('tbody');
+      index += 2;
+      while (index < lines.length && lines[index].includes('|') && lines[index].trim()) {
+        const cells = tableCells(lines[index]);
+        if (cells.length !== headers.length) break;
+        const row = document.createElement('tr');
+        for (const cell of cells) { const td = document.createElement('td'); appendMarkdownInline(td, cell); row.append(td); }
+        tbody.append(row);
+        index++;
+      }
+      index--;
+      table.append(tbody); wrap.append(table); target.append(wrap);
+      continue;
+    }
+    const heading = line.match(/^#{1,3}\s+(.+)/);
+    const bullet = line.match(/^[-*]\s+(.+)/);
+    const ordered = line.match(/^\d+\.\s+(.+)/);
+    if (heading) { closeList(); const el = document.createElement('h3'); appendMarkdownInline(el, heading[1]); target.append(el); continue; }
+    if (bullet || ordered) {
+      const type = ordered ? 'ol' : 'ul';
+      if (!list || listType !== type) { closeList(); list = document.createElement(type); listType = type; target.append(list); }
+      const item = document.createElement('li'); appendMarkdownInline(item, (bullet || ordered)[1]); list.append(item); continue;
+    }
+    closeList();
+    if (line.trim()) paragraph(line);
+  }
+  if (codeLines !== null) { const pre = document.createElement('pre'); pre.textContent = codeLines.join('\n'); target.append(pre); }
+}
+
 // 把 AI 相关/错误/成功消息统一显示在 #ai-raw（避免覆盖候选列表）
 function showAiMessage(text) {
   aiCandidates.style.display = 'none';
   aiMerge.style.display = 'none';
-  aiRaw.textContent = text;
+  renderMarkdown(aiRaw, text);
   aiRaw.style.display = 'block';
   aiResult.style.display = 'block';
 }

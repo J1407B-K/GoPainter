@@ -16,7 +16,7 @@ While you browse, GoPainter fingerprints the current site automatically and surf
 - **[Performance-focused Go WASM engine](BENCHMARK.md)** — a ~13.5MB production binary that combines safe regex-literal AC prefiltering with embedded Google RE2; v0.5.1 reduced a real 20-page crawl by 39% with identical hits
 - **Hit evidence** — each fingerprint carries the specific keyword, regex, status code, or hash that matched
 - **Icon state indicator** — gray = no match, colored + badge = N matches
-- **LLM-assisted tech-stack identification** — feed headers/body/js/dom to any OpenAI-compatible endpoint; AI returns structured candidates (confidence + evidence) you can merge into the hit list, or turn into rules
+- **Agent-assisted fingerprint research** — a bounded, streaming tool loop researches the current tab or a rule, shows its auditable tool trace, and returns an evidence-based task report
 - **Scan history & reports** — choose a 50–5,000 entry rolling window and export it as JSON/CSV
 
 ## Quick start
@@ -56,7 +56,7 @@ powershell -ExecutionPolicy Bypass -File scripts/build.ps1
 
 1. Click the GoPainter toolbar icon → "Rules" → import `rules/examples.yaml` (or any nuclei template)
 2. Visit a site — the icon turns colored on a match; click it to inspect details and evidence
-3. When nothing matches, use "AI identification" to get tech-stack candidates (configure an API in settings first), tick the ones you accept and merge them into the hit list; candidates without a rule can be turned into a new one in one click. A rule that actually matched the current page can be optimized against that page to add matchers; existing rules are also maintained in Settings → "Fingerprint rules"
+3. Click **Agent** to identify the current tab, research a fingerprint, or prepare an optimization suggestion. The Agent works one tool call at a time and streams its visible trace. Network tools ask for one-time approval at the moment they are requested; no rule is written automatically.
 
 ### 5. Crawl a site (Side Panel)
 
@@ -113,9 +113,9 @@ Thanks to these communities for their long-term maintenance. The conversion logi
 
 **Disclaimer**: this project is a format-conversion tool only; it bundles and distributes no third-party rule data. The content, licensing, and compliance of third-party sources are the responsibility of their maintainers; your pulling and use of them is likewise your own responsibility. Please respect each source's license and applicable law, and use this only for authorized security testing and research.
 
-## AI configuration
+## AI / Agent configuration
 
-Fill in any **OpenAI-compatible endpoint** in settings:
+Choose the OpenAI-compatible or Anthropic protocol in Settings, then fill in your endpoint and model. Use **Test Agent tools** before the first run.
 
 | service | Base URL | example model |
 |---|---|---|
@@ -129,6 +129,7 @@ Fill in any **OpenAI-compatible endpoint** in settings:
 - GoPainter never embeds, stores on a server, or uploads your API key. Keys live only in the extension's local storage and the extension requests your Base URL directly.
 - When using a cloud LLM, page features are sent to the model service you configure: URL, title, response headers, meta, script paths, favicon hashes, and a truncated HTML snippet. Do not enable AI on sensitive sites unless you are certain these can be shared with that provider.
 - AI-assisted identification, AI-generated rules, and AI bookmark fallback can be wrong or hallucinated. Review before promoting AI-generated rules into your long-term rule set. The project is not responsible for AI output accuracy, compliance, or external service costs.
+- Agent tool calls are limited to the selected task and run serially. Network-capable tools pause for one-time, per-call approval; their results are untrusted reference material, not instructions.
 - External scripts execute with extension privileges. Only add scripts you wrote or fully trust; don't paste code of unknown provenance.
 
 ## External scripts
@@ -180,10 +181,10 @@ JS side (glue layer, all I/O)            Go WASM (pure functions, zero I/O)
 content.js   collects DOM / raw HTML ─┐
 background   collects headers/status   │     goMatch            rule matching + evidence
   .js        favicon download        ─┼─→  goMmh3            favicon hash (fofa standard)
-             AI API calls             │     goExtractFeatures HTML → title/meta/scripts
+             AI / Agent API calls     │     goExtractFeatures HTML → title/meta/scripts
              icon state switching     │     goNormalizeRules  YAML docs → native rules
 options      YAML parsing (js-yaml)  ─┘    ←  everything in JSON, out JSON
-popup        results & evidence / AI button
+popup        results & evidence / Agent task runner
 sidepanel    crawl progress / start-stop (Side Panel, alongside the page)
 ```
 
@@ -209,6 +210,7 @@ Matching, mmh3, HTML feature extraction, and nuclei conversion all live in Go.
 ├── extension/                # Chrome extension (MV3)
 │   ├── manifest.json
 │   ├── background.js         # service worker: AI/bookmarks/crawl/message routing
+│   ├── agent/                # bounded agent loop, tools and skills
 │   ├── background/           # service worker layers: wasm, browser state, matching
 │   ├── content.js            # page feature collection
 │   ├── popup.*               # results & evidence / AI identification / AI rule generation
@@ -233,7 +235,7 @@ Matching, mmh3, HTML feature extraction, and nuclei conversion all live in Go.
 - [x] nuclei template import compatibility (http matchers subset)
 - [x] hit evidence display
 - [x] icon state indicator (gray/colored + badge)
-- [x] AI-assisted tech-stack identification (structured candidates with confidence/evidence, merge into hit list)
+- [x] agent-assisted site identification and fingerprint research (streaming trace, per-call permissions, task report)
 - [x] AI rule optimization & creation (strengthen a matched rule against the current page, or create a missing rule)
 - [x] bookmark auto-categorization (sort bookmarks by fingerprint hit; optional AI fallback)
 - [x] mmh3 / HTML extraction / nuclei conversion moved into Go (added meta, script dimensions)

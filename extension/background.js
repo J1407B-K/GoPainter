@@ -6,6 +6,20 @@ importScripts(
   'shared-utils.js',
   'wasm/wasm_exec.js',
   'lib/js-yaml.min.js',
+  'agent/tools/registry.js',
+  'agent/tools/page-context.js',
+  'agent/tools/inspect-page.js',
+  'agent/tools/ping.js',
+  'agent/tools/search-page-body.js',
+  'agent/tools/search-page-js.js',
+  'agent/tools/search-rules.js',
+  'agent/tools/web-search.js',
+  'agent/skills/registry.js',
+  'agent/skills/agent-setup/index.js',
+  'agent/skills/fingerprint-research/index.js',
+  'agent/goals.js',
+  'agent/providers.js',
+  'agent/loop.js',
   'background/wasm.js',
   'background/browser-state.js',
   'background/matching.js'
@@ -328,6 +342,49 @@ async function crawlSite(seed, maxPages) {
   }
 }
 
+// Agent 的每个可见步骤通过长连接实时回传；不包含模型私有推理，只发送工具编排事件。
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name !== 'gopainter-agent') return;
+  let pendingPermission = null;
+  let running = false;
+  const answerPermission = (granted) => {
+    if (!pendingPermission) return;
+    pendingPermission(Boolean(granted));
+    pendingPermission = null;
+  };
+  port.onMessage.addListener(async (msg) => {
+    if (msg?.type === 'permissionResponse') {
+      answerPermission(msg.granted);
+      return;
+    }
+    if (msg?.type !== 'runAgent') return;
+    if (running) {
+      port.postMessage({ type: 'error', error: 'Agent 已在执行中' });
+      return;
+    }
+    running = true;
+    try {
+      const result = await GoPainterAgentLoop.run({
+        goalId: msg.goalId,
+        tabId: msg.tabId,
+        input: msg.input || '',
+        grants: [],
+        onTrace: (item) => port.postMessage({ type: 'trace', item }),
+        onPermissionRequest: (request) => new Promise((resolve) => {
+          pendingPermission = resolve;
+          port.postMessage({ type: 'permission', request });
+        }),
+      });
+      port.postMessage({ type: 'complete', result });
+    } catch (error) {
+      port.postMessage({ type: 'error', error: String(error.message || error) });
+    } finally {
+      running = false;
+    }
+  });
+  port.onDisconnect.addListener(() => answerPermission(false));
+});
+
 // --- 消息路由 ---
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
@@ -460,6 +517,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const out = JSON.parse(globalThis.goNormalizeRules(rawDocs));
         if (out.error) throw new Error(out.error);
         sendResponse({ ok: true, rules: out.rules });
+        break;
+      }
+      case 'testAgentTools': {
+        const result = await GoPainterAgentProviders.testToolCalling(msg.config);
+        sendResponse({ ok: true, result });
         break;
       }
       case 'convertWappalyzer': {

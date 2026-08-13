@@ -383,13 +383,22 @@ if (features.body.includes('hello-world-cta')) {
 
     <div class="card">
       <h2>✨ AI 辅助识别</h2>
-      <p class="muted">任意 OpenAI 兼容接口：OpenAI / DeepSeek / 通义 / 本地 Ollama 均可。</p>
+      <p class="muted">普通 AI 功能继续使用 OpenAI 兼容接口。Agent 工具调用可额外选择 OpenAI 兼容或 Anthropic Messages 协议。</p>
       <label for="ai-base-url">Base URL</label>
       <input type="text" id="ai-base-url" placeholder="https://api.openai.com/v1 或 http://localhost:11434/v1">
       <label for="ai-api-key">API Key</label>
       <input type="password" id="ai-api-key" placeholder="sk-...">
       <label for="ai-model">模型</label>
       <input type="text" id="ai-model" placeholder="gpt-4o-mini / deepseek-chat / qwen2.5 ...">
+      <label for="agent-protocol">Agent 工具调用协议</label>
+      <select id="agent-protocol">
+        <option value="openai-chat">OpenAI-compatible Chat Completions</option>
+        <option value="anthropic-messages">Anthropic Messages</option>
+        <option value="text-only">仅文本（不支持工具）</option>
+      </select>
+      <p class="muted">工具调用测试会发送两次极短 API 请求，可能产生 token/API 费用；仅调用本地无副作用的 <code>ping</code> 工具。</p>
+      <button id="test-agent-tools">测试工具调用（可能产生 API 消耗）</button>
+      <div id="agent-test-status" class="muted"></div>
 
       <h3 class="prompt-h">提示词 <span class="muted">（留空则用默认，四个场景互不影响）</span></h3>
       <label for="prompt-identify">AI 技术栈识别</label>
