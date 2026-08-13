@@ -38,6 +38,14 @@ make build        # 产出 extension/wasm/matcher.wasm + wasm_exec.js
 make icons        # 如需重新生成图标（可选，仓库已内置）
 ```
 
+WASM 引擎有三种构建后端——`make build`（go-re2，**默认**）是重量级性能构建：
+
+| 命令 | 引擎 | 体积 | 说明 |
+|---|---|---|---|
+| `make build` | go-re2（内嵌 Google RE2） | 约 13.5MB | **默认**；性能优先 |
+| `make build-go-stdlib` | Go 标准库 regex | 更小 | 对照 / 回退后端，开发用 |
+| `make build-tinygo` | TinyGo + 标准库 RE2 | 约 925K | 体积优先；有 GC 尾延迟尖峰（需装 [TinyGo](https://tinygo.org/getting-started/install/)） |
+
 **Windows（PowerShell）**
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/build.ps1

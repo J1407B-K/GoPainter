@@ -24,8 +24,7 @@ same 20 pages from `https://github.com/` using the same 1.85 MB / 6,908-rule cor
 
 The extra 8.8 MB is an intentional trade: this is an automatic scanner and crawler,
 where a five-second reduction per 20-page crawl is materially more valuable than a
-smaller binary. The standard-library verifier remains available as
-`make build-go-stdlib` for comparison and fallback.
+smaller binary. TinyGo remains available for size-oriented builds.
 
 ## v0.5.0 — make regex rules scale
 
@@ -176,7 +175,6 @@ rule JSON parsing and AC construction. Warm scans are ~15 ms.
 
 ```bash
 make build                              # Go WASM + go-re2, production default
-make build-go-stdlib                    # standard-library regex comparison build
 make build-tinygo                       # TinyGo WASM, size-oriented comparison
 node scripts/bench-cold.mjs 8000        # first-scan curve
 node scripts/bench-steady.mjs 8000      # synthetic steady-state distribution

@@ -1,4 +1,4 @@
-//go:build !gore2
+//go:build stdlibregexp
 
 package engine
 

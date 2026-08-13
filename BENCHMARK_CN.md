@@ -16,7 +16,7 @@ v0.5.0 已把 planner 做到有效：AST + AC 能排除几乎所有可证明无�
 | 端到端提升 | — | **耗时减少 39%（吞吐 1.65×）** |
 | WASM 体积 | 4.62 MB | 13.45 MB |
 
-多出的约 8.8 MB 是有意取舍：这是自动扫描器和爬虫，每 20 页少约 5 秒，比减小二进制更有价值。标准库 verifier 仍保留，可通过 `make build-go-stdlib` 构建，用于对照或回退。
+多出的约 8.8 MB 是有意取舍：这是自动扫描器和爬虫，每 20 页少约 5 秒，比减小二进制更有价值。若体积优先，仍可使用 TinyGo 构建。
 
 ## v0.5.0 —— 让正则规则能够规模化运行
 
@@ -131,7 +131,6 @@ AST 是否证明所有分支都不可能？ ------ 是 ---> 跳过正则
 
 ```bash
 make build                              # Go WASM + go-re2，生产默认
-make build-go-stdlib                    # 标准库 regex 对照构建
 make build-tinygo                       # TinyGo WASM，体积取向的对比构建
 node scripts/bench-cold.mjs 8000        # 首轮扫描曲线
 node scripts/bench-steady.mjs 8000      # 合成稳态分布

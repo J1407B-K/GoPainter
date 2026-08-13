@@ -10,9 +10,9 @@ While you browse, GoPainter fingerprints the current site automatically and surf
 
 ## Features
 
-- **YAML fingerprint rules** — word / regex / status / icon_hash matchers, with `and`/`or` combinations and `negative` inversion
+- **YAML fingerprint rules** — word / regex / status / icon_hash / dsl / js / dom matchers, with `and`/`or` combinations and `negative` inversion
 - **nuclei template compatibility** — imports automatically extract the HTTP matchers subset, so the large community template library is directly usable
-- **Third-party rule sources** — Wappalyzer / EHole / nuclei-templates can be pulled and converted in one click; whether to download is your choice
+- **Third-party rule sources** — Wappalyzer / EHole / nuclei-templates can be pulled and converted in one click; whether to download is your choice, and the repository ships no rule data itself
 - **[Performance-focused Go WASM engine](BENCHMARK.md)** — a ~13.5MB production binary that combines safe regex-literal AC prefiltering with embedded Google RE2; v0.5.1 reduced a real 20-page crawl by 39% with identical hits
 - **Hit evidence** — each fingerprint carries the specific keyword, regex, status code, or hash that matched
 - **Icon state indicator** — gray = no match, colored + badge = N matches
@@ -37,6 +37,14 @@ Building only needs the standard Go toolchain (`make build` compiles the product
 make build        # produces extension/wasm/matcher.wasm + wasm_exec.js
 make icons        # regenerate icons (optional; the repo ships them)
 ```
+
+The WASM engine has three build backends — `make build` (go-re2, the **default**) is the heavyweight performance build:
+
+| command | engine | size | notes |
+|---|---|---|---|
+| `make build` | go-re2 (embedded Google RE2) | ~13.5MB | **default**; performance-first |
+| `make build-go-stdlib` | Go standard-library regex | smaller | comparison/fallback backend, dev use |
+| `make build-tinygo` | TinyGo + stdlib RE2 | ~925K | size-first; GC tail-latency spikes (needs [TinyGo](https://tinygo.org/getting-started/install/)) |
 
 **Windows (PowerShell)**
 ```powershell
@@ -250,12 +258,12 @@ Matching, mmh3, HTML feature extraction, and nuclei conversion all live in Go.
 - [x] dsl expression matcher subset (hand-rolled recursive descent evaluator; nuclei dsl converts too)
 - [x] third-party rule source marketplace (Wappalyzer / EHole / nuclei-templates)
 - [x] js runtime variable probing (MAIN world) + dom selector probing + implies cascading
+- [x] Go unit tests (matcher / dsl / mmh3 / extract / normalize / crawl / convert, `make test-go`)
+- [x] JS unit tests (confidence filtering, rule merging, favicon hash de-duplication, YAML extraction; `make test-js`)
+- [x] scan history and report export (JSON/CSV)
 
 **In progress / planned**
 - [ ] rule-set management: group enable/disable, remote rule source subscriptions & auto-update
-- [x] scan history and report export (JSON/CSV)
-- [x] Go unit tests (matcher / dsl / mmh3 / extract / normalize / crawl / convert, `make test-go`)
-- [x] JS unit tests (confidence filtering, rule merging, favicon hash de-duplication, YAML extraction; `make test-js`)
 - [ ] WASM size reduction (production RE2 build ~13.5MB; TinyGo remains available for size-first builds)
 
 ## License

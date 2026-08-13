@@ -80,8 +80,8 @@ func BenchmarkRegexBackendsMatchCorpus(b *testing.B) {
 	})
 }
 
-// TestRegexBackendParity 让默认 stdlib 和 `-tags gore2` 分别对同一批 RE2 兼容模式
-// 跑差分。后端可以不同，但 GoPainter 对规则的 MatchString / Evidence 文本语义必须一致。
+// TestRegexBackendParity 让默认 go-re2 与 `-tags stdlibregexp` 对照后端分别对同一批
+// RE2 兼容模式跑差分。后端可以不同，但 GoPainter 对规则的 MatchString / Evidence 文本语义必须一致。
 func TestRegexBackendParity(t *testing.T) {
 	patterns := append(append([]string{}, regexBackendPatterns...),
 		`(?i)wordpress`, `(?i)σ`, `(?i)s`, `(?im)^server:\s*nginx$`,
