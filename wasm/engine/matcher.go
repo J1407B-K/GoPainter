@@ -3,7 +3,6 @@ package engine
 
 import (
 	"fmt"
-	"regexp"
 	regexpsyntax "regexp/syntax"
 	"slices"
 	"sort"
@@ -108,21 +107,30 @@ func headerString(f *Features) string {
 
 // 规则库一大，每次匹配现编译正则就是灾难，编译结果缓存起来
 // （wasm 单实例常驻，JS 调用是串行的，不用加锁）
-var regexCache = make(map[string]*regexp.Regexp)
+var regexCache = make(map[string]regexMatcher)
 
 // ClearRegexCache 清空正则编译缓存。规则集一变（rulesetFor 重建）就调一次，
 // 旧规则的正则不再占用 WASM 内存；规则没变时缓存照常复用。
 func ClearRegexCache() {
-	regexCache = make(map[string]*regexp.Regexp)
+	regexCache = make(map[string]regexMatcher)
 	regexASTCache = make(map[string]*regexpsyntax.Regexp)
 }
 
 // recover 兜底接住普通 panic；栈溢出接不住，靠 safeCompile 里的驯化+深度检查事前拦
-func compileRegex(pattern string) (re *regexp.Regexp, err error) {
+func compileRegex(pattern string) (re regexMatcher, err error) {
 	if cached, ok := regexCache[pattern]; ok {
 		return cached, nil
 	}
-	re, err = safeCompile(tamePattern(pattern))
+	p := tamePattern(pattern)
+	if err := validateRegexDepth(p); err != nil {
+		return nil, err
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			re, err = nil, fmt.Errorf("编译崩溃: %v", r)
+		}
+	}()
+	re, err = compileRegexBackend(p)
 	if err == nil {
 		regexCache[pattern] = re
 	}
@@ -186,7 +194,8 @@ func regexLiterals(pattern string) []string {
 // 解析失败或任何分支无法证明被排除 → false（跑正则确认，语义不变）。
 // hasFoldSensitive：part 文本含非 ASCII 时传入 true（此时一律不预筛，见 regexNodeExcluded）。
 // litInText：非空时用「查命中集合」代替 Contains 判字面量在不在文本（body 有 AC 索引时传）；
-//           为 nil 则退化为 strings.Contains（非 body 小文本用）。
+//
+//	为 nil 则退化为 strings.Contains（非 body 小文本用）。
 func regexCanSkip(pattern, lowerText string, hasFoldSensitive bool, litInText func(string) bool) bool {
 	n := regexAST(pattern)
 	if n == nil {

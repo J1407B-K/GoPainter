@@ -2,7 +2,7 @@
 
 **English** | [简体中文](./README_CN.md)
 
-Web asset fingerprinting for the browser. A **standard Go**-compiled WASM matching engine with optional LLM-assisted identification.
+Web asset fingerprinting for the browser. A **Go WASM + Google RE2** matching engine with optional LLM-assisted identification.
 
 GoPainter provides the engine — detection and crawling. The fingerprint definitions (rules) come from community rule sources or your own YAML files; the repository ships no rule data itself.
 
@@ -13,7 +13,7 @@ While you browse, GoPainter fingerprints the current site automatically and surf
 - **YAML fingerprint rules** — word / regex / status / icon_hash matchers, with `and`/`or` combinations and `negative` inversion
 - **nuclei template compatibility** — imports automatically extract the HTTP matchers subset, so the large community template library is directly usable
 - **Third-party rule sources** — Wappalyzer / EHole / nuclei-templates can be pulled and converted in one click; whether to download is your choice
-- **[Performance-focused Go WASM engine](BENCHMARK.md)** — a ~4.5MB production binary with safe regex-literal AC prefiltering (one body scan for word + regex candidates, non-ASCII bytes skipped) and predictable scan latency; TinyGo remains an optional ~935KB size-oriented build
+- **[Performance-focused Go WASM engine](BENCHMARK.md)** — a ~13.5MB production binary that combines safe regex-literal AC prefiltering with embedded Google RE2; v0.5.1 reduced a real 20-page crawl by 39% with identical hits
 - **Hit evidence** — each fingerprint carries the specific keyword, regex, status code, or hash that matched
 - **Icon state indicator** — gray = no match, colored + badge = N matches
 - **LLM-assisted tech-stack identification** — feed headers/body/js/dom to any OpenAI-compatible endpoint; AI returns structured candidates (confidence + evidence) you can merge into the hit list, or turn into rules
@@ -23,7 +23,7 @@ While you browse, GoPainter fingerprints the current site automatically and surf
 
 ### 1. Install Go
 
-Building only needs the standard Go toolchain (`make build` compiles the WASM with standard Go by default).
+Building only needs the standard Go toolchain (`make build` compiles the production Go WASM + RE2 engine).
 
 - macOS: `brew install go`
 - Windows / Linux: see the [Go download page](https://go.dev/dl/)
@@ -161,7 +161,8 @@ Returned items need at least `id` and `name`. An `id` that already exists is ski
 
 | command | description |
 |---|---|
-| `make build` | Build WASM on macOS/Linux (standard Go) |
+| `make build` | Build the production Go WASM + embedded RE2 engine |
+| `make build-go-stdlib` | Build the standard-library regex comparison/fallback engine |
 | `make build-tinygo` | Size-optimized TinyGo build (~925K, with GC tail-latency spikes) |
 | `make test` | Run Go and JS unit tests, then the WASM smoke test |
 | `make test-go` | Run only the Go unit tests (js/wasm target, executed via node; no build required) |
@@ -255,7 +256,7 @@ Matching, mmh3, HTML feature extraction, and nuclei conversion all live in Go.
 - [x] scan history and report export (JSON/CSV)
 - [x] Go unit tests (matcher / dsl / mmh3 / extract / normalize / crawl / convert, `make test-go`)
 - [x] JS unit tests (confidence filtering, rule merging, favicon hash de-duplication, YAML extraction; `make test-js`)
-- [ ] WASM size reduction (standard Go ~4.4MB; use TinyGo build if smaller size is needed, parked)
+- [ ] WASM size reduction (production RE2 build ~13.5MB; TinyGo remains available for size-first builds)
 
 ## License
 

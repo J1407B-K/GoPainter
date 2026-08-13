@@ -127,9 +127,16 @@ func nestDepth(p string) int {
 
 // 编译包一层 recover，个别妖孽模式 panic 也不至于炸掉整个 wasm。
 // 注意栈溢出 recover 接不住，所以嵌套深度在这里提前卡死
-func safeCompile(p string) (re *regexp.Regexp, err error) {
+func validateRegexDepth(p string) error {
 	if nestDepth(p) > maxNestDepth {
-		return nil, fmt.Errorf("括号嵌套超过 %d 层，放弃", maxNestDepth)
+		return fmt.Errorf("括号嵌套超过 %d 层，放弃", maxNestDepth)
+	}
+	return nil
+}
+
+func safeCompile(p string) (re *regexp.Regexp, err error) {
+	if err := validateRegexDepth(p); err != nil {
+		return nil, err
 	}
 	defer func() {
 		if r := recover(); r != nil {

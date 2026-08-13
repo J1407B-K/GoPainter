@@ -4,6 +4,29 @@ This is the project's living performance record. Every material performance chan
 its measured workload, trade-offs, and reproduction command belongs here. The goal
 is not to collect micro-benchmarks; it is to make future design decisions auditable.
 
+## v0.5.1 — upgrade the final regex verifier
+
+v0.5.0 made the planner effective: AST + AC eliminates nearly every regex that can
+be proved irrelevant. v0.5.1 upgrades the small set that remains. The final verifier
+now uses embedded Google RE2 through `wasilibs/go-re2`; it retains RE2's linear-time,
+safe matching model and leaves the planner, cache, and rule semantics unchanged.
+
+This was selected by end-to-end measurement, not a microbenchmark. Chrome crawled the
+same 20 pages from `https://github.com/` using the same 1.85 MB / 6,908-rule corpus.
+
+| Chrome crawler, 20 successful pages | Standard Go `regexp` | go-re2 (v0.5.1 default) |
+|---|---:|---:|
+| Total elapsed time | 12.52 s | **7.61 s** |
+| Failed pages | 0 | 0 |
+| Total hits | 90 | 90 |
+| End-to-end improvement | — | **39% less time (1.65× throughput)** |
+| WASM size | 4.62 MB | 13.45 MB |
+
+The extra 8.8 MB is an intentional trade: this is an automatic scanner and crawler,
+where a five-second reduction per 20-page crawl is materially more valuable than a
+smaller binary. The standard-library verifier remains available as
+`make build-go-stdlib` for comparison and fallback.
+
 ## v0.5.0 — make regex rules scale
 
 v0.5.0 is a performance-focused release. In v0.4.0, large imported rule sets could
@@ -32,8 +55,8 @@ multi-second latency on real pages with large regex corpora.
 
 v0.5.0 extends the existing body AC index to required regex literals. It adds
 conservative AST branch analysis, Unicode-safe prefilter boundaries, and direct
-evidence/result allocation reductions. The production build also moves from TinyGo
-to standard Go WASM after continuous-scan measurements showed that TinyGo's GC p99
+evidence/result allocation reductions. It also moves the WASM runtime from TinyGo
+to standard Go after continuous-scan measurements showed that TinyGo's GC p99
 remained 7–10× worse even after the matching work was reduced.
 
 The outcome is not merely a lower average: v0.5.0 turns the actual 6,908-rule
@@ -60,7 +83,7 @@ pattern), which are rule-quality concerns rather than a general engine bottlenec
 | Each regex prefilter repeatedly searched the full body | One AC scan produces a shared literal-hit set |
 | 195 KB real pages could take 5–13 s | Typical warm scan is ~100–200 ms |
 | Compiler/GC looked like the likely culprit | Profiling identified repeated regex prefilter scans as the dominant cost |
-| TinyGo was the default build | Standard Go is the production default for stable tail latency |
+| TinyGo was the default build | Standard Go removes TinyGo GC tail-latency spikes |
 
 ## The v0.5.0 matching path
 
@@ -119,7 +142,7 @@ false negatives; the original regex remains the final matcher in all cases.
 - Evidence is appended directly to the rule result, avoiding intermediate slices.
 - `implies` and `excludes` post-processing is skipped when the rule set has none.
 
-## Runtime choice: standard Go versus TinyGo
+## Runtime choice: Go WASM versus TinyGo
 
 The following is a 200-page synthetic continuous scan: 8,000 rules, bodies from
 20–400 KB, varying matches, and a cached rule set.
@@ -132,8 +155,9 @@ The following is a 200-page synthetic continuous scan: 8,000 rules, bodies from
 | max | **~31 ms** | **~290–322 ms** |
 
 TinyGo preserves its GC tail-latency spikes even after prefiltering removes most
-regex work. Standard Go is therefore the production default; `make build-tinygo`
-remains available when binary size matters more than tail latency.
+regex work. The production runtime is therefore Go WASM; v0.5.1 then upgrades its
+regex verifier to go-re2. `make build-tinygo` remains available when binary size
+matters more than tail latency.
 
 ## Baseline: synthetic word rules
 
@@ -151,7 +175,8 @@ rule JSON parsing and AC construction. Warm scans are ~15 ms.
 ## Reproduce the measurements
 
 ```bash
-make build                              # standard Go WASM, production default
+make build                              # Go WASM + go-re2, production default
+make build-go-stdlib                    # standard-library regex comparison build
 make build-tinygo                       # TinyGo WASM, size-oriented comparison
 node scripts/bench-cold.mjs 8000        # first-scan curve
 node scripts/bench-steady.mjs 8000      # synthetic steady-state distribution
@@ -161,4 +186,4 @@ node scripts/bench-scan.mjs 8000 200    # standard Go / TinyGo continuous-scan A
 The real-rule figures above were collected in Chrome with the user's imported rule
 set and a real Chinese page. Re-run the browser measurement after materially
 changing the rule corpus, and add the resulting comparison to this document rather
-than replacing the v0.5.0 record.
+than replacing the v0.5.0/v0.5.1 records.

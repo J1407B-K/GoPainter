@@ -70,11 +70,107 @@ async function getRulesJSON() {
   return rulesJsonCache;
 }
 
+// 重复页面匹配缓存：相同 features（完整匹配输入）直接复用 goMatch 输出。
+// 正确率优先——key 是传给 goMatch 的完整 featuresJSON 字符串，字符串值相等意味着
+// 所有匹配输入（body/title/url/headers/status/meta/scripts/faviconHashes/js/domHits）
+// 都相同，输出必然相同，零冲突。规则/哈希库变更时整个清空（storage.onChanged）。
+const MATCH_CACHE_MAX = 10;
+let matchCache = new Map(); // featuresJSON -> { hits }
+
 async function runMatch(features) {
   const rulesJSON = await getRulesJSON();
   if (rulesJSON === '[]') return { hits: [], note: 'no_rules' };
   await ensureWasm();
-  return JSON.parse(globalThis.goMatch(rulesJSON, JSON.stringify(features)));
+  const featuresJSON = JSON.stringify(features);
+  // 重复页面：命中返回数组副本（元素只读共享），调用方 push/追加不会污染缓存
+  const cached = matchCache.get(featuresJSON);
+  if (cached) {
+    return { hits: cached.hits.slice() };
+  }
+  const out = JSON.parse(globalThis.goMatch(rulesJSON, featuresJSON));
+  // 缓存 goMatch 原始输出的副本；调用方（appendHashHit/userScripts）会改返回的 out.hits
+  matchCache.set(featuresJSON, { hits: out.hits.slice() });
+  if (matchCache.size > MATCH_CACHE_MAX) {
+    // Map 保持插入序，删最老的
+    matchCache.delete(matchCache.keys().next().value);
+  }
+  return out;
+}
+
+// 仅供 Service Worker 控制台手动调用的 regex 后端 A/B 基准，不进入正常扫描路径。
+// 用法：await benchRegexBackend()；可选 benchRegexBackend(50, tabId)。
+// 它复用该 tab 已采集的完整 features（含 js/dom probe），直接调用 goMatch，绕开
+// matchCache，因而测的是 rules JSON + WASM 匹配引擎；不包含网络、DOM 采集或 favicon。
+async function benchRegexBackend(rounds = 30, tabId) {
+  if (!Number.isInteger(rounds) || rounds < 1 || rounds > 200) {
+    throw new Error('rounds 必须是 1–200 的整数');
+  }
+  const session = await chrome.storage.session.get(null);
+  let stored;
+  if (!Number.isInteger(tabId)) {
+    // SW DevTools 打开时它会抢走 lastFocusedWindow，不能依赖“当前窗口”。先在所有
+    // 浏览器窗口的 active tab 中找已有 features；再回退到最近完成的一次页面扫描。
+    const activeTabs = await chrome.tabs.query({ active: true });
+    const candidates = activeTabs
+      .map((tab) => ({ tabId: tab.id, stored: session[`result:${tab.id}`] }))
+      .filter((x) => x.stored?.features);
+    if (candidates.length) {
+      candidates.sort((a, b) => (b.stored.at || 0) - (a.stored.at || 0));
+      ({ tabId, stored } = candidates[0]);
+    } else {
+      const latest = Object.entries(session)
+        .filter(([key, value]) => key.startsWith('result:') && value?.features)
+        .sort(([, a], [, b]) => (b.at || 0) - (a.at || 0))[0];
+      if (latest) {
+        tabId = Number(latest[0].slice('result:'.length));
+        stored = latest[1];
+      }
+    }
+  } else {
+    stored = session[`result:${tabId}`];
+  }
+  if (!Number.isInteger(tabId) || !stored?.features) {
+    throw new Error('没有已采集的页面 features；先正常扫描一次页面，或传入 tabId');
+  }
+  const rulesJSON = await getRulesJSON();
+  if (rulesJSON === '[]') throw new Error('当前没有规则');
+  await ensureWasm();
+
+  const featuresJSON = JSON.stringify(stored.features);
+  const one = () => {
+    const t0 = performance.now();
+    const out = JSON.parse(globalThis.goMatch(rulesJSON, featuresJSON));
+    return { ms: performance.now() - t0, hits: out.hits?.length || 0 };
+  };
+  // first 是本次直接调用的首轮，可能已因正常扫描预热规则缓存；冷启动请重载扩展后立即调用。
+  const first = one();
+  const samples = [];
+  const hitCount = first.hits;
+  for (let i = 0; i < rounds; i++) {
+    const result = one();
+    samples.push(result.ms);
+    if (result.hits !== hitCount) {
+      throw new Error(`第 ${i + 1} 轮命中数变化：${hitCount} → ${result.hits}`);
+    }
+  }
+  samples.sort((a, b) => a - b);
+  const percentile = (q) => samples[Math.round((samples.length - 1) * q)];
+  const report = {
+    backend: globalThis.goRegexBackend?.() || 'unknown',
+    tabId,
+    rulesKB: Math.round(rulesJSON.length / 1024),
+    bodyKB: Math.round((stored.features.body || '').length / 1024),
+    hits: hitCount,
+    firstMs: Number(first.ms.toFixed(1)),
+    rounds,
+    minMs: Number(samples[0].toFixed(1)),
+    p50Ms: Number(percentile(0.50).toFixed(1)),
+    p90Ms: Number(percentile(0.90).toFixed(1)),
+    p99Ms: Number(percentile(0.99).toFixed(1)),
+    maxMs: Number(samples[samples.length - 1].toFixed(1)),
+  };
+  console.info('[regex-backend-bench]', report);
+  return report;
 }
 
 // favicon 哈希库命中也当成一个指纹，并进 hits（规则命中优先，同名的不重复加）
@@ -140,6 +236,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== 'local' || (!changes.rules && !changes.customHashes)) return;
   probeCache = null;
   rulesJsonCache = null;
+  matchCache.clear(); // 规则/哈希库变了，重复页面缓存必须失效
   clearTimeout(rescanTimer);
   rescanTimer = setTimeout(rescanAllTabs, 500); // 防抖，连续导入合并成一次
 });

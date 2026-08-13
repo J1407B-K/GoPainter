@@ -2,7 +2,7 @@
 
 [English](./README.md) | **简体中文**
 
-基于 YAML 指纹规则的 Web 资产测绘工具：**标准 Go** 编译的 WASM 匹配引擎 + AI 辅助识别。
+基于 YAML 指纹规则的 Web 资产测绘工具：**Go WASM + Google RE2** 匹配引擎 + AI 辅助识别。
 
 GoPainter 只负责检测与爬取（引擎），规则（颜料）来自社区规则源或你自己的 YAML，仓库本身不内置任何规则数据。
 
@@ -13,7 +13,7 @@ GoPainter 只负责检测与爬取（引擎），规则（颜料）来自社区�
 - 🧩 **YAML 指纹规则**：word / regex / status / icon_hash / dsl / js / dom 七种 matcher，支持 and/or 组合与 negative 取反
 - 🔁 **兼容 nuclei 模板**：导入时自动提取 http matchers 子集，社区海量规则可直接使用
 - 🌐 **第三方规则源**：Wappalyzer / EHole / nuclei-templates 一键拉取转换，是否下载由你决定，仓库本身不含任何规则数据
-- ⚡ **[性能导向的 Go WASM 引擎](BENCHMARK_CN.md)**：生产构建约 4.5MB，以安全的正则字面量 AC 预筛换取稳定扫描延迟（一次 body 扫描服务 word + regex 候选，非 ASCII 字节跳过）；TinyGo 约 935KB 的小体积构建仍可选
+- ⚡ **[性能导向的 Go WASM 引擎](BENCHMARK_CN.md)**：生产构建约 13.5MB，以安全的正则字面量 AC 预筛 + 内嵌 Google RE2 执行器换取稳定低延迟；v0.5.1 真实 20 页爬虫在命中一致时提速 39%
 - 🔍 **命中证据展示**：每个指纹附带具体命中的关键词/正则/状态码/哈希
 - 🎨 **图标状态感知**：灰色 = 未命中，彩色 + 角标数字 = 命中数
 - ✨ **AI 技术栈识别**：把 header/body/js/dom 交给任意 OpenAI 兼容接口，AI 返回带置信度与证据的结构化候选，可勾选合并进命中列表，也能一键转成规则
@@ -23,7 +23,7 @@ GoPainter 只负责检测与爬取（引擎），规则（颜料）来自社区�
 
 ### 1. 安装 Go
 
-构建只需标准 Go 工具链（`make build` 默认用标准 Go 编译 WASM）。
+构建只需标准 Go 工具链（`make build` 默认构建生产 Go WASM + RE2 引擎）。
 
 - macOS：`brew install go`
 - Windows / Linux：见 [Go 官方下载页](https://go.dev/dl/)
@@ -163,7 +163,8 @@ if (features.body.includes('hello-world-cta')) {
 
 | 命令 | 说明 |
 |---|---|
-| `make build` | macOS/Linux 构建 WASM（标准 Go） |
+| `make build` | 构建生产 Go WASM + 内嵌 RE2 引擎 |
+| `make build-go-stdlib` | 构建标准库 regex 对照 / 回退引擎 |
 | `make build-tinygo` | 体积优先的 TinyGo 构建（约 925K，稳态 p99 有 GC 尖峰） |
 | `make test` | 跑 Go、JS 单元测试，再跑 WASM 冒烟测试 |
 | `make test-go` | 只跑 Go 单元测试（js/wasm 目标，经 node 执行，无需先构建） |
@@ -258,7 +259,7 @@ sidepanel    爬取进度实时展示 / 启停（Side Panel，与页面并存）
 
 **进行中 / 计划** 🚧
 - [ ] 规则集管理：分组启用/禁用、远程规则源订阅与自动更新
-- [ ] wasm 体积优化（标准 Go 约 4.4MB；如需小体积可用 TinyGo 构建，暂搁置）
+- [ ] wasm 体积优化（生产 RE2 构建约 13.5MB；如需小体积可用 TinyGo 构建）
 
 ## License
 

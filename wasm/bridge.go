@@ -139,6 +139,7 @@ func jsDslEval(_ js.Value, args []js.Value) any {
 
 func registerJSExports() {
 	g := js.Global()
+	g.Set("goRegexBackend", js.FuncOf(func(this js.Value, args []js.Value) any { return engine.RegexBackendName() }))
 	g.Set("goMatch", js.FuncOf(match))
 	g.Set("goMmh3", js.FuncOf(jsMmh3))
 	g.Set("goExtractFeatures", js.FuncOf(jsExtract))
