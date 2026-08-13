@@ -1,5 +1,5 @@
-# 默认：Go WASM + 嵌入式 Google RE2（约 13MB，详见 BENCHMARK.md）。
-# TinyGo 使用标准库 RE2，以优先控制体积；`stdlibregexp` 仅保留作开发对照。
+# 唯一受支持的生产构建：Go WASM + 嵌入式 Google RE2（约 13MB，详见 BENCHMARK.md）。
+# 其余 target 是未维护的遗留实验入口，不属于发布支持面。
 
 WASM_OUT := extension/wasm/matcher.wasm
 EXEC_JS  := extension/wasm/wasm_exec.js

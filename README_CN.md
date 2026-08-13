@@ -28,8 +28,6 @@ GoPainter 只负责检测与爬取（引擎），规则（颜料）来自社区�
 - macOS：`brew install go`
 - Windows / Linux：见 [Go 官方下载页](https://go.dev/dl/)
 
-> 想产出体积更小的 WASM（约 925K，但稳态 p99 有 140–300ms 的 GC 尾延迟尖峰）可额外装 [TinyGo](https://tinygo.org/getting-started/install/) 后跑 `make build-tinygo`。
-
 ### 2. 构建 WASM 引擎
 
 **macOS / Linux**
@@ -38,13 +36,7 @@ make build        # 产出 extension/wasm/matcher.wasm + wasm_exec.js
 make icons        # 如需重新生成图标（可选，仓库已内置）
 ```
 
-WASM 引擎有三种构建后端——`make build`（go-re2，**默认**）是重量级性能构建：
-
-| 命令 | 引擎 | 体积 | 说明 |
-|---|---|---|---|
-| `make build` | go-re2（内嵌 Google RE2） | 约 13.5MB | **默认**；性能优先 |
-| `make build-go-stdlib` | Go 标准库 regex | 更小 | 对照 / 回退后端，开发用 |
-| `make build-tinygo` | TinyGo + 标准库 RE2 | 约 925K | 体积优先；有 GC 尾延迟尖峰（需装 [TinyGo](https://tinygo.org/getting-started/install/)） |
+`make build` 是唯一受支持的生产构建：标准 Go WASM + 内嵌 Google RE2。Makefile 中仍保留 TinyGo 和标准库 regex 的遗留实验 target，但它们不再维护，也不作为受支持的发布目标。
 
 **Windows（PowerShell）**
 ```powershell
@@ -172,8 +164,6 @@ if (features.body.includes('hello-world-cta')) {
 | 命令 | 说明 |
 |---|---|
 | `make build` | 构建生产 Go WASM + 内嵌 RE2 引擎 |
-| `make build-go-stdlib` | 构建标准库 regex 对照 / 回退引擎 |
-| `make build-tinygo` | 体积优先的 TinyGo 构建（约 925K，稳态 p99 有 GC 尖峰） |
 | `make test` | 跑 Go、JS 单元测试，再跑 WASM 冒烟测试 |
 | `make test-go` | 只跑 Go 单元测试（js/wasm 目标，经 node 执行，无需先构建） |
 | `make test-js` | 只跑扩展共享逻辑的 Node 单元测试 |
@@ -263,11 +253,11 @@ sidepanel    爬取进度实时展示 / 启停（Side Panel，与页面并存）
 - [x] Go 侧单元测试（matcher / dsl / mmh3 / extract / normalize / crawl / convert，`make test-go`）
 - [x] JS 侧单元测试（置信度筛选、规则合并、favicon 哈希去重、YAML 提取；`make test-js`）
 - [x] 扫描历史与报告导出（JSON/CSV）
+- [x] 命名规则集与即时切换
 
 
 **进行中 / 计划** 🚧
-- [ ] 规则集管理：分组启用/禁用、远程规则源订阅与自动更新
-- [ ] wasm 体积优化（生产 RE2 构建约 13.5MB；如需小体积可用 TinyGo 构建）
+- [ ] 规则集分组启用/禁用、远程规则源订阅与自动更新
 
 ## License
 

@@ -49,6 +49,28 @@
     return [...byId.values()];
   }
 
+  // 规则集保存在 ruleSets；rules 是当前激活规则集的兼容镜像，供匹配层和旧版本 UI 读取。
+  // 首次升级时把旧 rules 无损迁入默认规则集。
+  function normalizeRuleSets(ruleSets, activeRuleSetId, legacyRules = []) {
+    const sets = Array.isArray(ruleSets)
+      ? ruleSets.filter((set) => set && typeof set.id === 'string' && set.id && Array.isArray(set.rules))
+        .map((set) => ({ id: set.id, name: String(set.name || set.id), rules: set.rules }))
+      : [];
+    if (!sets.length) sets.push({ id: 'default', name: '默认规则集', rules: Array.isArray(legacyRules) ? legacyRules : [] });
+    const active = sets.find((set) => set.id === activeRuleSetId) || sets[0];
+    return { ruleSets: sets, activeRuleSetId: active.id, rules: active.rules };
+  }
+
+  function replaceActiveRuleSetRules(state, rules) {
+    const normalized = normalizeRuleSets(state?.ruleSets, state?.activeRuleSetId, state?.rules);
+    const nextRules = Array.isArray(rules) ? rules : [];
+    return {
+      ...normalized,
+      ruleSets: normalized.ruleSets.map((set) => set.id === normalized.activeRuleSetId ? { ...set, rules: nextRules } : set),
+      rules: nextRules,
+    };
+  }
+
   function mergeConvertedRules(rules = []) {
     const byId = new Map();
     for (const rule of rules) {
@@ -388,7 +410,8 @@
   }
 
   const api = {
-    confidenceValue, filterAndSortHits, faviconHashValues, mergeRules, mergeConvertedRules, extractYaml,
+    confidenceValue, filterAndSortHits, faviconHashValues, mergeRules, mergeConvertedRules,
+    normalizeRuleSets, replaceActiveRuleSetRules, extractYaml,
     extractJson, normalizeAiEvidence, normalizeAiTech, techsFromAiReply, ruleByTechName,
     sanitizeRuleDocs, sanitizeRule, sanitizeMatcher,
     scanHistoryEntry, mergeScanHistory, normalizeHistoryLimit, scanHistoryReport, scanHistoryCsv,

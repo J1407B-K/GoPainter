@@ -15,6 +15,7 @@ const ruleGenerate = document.getElementById('rule-generate');
 const ruleSave = document.getElementById('rule-save');
 const ruleDiscard = document.getElementById('rule-discard');
 const pageInfo = document.getElementById('page-info');
+const ruleSetQuick = document.getElementById('ruleset-quick');
 
 let currentTabId = null;
 let currentTabUrl = '';
@@ -27,6 +28,31 @@ let aiTechs = [];
 let aiMergedHits = [];
 let ruleMode = null;
 let optimizeRuleId = null;
+
+async function loadRuleSetState() {
+  const raw = await chrome.storage.local.get(['rules', 'ruleSets', 'activeRuleSetId']);
+  const state = GoPainterUtils.normalizeRuleSets(raw.ruleSets, raw.activeRuleSetId, raw.rules);
+  if (!Array.isArray(raw.ruleSets) || raw.activeRuleSetId !== state.activeRuleSetId
+      || JSON.stringify(raw.rules || []) !== JSON.stringify(state.rules)) {
+    await chrome.storage.local.set(state);
+  }
+  ruleSetQuick.innerHTML = state.ruleSets.map((set) => {
+    const option = document.createElement('option');
+    option.value = set.id;
+    option.textContent = `${set.name}（${set.rules.length}）`;
+    return option.outerHTML;
+  }).join('');
+  ruleSetQuick.value = state.activeRuleSetId;
+  return state;
+}
+
+ruleSetQuick.addEventListener('change', async () => {
+  const state = await loadRuleSetState();
+  const next = state.ruleSets.find((set) => set.id === ruleSetQuick.value);
+  if (!next || next.id === state.activeRuleSetId) return;
+  await chrome.storage.local.set({ ...state, activeRuleSetId: next.id, rules: next.rules });
+  rulesCache = next.rules;
+});
 
 function confidenceValue(hit) {
   return GoPainterUtils.confidenceValue(hit);
@@ -67,7 +93,7 @@ async function init() {
   currentTabUrl = tab.url;
 
   confCfg = await chrome.storage.local.get({ showConfidence: false, confThreshold: 0 });
-  ({ rules: rulesCache = [] } = await chrome.storage.local.get('rules'));
+  rulesCache = (await loadRuleSetState()).rules;
 
   // 有爬虫在跑就把「爬取本站」置灰，点了变成打开侧栏看进度
   const st = await chrome.runtime.sendMessage({ type: 'crawlStatus' });
@@ -226,6 +252,7 @@ chrome.storage.onChanged.addListener(async (changes, area) => {
   if (area !== 'local') return;
   if (changes.rules) {
     ({ rules: rulesCache = [] } = await chrome.storage.local.get('rules'));
+    await loadRuleSetState();
     if (currentData) render(currentData);
     return;
   }

@@ -9,14 +9,45 @@ function showMsg(text, isError = false) {
 
 // --- 规则存取 ---
 
+let ruleSetState = null;
+
+async function loadRuleSetState() {
+  const raw = await chrome.storage.local.get(['rules', 'ruleSets', 'activeRuleSetId']);
+  const state = GoPainterUtils.normalizeRuleSets(raw.ruleSets, raw.activeRuleSetId, raw.rules);
+  // 旧版只有 rules；首次打开设置页时迁移，并始终维持当前 rules 镜像。
+  if (!Array.isArray(raw.ruleSets) || raw.activeRuleSetId !== state.activeRuleSetId
+      || JSON.stringify(raw.rules || []) !== JSON.stringify(state.rules)) {
+    await chrome.storage.local.set(state);
+  }
+  ruleSetState = state;
+  return state;
+}
+
 async function loadRules() {
-  const { rules = [] } = await chrome.storage.local.get('rules');
-  return rules;
+  return (await loadRuleSetState()).rules;
+}
+
+async function saveActiveRules(rules) {
+  const state = await loadRuleSetState();
+  ruleSetState = GoPainterUtils.replaceActiveRuleSetRules(state, rules);
+  await chrome.storage.local.set(ruleSetState);
+}
+
+function renderRuleSetControls(state) {
+  const select = document.getElementById('ruleset-select');
+  select.innerHTML = state.ruleSets.map((set) =>
+    `<option value="${escapeHtml(set.id)}">${escapeHtml(set.name)}（${set.rules.length} 条）</option>`
+  ).join('');
+  select.value = state.activeRuleSetId;
+  document.getElementById('ruleset-delete').disabled = state.ruleSets.length <= 1;
 }
 
 async function refreshRuleList() {
-  const rules = await loadRules();
-  document.getElementById('rule-stats').textContent = `当前共 ${rules.length} 条规则（点击查看详情）`;
+  const state = await loadRuleSetState();
+  const rules = state.rules;
+  renderRuleSetControls(state);
+  const active = state.ruleSets.find((set) => set.id === state.activeRuleSetId);
+  document.getElementById('rule-stats').textContent = `「${active.name}」共 ${rules.length} 条规则（点击查看详情）`;
   const list = document.getElementById('rule-list');
   list.innerHTML = rules.length
     ? rules.map((r) => `<div class="rule-item" data-id="${escapeHtml(r.id)}" title="点击查看该规则"><span class="name">${escapeHtml(r.name)}</span><span class="id">${escapeHtml(r.id)}</span></div>`).join('')
@@ -93,7 +124,7 @@ document.getElementById('file-input').addEventListener('change', async (e) => {
     }
   }
 
-  await chrome.storage.local.set({ rules: [...byId.values()] });
+  await saveActiveRules([...byId.values()]);
   await refreshRuleList();
   showMsg(
     `导入完成：新增/更新 ${added} 条规则` + (failed.length ? `；失败 ${failed.length} 个文件` : ''),
@@ -106,7 +137,7 @@ document.getElementById('file-input').addEventListener('change', async (e) => {
 // 规则导入（文件或内置库）共用的合并逻辑
 async function importRules(rulesToAdd) {
   const rules = await loadRules();
-  await chrome.storage.local.set({ rules: GoPainterUtils.mergeRules(rules, rulesToAdd) });
+  await saveActiveRules(GoPainterUtils.mergeRules(rules, rulesToAdd));
   await refreshRuleList();
   return rulesToAdd.length;
 }
@@ -269,9 +300,48 @@ document.querySelectorAll('[data-source]').forEach((btn) => {
 
 document.getElementById('clear-rules').addEventListener('click', async () => {
   if (!confirm('确定清空所有规则？')) return;
-  await chrome.storage.local.set({ rules: [] });
+  await saveActiveRules([]);
   await refreshRuleList();
   showMsg('规则已清空');
+});
+
+document.getElementById('ruleset-select').addEventListener('change', async (e) => {
+  const state = await loadRuleSetState();
+  const next = state.ruleSets.find((set) => set.id === e.target.value);
+  if (!next || next.id === state.activeRuleSetId) return;
+  ruleSetState = { ...state, activeRuleSetId: next.id, rules: next.rules };
+  await chrome.storage.local.set(ruleSetState);
+  await refreshRuleList();
+  showMsg(`已切换到「${next.name}」，已打开页面会自动重扫`);
+});
+
+document.getElementById('ruleset-create').addEventListener('click', async () => {
+  const input = document.getElementById('ruleset-name');
+  const name = input.value.trim();
+  if (!name) return showMsg('请填写规则集名称', true);
+  const state = await loadRuleSetState();
+  if (state.ruleSets.some((set) => set.name === name)) return showMsg('已有同名规则集', true);
+  const base = name.toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '') || 'ruleset';
+  let id = base, suffix = 2;
+  while (state.ruleSets.some((set) => set.id === id)) id = `${base}-${suffix++}`;
+  ruleSetState = { ruleSets: [...state.ruleSets, { id, name, rules: [] }], activeRuleSetId: id, rules: [] };
+  await chrome.storage.local.set(ruleSetState);
+  input.value = '';
+  await refreshRuleList();
+  showMsg(`已新建并切换到「${name}」`);
+});
+
+document.getElementById('ruleset-delete').addEventListener('click', async () => {
+  const state = await loadRuleSetState();
+  const active = state.ruleSets.find((set) => set.id === state.activeRuleSetId);
+  if (state.ruleSets.length <= 1) return showMsg('至少保留一个规则集', true);
+  if (!confirm(`删除规则集「${active.name}」及其中 ${active.rules.length} 条规则？`)) return;
+  const ruleSets = state.ruleSets.filter((set) => set.id !== active.id);
+  const next = ruleSets[0];
+  ruleSetState = { ruleSets, activeRuleSetId: next.id, rules: next.rules };
+  await chrome.storage.local.set(ruleSetState);
+  await refreshRuleList();
+  showMsg(`已删除「${active.name}」，切换到「${next.name}」`);
 });
 
 // --- favicon 哈希库：自定义条目存 storage，查库时传给 wasm，覆盖内置 ---

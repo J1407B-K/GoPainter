@@ -437,10 +437,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const out = JSON.parse(globalThis.goNormalizeRules(JSON.stringify(clean)));
         if (out.error) throw new Error(out.error);
         if (!out.rules?.length) throw new Error('YAML 里没有有效规则');
-        const { rules: existing = [] } = await chrome.storage.local.get('rules');
+        const storedRules = await chrome.storage.local.get(['rules', 'ruleSets', 'activeRuleSetId']);
+        const state = GoPainterUtils.normalizeRuleSets(storedRules.ruleSets, storedRules.activeRuleSetId, storedRules.rules);
+        const existing = state.rules;
         const byId = new Map(existing.map((r) => [r.id, r]));
         for (const r of out.rules) byId.set(r.id, r);
-        await chrome.storage.local.set({ rules: [...byId.values()] });
+        await chrome.storage.local.set(GoPainterUtils.replaceActiveRuleSetRules(state, [...byId.values()]));
         sendResponse({ ok: true, added: out.rules.length });
         break;
       }

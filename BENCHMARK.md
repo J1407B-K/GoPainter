@@ -24,7 +24,7 @@ same 20 pages from `https://github.com/` using the same 1.85 MB / 6,908-rule cor
 
 The extra 8.8 MB is an intentional trade: this is an automatic scanner and crawler,
 where a five-second reduction per 20-page crawl is materially more valuable than a
-smaller binary. TinyGo remains available for size-oriented builds.
+smaller binary. The TinyGo and standard-library figures below are historical development comparisons only; neither is a supported or maintained release target.
 
 ## v0.5.0 — make regex rules scale
 
@@ -141,7 +141,7 @@ false negatives; the original regex remains the final matcher in all cases.
 - Evidence is appended directly to the rule result, avoiding intermediate slices.
 - `implies` and `excludes` post-processing is skipped when the rule set has none.
 
-## Runtime choice: Go WASM versus TinyGo
+## Historical runtime comparison: Go WASM versus TinyGo
 
 The following is a 200-page synthetic continuous scan: 8,000 rules, bodies from
 20–400 KB, varying matches, and a cached rule set.
@@ -155,8 +155,7 @@ The following is a 200-page synthetic continuous scan: 8,000 rules, bodies from
 
 TinyGo preserves its GC tail-latency spikes even after prefiltering removes most
 regex work. The production runtime is therefore Go WASM; v0.5.1 then upgrades its
-regex verifier to go-re2. `make build-tinygo` remains available when binary size
-matters more than tail latency.
+regex verifier to go-re2. TinyGo is retained only for historical/development comparison and is not maintained as a release target.
 
 ## Baseline: synthetic word rules
 
@@ -175,10 +174,8 @@ rule JSON parsing and AC construction. Warm scans are ~15 ms.
 
 ```bash
 make build                              # Go WASM + go-re2, production default
-make build-tinygo                       # TinyGo WASM, size-oriented comparison
 node scripts/bench-cold.mjs 8000        # first-scan curve
 node scripts/bench-steady.mjs 8000      # synthetic steady-state distribution
-node scripts/bench-scan.mjs 8000 200    # standard Go / TinyGo continuous-scan A/B
 ```
 
 The real-rule figures above were collected in Chrome with the user's imported rule

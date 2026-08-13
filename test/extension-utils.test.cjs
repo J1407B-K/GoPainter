@@ -1,7 +1,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
-  confidenceValue, filterAndSortHits, faviconHashValues, mergeRules, mergeConvertedRules, extractYaml,
+  confidenceValue, filterAndSortHits, faviconHashValues, mergeRules, mergeConvertedRules,
+  normalizeRuleSets, replaceActiveRuleSetRules, extractYaml,
   extractJson, normalizeAiEvidence, normalizeAiTech, techsFromAiReply, ruleByTechName, sanitizeRuleDocs,
   scanHistoryEntry, mergeScanHistory, normalizeHistoryLimit, scanHistoryReport, scanHistoryCsv,
 } = require('../extension/shared-utils.js');
@@ -36,6 +37,17 @@ test('faviconHashValues removes duplicates and empty values', () => {
 test('mergeRules updates duplicate ids while retaining existing rule order', () => {
   const out = mergeRules([{ id: 'a', name: 'old' }, { id: 'b' }], [{ id: 'a', name: 'new' }, { id: 'c' }]);
   assert.deepEqual(out, [{ id: 'a', name: 'new' }, { id: 'b' }, { id: 'c' }]);
+});
+
+test('rule sets migrate legacy rules and keep the active rules mirror in sync', () => {
+  const initial = normalizeRuleSets(undefined, undefined, [{ id: 'legacy' }]);
+  assert.deepEqual(initial, {
+    ruleSets: [{ id: 'default', name: '默认规则集', rules: [{ id: 'legacy' }] }],
+    activeRuleSetId: 'default', rules: [{ id: 'legacy' }],
+  });
+  const next = replaceActiveRuleSetRules(initial, [{ id: 'new' }]);
+  assert.deepEqual(next.rules, [{ id: 'new' }]);
+  assert.deepEqual(next.ruleSets[0].rules, [{ id: 'new' }]);
 });
 
 test('mergeConvertedRules combines matchers and de-duplicates relations without mutating input', () => {

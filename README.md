@@ -28,8 +28,6 @@ Building only needs the standard Go toolchain (`make build` compiles the product
 - macOS: `brew install go`
 - Windows / Linux: see the [Go download page](https://go.dev/dl/)
 
-> For a smaller WASM binary (~925K, but with 140–300ms GC tail-latency spikes at steady-state p99), install [TinyGo](https://tinygo.org/getting-started/install/) and run `make build-tinygo`.
-
 ### 2. Build the WASM engine
 
 **macOS / Linux**
@@ -38,13 +36,7 @@ make build        # produces extension/wasm/matcher.wasm + wasm_exec.js
 make icons        # regenerate icons (optional; the repo ships them)
 ```
 
-The WASM engine has three build backends — `make build` (go-re2, the **default**) is the heavyweight performance build:
-
-| command | engine | size | notes |
-|---|---|---|---|
-| `make build` | go-re2 (embedded Google RE2) | ~13.5MB | **default**; performance-first |
-| `make build-go-stdlib` | Go standard-library regex | smaller | comparison/fallback backend, dev use |
-| `make build-tinygo` | TinyGo + stdlib RE2 | ~925K | size-first; GC tail-latency spikes (needs [TinyGo](https://tinygo.org/getting-started/install/)) |
+`make build` is the only supported production build: standard Go WASM with embedded Google RE2. The Makefile still contains legacy experimental targets for TinyGo and the standard-library regex backend, but they are not maintained or supported release targets.
 
 **Windows (PowerShell)**
 ```powershell
@@ -170,8 +162,6 @@ Returned items need at least `id` and `name`. An `id` that already exists is ski
 | command | description |
 |---|---|
 | `make build` | Build the production Go WASM + embedded RE2 engine |
-| `make build-go-stdlib` | Build the standard-library regex comparison/fallback engine |
-| `make build-tinygo` | Size-optimized TinyGo build (~925K, with GC tail-latency spikes) |
 | `make test` | Run Go and JS unit tests, then the WASM smoke test |
 | `make test-go` | Run only the Go unit tests (js/wasm target, executed via node; no build required) |
 | `make test-js` | Run only the Node unit tests for shared extension logic |
@@ -261,10 +251,10 @@ Matching, mmh3, HTML feature extraction, and nuclei conversion all live in Go.
 - [x] Go unit tests (matcher / dsl / mmh3 / extract / normalize / crawl / convert, `make test-go`)
 - [x] JS unit tests (confidence filtering, rule merging, favicon hash de-duplication, YAML extraction; `make test-js`)
 - [x] scan history and report export (JSON/CSV)
+- [x] named rule sets with instant switching
 
 **In progress / planned**
-- [ ] rule-set management: group enable/disable, remote rule source subscriptions & auto-update
-- [ ] WASM size reduction (production RE2 build ~13.5MB; TinyGo remains available for size-first builds)
+- [ ] rule-set group enable/disable and remote rule source subscriptions & auto-update
 
 ## License
 
