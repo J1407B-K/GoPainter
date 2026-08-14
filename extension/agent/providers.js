@@ -5,24 +5,59 @@
     ANTHROPIC_MESSAGES: 'anthropic-messages',
     TEXT_ONLY: 'text-only',
   });
+  const MAX_RESPONSE_CHARS = 2_000_000;
+  const MAX_TOOL_RESULT_CHARS = 40_000;
+  const yieldToEventLoop = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  function compactJSON(value, maxChars = MAX_TOOL_RESULT_CHARS) {
+    const json = JSON.stringify(value);
+    return json.length <= maxChars ? json : `${json.slice(0, maxChars)}\n[结果过长，已截断]`;
+  }
 
   function apiURL(baseURL, suffix) {
     return `${String(baseURL || '').replace(/\/$/, '')}${suffix}`;
   }
 
-  async function request(url, headers, body) {
-    const response = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
-    if (!response.ok) {
-      const raw = await response.text().catch(() => '');
-      let detail = raw;
-      try {
-        const parsed = JSON.parse(raw);
-        detail = parsed.error?.message || parsed.error?.type || parsed.message || raw;
-      } catch { /* 非 JSON 错误体直接显示 */ }
-      detail = String(detail || '').replace(/\s+/g, ' ').slice(0, 500);
-      throw new Error(`AI 请求失败: HTTP ${response.status}${detail ? ` — ${detail}` : ''}`);
+  async function request(url, headers, body, options = {}) {
+    const timeoutMs = Math.max(1, Number(options.timeoutMs) || 60_000);
+    const controller = new AbortController();
+    let timedOut = false;
+    const abort = () => controller.abort();
+    if (options.signal?.aborted) controller.abort();
+    else options.signal?.addEventListener('abort', abort, { once: true });
+    const timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, timeoutMs);
+    try {
+      await yieldToEventLoop();
+      const payload = JSON.stringify(body);
+      await yieldToEventLoop();
+      const response = await fetch(url, { method: 'POST', headers, body: payload, signal: controller.signal });
+      if (!response.ok) {
+        const raw = await response.text().catch(() => '');
+        let detail = raw;
+        try {
+          const parsed = JSON.parse(raw);
+          detail = parsed.error?.message || parsed.error?.type || parsed.message || raw;
+        } catch { /* 非 JSON 错误体直接显示 */ }
+        detail = String(detail || '').replace(/\s+/g, ' ').slice(0, 500);
+        throw new Error(`AI 请求失败: HTTP ${response.status}${detail ? ` — ${detail}` : ''}`);
+      }
+      if (typeof response.text !== 'function') return await response.json();
+      const raw = await response.text();
+      if (raw.length > MAX_RESPONSE_CHARS) throw new Error('AI 响应过大，已停止解析');
+      await yieldToEventLoop();
+      return JSON.parse(raw);
+    } catch (error) {
+      if (controller.signal.aborted) {
+        throw new Error(timedOut ? `AI 请求超时（${Math.ceil(timeoutMs / 1000)} 秒）` : 'Agent 已取消');
+      }
+      throw error;
+    } finally {
+      clearTimeout(timer);
+      options.signal?.removeEventListener('abort', abort);
     }
-    return response.json();
   }
 
   function parseOpenAICall(data) {
@@ -45,7 +80,7 @@
     };
     const first = await request(url, headers, firstBody);
     const call = parseOpenAICall(first);
-    const result = await GoPainterAgentTools.executeTool(call.name, call.input);
+    const result = await GoPainterAgentTools.executeTool(call.name, call.input, { skillId: 'agent-setup', allowedTools: ['ping'] });
     const second = await request(url, headers, {
       model: cfg.model,
       messages: [...firstBody.messages, call.assistantMessage, {
@@ -68,7 +103,7 @@
     const first = await request(url, headers, firstBody);
     const use = first.content?.find((part) => part.type === 'tool_use' && part.name === tool.name);
     if (!use) throw new Error('模型未按要求调用 ping 工具');
-    const result = await GoPainterAgentTools.executeTool(use.name, use.input || {});
+    const result = await GoPainterAgentTools.executeTool(use.name, use.input || {}, { skillId: 'agent-setup', allowedTools: ['ping'] });
     const second = await request(url, headers, {
       ...firstBody,
       messages: [...firstBody.messages, { role: 'assistant', content: first.content }, {
@@ -114,8 +149,8 @@
       async next(options = {}) {
         const body = { model: cfg.model, messages };
         if (!options.noTools) body.tools = tools;
-        if (!options.noTools) body.parallel_tool_calls = false;
-        const data = await request(url, headers, body);
+        if (!options.noTools) body.parallel_tool_calls = true;
+        const data = await request(url, headers, body, { signal: cfg.signal, timeoutMs: cfg.requestTimeoutMs });
         const assistantMessage = data.choices?.[0]?.message || {};
         const calls = (assistantMessage.tool_calls || []).filter((call) => call.type === 'function').map((call) => ({
           id: call.id, name: call.function.name, input: parseArguments(call.function.arguments),
@@ -123,7 +158,7 @@
         return { assistantMessage, calls, text: assistantMessage.content || '' };
       },
       addToolResults(reply, results) {
-        messages.push(reply.assistantMessage, ...results.map((result) => ({ role: 'tool', tool_call_id: result.id, content: JSON.stringify(result.output) })));
+        messages.push(reply.assistantMessage, ...results.map((result) => ({ role: 'tool', tool_call_id: result.id, content: compactJSON(result.output) })));
       },
       addUserText(text) { messages.push({ role: 'user', content: text }); },
     };
@@ -139,15 +174,15 @@
         const body = { model: cfg.model, max_tokens: 1200, system: cfg.system, messages };
         if (!options.noTools) {
           body.tools = tools;
-          body.tool_choice = { type: 'auto', disable_parallel_tool_use: true };
+          body.tool_choice = { type: 'auto', disable_parallel_tool_use: false };
         }
-        const data = await request(url, headers, body);
+        const data = await request(url, headers, body, { signal: cfg.signal, timeoutMs: cfg.requestTimeoutMs });
         const assistantMessage = { role: 'assistant', content: data.content || [] };
         const calls = assistantMessage.content.filter((part) => part.type === 'tool_use').map((part) => ({ id: part.id, name: part.name, input: part.input || {} }));
         return { assistantMessage, calls, text: assistantMessage.content.filter((part) => part.type === 'text').map((part) => part.text).join('') };
       },
       addToolResults(reply, results) {
-        messages.push(reply.assistantMessage, { role: 'user', content: results.map((result) => ({ type: 'tool_result', tool_use_id: result.id, content: JSON.stringify(result.output) })) });
+        messages.push(reply.assistantMessage, { role: 'user', content: results.map((result) => ({ type: 'tool_result', tool_use_id: result.id, content: compactJSON(result.output) })) });
       },
       addUserText(text) { messages.push({ role: 'user', content: text }); },
     };

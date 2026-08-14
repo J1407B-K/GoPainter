@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" class="gp-options">
 <head>
   <meta charset="UTF-8">
   <title>GoPainter 设置</title>
@@ -204,13 +204,27 @@
 </head>
 <body>
   <div class="banner">
-    <h1><span class="gp-logo">🎨</span>GoPainter 设置</h1>
-    <div class="sub">指纹规则管理 · AI 配置</div>
+    <h1><img class="gp-logo" src="icons/icon32.png" alt="">GoPainter</h1>
+    <div class="sub">设置与数据管理</div>
   </div>
 
-  <div class="container">
-    <div class="card">
-      <h2>📋 指纹规则</h2>
+  <div class="settings-layout">
+    <nav class="settings-nav" aria-label="设置分区">
+      <div class="settings-nav-title">设置</div>
+      <a href="#rules-section">指纹规则</a>
+      <a href="#confidence-section">置信度</a>
+      <a href="#sources-section">第三方规则源</a>
+      <a href="#hashes-section">favicon 哈希库</a>
+      <a href="#bookmarks-section">书签分类</a>
+      <a href="#history-section">扫描历史</a>
+      <a href="#scripts-section">外接脚本</a>
+      <a href="#crawl-section">站点爬取</a>
+      <a href="#ai-section">AI 与 Agent</a>
+    </nav>
+
+    <div class="container">
+    <div class="card" id="rules-section">
+      <h2>指纹规则</h2>
       <p class="muted">
         支持 GoPainter 原生格式（见 rules/examples.yaml）和 nuclei 模板（自动提取 http matchers 子集）。
         可多选文件，同 id 规则会在当前规则集中覆盖更新；切换规则集会立即重扫已打开页面。
@@ -226,11 +240,12 @@
       </div>
       <label class="file-drop">
         <input type="file" id="file-input" accept=".yaml,.yml" multiple>
-        📂 点击选择 YAML 文件导入（支持多选）
+        选择 YAML 文件导入（支持多选）
       </label>
-      <button id="import-builtin" class="primary">📦 导入内置规则库（130 条常用指纹）</button>
+      <button id="import-builtin" class="primary">导入内置规则库（130 条常用指纹）</button>
       <button id="clear-rules" class="danger">清空规则</button>
       <div id="rule-stats" class="muted"></div>
+      <input id="rule-filter" type="search" placeholder="筛选规则 ID 或名称" autocomplete="off">
       <div id="rule-list"></div>
     </div>
 
@@ -241,12 +256,12 @@
           <button class="rule-modal-close" id="rule-modal-close" title="关闭">✕</button>
         </div>
         <pre id="rule-modal-body"></pre>
-        <button id="rule-copy" class="primary">📋 复制 YAML</button>
+        <button id="rule-copy" class="primary">复制 YAML</button>
       </div>
     </div>
 
-    <div class="card">
-      <h2>🎚 置信度</h2>
+    <div class="card" id="confidence-section">
+      <h2>置信度</h2>
       <p class="muted">
         规则（或单条 matcher）可以标 <code>confidence: 0-100</code>，数值越低表示信号越弱
         （比如「页面声明了 manifest」只是 PWA 候选，标 30；meta generator 这种强信号标 90）。
@@ -262,10 +277,10 @@
       <button id="conf-save" class="primary">保存</button>
     </div>
 
-    <div class="card">
-      <h2>🌐 第三方规则源</h2>
+    <div class="card" id="sources-section">
+      <h2>第三方规则源</h2>
       <p class="muted">
-        以下规则源由各自社区维护，致敬作者 🙏。点击后由你的浏览器实时拉取并转换入库（同 id 覆盖），
+        以下规则源由各自社区维护。点击后由你的浏览器实时拉取并转换入库（同 id 覆盖），
         <b>规则数据不随本扩展分发</b>。第三方源的内容、版权与合规性由其维护者和使用者自行负责，
         你的拉取与使用行为与本项目无关。
       </p>
@@ -293,8 +308,8 @@
       <div id="source-status" class="muted" style="margin-top: 8px;"></div>
     </div>
 
-    <div class="card">
-      <h2>🎯 favicon 哈希库</h2>
+    <div class="card" id="hashes-section">
+      <h2>favicon 哈希库</h2>
       <p class="muted">
         内置 956 条（<a href="https://github.com/BishopFox/Favicons" target="_blank">BishopFox 数据集</a>）。
         自定义条目优先于内置同名哈希，适合补充公司内部系统。
@@ -306,13 +321,13 @@
       <div id="hash-list"></div>
     </div>
 
-    <div class="card">
-      <h2>🗂 书签分类</h2>
+    <div class="card" id="bookmarks-section">
+      <h2>书签分类</h2>
       <p class="muted">
         加载书签列表后勾选想整理的，抓页面跑指纹匹配，命中的挪进书签栏「🎨 指纹分类」下以系统命名的子文件夹（比如命中 nginx 的挪到「Nginx」）。
         没勾选的一律不动；需要登录或已失效的书签会抓取失败，跳过不影响。
       </p>
-      <button id="load-bm-btn">📋 加载书签列表</button>
+      <button id="load-bm-btn">加载书签列表</button>
       <div id="bm-panel">
         <div class="bm-toolbar">
           <label class="bm-all-label"><input type="checkbox" id="bm-all"> 全选</label>
@@ -323,13 +338,13 @@
           <input type="checkbox" id="bm-use-ai"> 规则未命中时用 AI 判断（慢，每个书签一次 AI 调用）
         </label>
         <br>
-        <button id="organize-btn" class="primary" disabled>🗂 整理选中</button>
+        <button id="organize-btn" class="primary" disabled>整理选中</button>
       </div>
       <div id="organize-result" class="muted" style="white-space: pre-wrap; margin-top: 8px;"></div>
     </div>
 
-    <div class="card">
-      <h2>🕘 扫描历史与报告</h2>
+    <div class="card" id="history-section">
+      <h2>扫描历史与报告</h2>
       <p class="muted">保留页面/爬取扫描的摘要：URL、标题、状态码、favicon 哈希和命中证据。不保存页面 HTML、响应头或 API Key。</p>
       <label for="history-limit">历史保留上限（滚动窗口）</label>
       <div class="history-limit">
@@ -338,16 +353,16 @@
       </div>
       <button id="history-limit-save">保存上限</button>
       <div class="history-actions">
-        <button id="history-export-json" class="primary">⬇️ 导出 JSON</button>
-        <button id="history-export-csv">⬇️ 导出 CSV</button>
+        <button id="history-export-json" class="primary">导出 JSON</button>
+        <button id="history-export-csv">导出 CSV</button>
         <button id="history-clear" class="danger">清空历史</button>
       </div>
       <div id="history-stats" class="muted"></div>
       <div id="history-list"></div>
     </div>
 
-    <div class="card">
-      <h2>🔌 外接脚本</h2>
+    <div class="card" id="scripts-section">
+      <h2>外接脚本</h2>
       <p class="muted">
         自定义 JS，在规则匹配之后执行。脚本体即函数体，参数 <code>(features, hits)</code>，
         返回要追加的指纹数组 <code>[{id, name, evidence?}]</code>；不追加就不返回。
@@ -365,8 +380,8 @@ if (features.body.includes('hello-world-cta')) {
       <div id="script-list"></div>
     </div>
 
-    <div class="card">
-      <h2>🕷 站点爬取</h2>
+    <div class="card" id="crawl-section">
+      <h2>站点爬取</h2>
       <p class="muted">
         从起始 URL 递归抓取同站点页面并逐一做指纹识别（含哈希库和外接脚本），自动去重。
         最大页数留空 = 一直爬到没有新链接；填 100 = 最多扫 100 个页面。
@@ -381,8 +396,8 @@ if (features.body.includes('hello-world-cta')) {
       <div id="crawl-results"></div>
     </div>
 
-    <div class="card">
-      <h2>✨ AI 辅助识别</h2>
+    <div class="card" id="ai-section">
+      <h2>AI 与 Agent</h2>
       <p class="muted">普通 AI 功能继续使用 OpenAI 兼容接口。Agent 工具调用可额外选择 OpenAI 兼容或 Anthropic Messages 协议。</p>
       <label for="ai-base-url">Base URL</label>
       <input type="text" id="ai-base-url" placeholder="https://api.openai.com/v1 或 http://localhost:11434/v1">
@@ -418,6 +433,7 @@ if (features.body.includes('hello-world-cta')) {
     </div>
 
     <div id="msg"></div>
+    </div>
   </div>
 
   <script src="lib/js-yaml.min.js"></script>

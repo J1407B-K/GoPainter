@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN ">
+<html lang="zh-CN" class="gp-popup">
 <head>
   <meta charset="UTF-8">
   <style>
@@ -263,9 +263,11 @@
 </head>
 <body>
   <div class="banner">
-    <h1><span class="gp-logo">🎨</span>GoPainter</h1>
-    <div class="sub">By J1407B-K</div>
-    <label class="ruleset-quick">规则集 <select id="ruleset-quick" aria-label="切换规则集"></select></label>
+    <div class="brand-lockup">
+      <h1><img class="gp-logo" src="icons/icon32.png" alt="">GoPainter</h1>
+      <div class="sub">J1407B-K</div>
+    </div>
+    <label class="ruleset-quick">规则集 <select id="ruleset-quick" aria-label="切换规则集"><option>加载中</option></select></label>
   </div>
 
   <div class="container">
@@ -282,15 +284,15 @@
     <div id="hits"></div>
 
     <div class="footer">
-      <div class="action-card" id="crawl-btn" role="button">
+      <button type="button" class="action-card" id="crawl-btn">
         <span class="ac-icon">🕷</span><span class="ac-label">爬取本站</span>
-      </div>
-      <div class="action-card" id="agent-btn" role="button">
+      </button>
+      <button type="button" class="action-card" id="agent-btn">
         <span class="ac-icon">🤖</span><span class="ac-label">Agent</span>
-      </div>
-      <div class="action-card" id="settings-btn" role="button">
+      </button>
+      <button type="button" class="action-card" id="settings-btn">
         <span class="ac-icon">⚙️</span><span class="ac-label">设置</span>
-      </div>
+      </button>
     </div>
     <div id="ai-result">
       <div id="ai-candidates"></div>
@@ -333,12 +335,19 @@
         <option value="optimize-rule">优化规则建议</option>
       </select>
       <div id="agent-input-field">
-        <label for="agent-input">技术名或规则 ID</label>
-        <input id="agent-input" type="text" placeholder="例如 React、wordpress 或规则 ID">
+        <label for="agent-input">技术名</label>
+        <input id="agent-input" type="text" placeholder="例如 React、WordPress">
+      </div>
+      <div id="agent-rule-field" style="display:none">
+        <label for="agent-rule-select">选择当前规则集中的规则</label>
+        <input id="agent-rule-filter" type="search" placeholder="筛选技术名或规则 ID">
+        <div id="agent-rule-count" class="modal-description"></div>
+        <select id="agent-rule-select"></select>
       </div>
       <div id="agent-trace"></div>
       <div id="agent-outcome" style="display:none"></div>
       <div id="agent-result" style="display:none"></div>
+      <button id="agent-apply-rule" style="display:none">导入规则</button>
       <div class="modal-actions">
         <button id="agent-run">执行</button>
         <button id="agent-cancel" class="ghost">取消</button>
@@ -352,6 +361,7 @@
       <p id="agent-permission-description" class="modal-description"></p>
       <div class="modal-actions">
         <button id="agent-permission-allow">允许本次调用</button>
+        <button id="agent-permission-session">本次会话始终允许</button>
         <button id="agent-permission-deny" class="ghost">拒绝</button>
       </div>
     </div>

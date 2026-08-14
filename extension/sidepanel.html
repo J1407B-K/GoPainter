@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" class="gp-sidepanel">
 <head>
   <meta charset="UTF-8">
   <title>GoPainter 爬取</title>
@@ -73,7 +73,7 @@
 </head>
 <body>
   <div class="banner">
-    <h1><span class="gp-logo">🎨</span>GoPainter 爬取</h1>
+    <h1><img class="gp-logo" src="icons/icon32.png" alt="">站点爬取</h1>
     <span class="badge" id="crawl-badge">未运行</span>
   </div>
 
@@ -84,7 +84,7 @@
       <label for="crawl-max">最大页数</label>
       <input type="text" id="crawl-max" placeholder="留空 = 不限">
       <div class="btn-row">
-        <button id="crawl-start" class="primary">🕷 开始爬取</button>
+        <button id="crawl-start" class="primary">开始爬取</button>
         <button id="crawl-stop" class="danger">停止</button>
       </div>
       <div id="crawl-status"></div>
@@ -96,6 +96,7 @@
     </div>
   </div>
 
+  <script src="shared-utils.js"></script>
   <script src="sidepanel.js"></script>
 </body>
 </html>

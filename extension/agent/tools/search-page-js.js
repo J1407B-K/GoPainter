@@ -9,7 +9,7 @@ GoPainterAgentTools.register({
     return { query: query.toLowerCase(), limit: GoPainterAgentPage.limit(input?.limit, 10, 30) };
   },
   async execute({ query, limit }, context) {
-    const js = (await GoPainterAgentPage.getFeatures({}, context)).js || {};
+    const js = (await GoPainterAgentPage.getOverview({}, context)).js || {};
     const matches = Object.entries(js).filter(([path, value]) => `${path} ${GoPainterAgentPage.string(value)}`.toLowerCase().includes(query)).slice(0, limit)
       .map(([path, value]) => ({ path, value: GoPainterAgentPage.string(value).slice(0, 500) }));
     return { query, count: matches.length, matches };

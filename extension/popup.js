@@ -18,6 +18,10 @@ const ruleSetQuick = document.getElementById('ruleset-quick');
 const agentGoal = document.getElementById('agent-goal');
 const agentRun = document.getElementById('agent-run');
 const agentInput = document.getElementById('agent-input');
+const agentRuleField = document.getElementById('agent-rule-field');
+const agentRuleFilter = document.getElementById('agent-rule-filter');
+const agentRuleCount = document.getElementById('agent-rule-count');
+const agentRuleSelect = document.getElementById('agent-rule-select');
 const agentBtn = document.getElementById('agent-btn');
 const agentTrace = document.getElementById('agent-trace');
 const agentModal = document.getElementById('agent-modal');
@@ -25,9 +29,11 @@ const agentCancel = document.getElementById('agent-cancel');
 const agentInputField = document.getElementById('agent-input-field');
 const agentResult = document.getElementById('agent-result');
 const agentOutcome = document.getElementById('agent-outcome');
+const agentApplyRule = document.getElementById('agent-apply-rule');
 const agentPermissionModal = document.getElementById('agent-permission-modal');
 const agentPermissionDescription = document.getElementById('agent-permission-description');
 const agentPermissionAllow = document.getElementById('agent-permission-allow');
+const agentPermissionSession = document.getElementById('agent-permission-session');
 const agentPermissionDeny = document.getElementById('agent-permission-deny');
 
 let currentTabId = null;
@@ -37,38 +43,72 @@ let currentData = null;
 let confCfg = { showConfidence: false, confThreshold: 0 };
 // 规则库快照：判断「已有规则」用；AI 合并的命中（source:'ai'）仅本次 popup 会话有效
 let rulesCache = [];
+let rulesLookup = new Map();
+let ruleSetStateCache = null;
 let aiTechs = [];
 let aiMergedHits = [];
 let ruleMode = null;
 let optimizeRuleId = null;
+let pendingAgentRuleYaml = '';
+let pendingAgentRuleId = '';
+let ruleSummariesPromise = null;
+let activeAgentPort = null;
+let agentRunSerial = 0;
 
 async function loadRuleSetState() {
-  const raw = await chrome.storage.local.get(['rules', 'ruleSets', 'activeRuleSetId']);
-  const state = GoPainterUtils.normalizeRuleSets(raw.ruleSets, raw.activeRuleSetId, raw.rules);
-  if (!Array.isArray(raw.ruleSets) || raw.activeRuleSetId !== state.activeRuleSetId
-      || JSON.stringify(raw.rules || []) !== JSON.stringify(state.rules)) {
-    await chrome.storage.local.set(state);
-  }
+  const state = await chrome.runtime.sendMessage({ type: 'getRuleSetOverview' });
+  ruleSetStateCache = state;
   ruleSetQuick.innerHTML = state.ruleSets.map((set) => {
     const option = document.createElement('option');
     option.value = set.id;
-    option.textContent = `${set.name}（${set.rules.length}）`;
+    option.textContent = `${set.name}（${set.count}）`;
     return option.outerHTML;
   }).join('');
   ruleSetQuick.value = state.activeRuleSetId;
   return state;
 }
 
+async function loadActiveRuleSummaries(force = false) {
+  if (!force && rulesCache.length) return rulesCache;
+  if (ruleSummariesPromise) return ruleSummariesPromise;
+  agentRuleSelect.disabled = true;
+  agentRuleSelect.replaceChildren(new Option('正在加载规则…', ''));
+  ruleSummariesPromise = chrome.runtime.sendMessage({ type: 'getActiveRuleSummaries' })
+    .then((response) => {
+      rulesCache = response?.rules || [];
+      rulesLookup = new Map();
+      for (const rule of rulesCache) {
+        for (const key of [rule.id, rule.name]) {
+          const normalized = String(key || '').trim().toLowerCase();
+          if (normalized && !rulesLookup.has(normalized)) rulesLookup.set(normalized, rule);
+        }
+      }
+      populateAgentRuleSelect();
+      return rulesCache;
+    })
+    .finally(() => {
+      ruleSummariesPromise = null;
+      agentRuleSelect.disabled = false;
+    });
+  return ruleSummariesPromise;
+}
+
 ruleSetQuick.addEventListener('change', async () => {
-  const state = await loadRuleSetState();
-  const next = state.ruleSets.find((set) => set.id === ruleSetQuick.value);
-  if (!next || next.id === state.activeRuleSetId) return;
-  await chrome.storage.local.set({ ...state, activeRuleSetId: next.id, rules: next.rules });
-  rulesCache = next.rules;
+  const state = ruleSetStateCache || await loadRuleSetState();
+  if (!state.ruleSets.some((set) => set.id === ruleSetQuick.value) || ruleSetQuick.value === state.activeRuleSetId) return;
+  await chrome.runtime.sendMessage({ type: 'setActiveRuleSet', ruleSetId: ruleSetQuick.value });
+  rulesCache = [];
+  rulesLookup.clear();
+  await loadRuleSetState();
+  if (currentData) render(currentData);
 });
 
 function confidenceValue(hit) {
   return GoPainterUtils.confidenceValue(hit);
+}
+
+function cachedRule(name) {
+  return rulesLookup.get(String(name || '').trim().toLowerCase()) || null;
 }
 
 function setBusy(el, busy, busyLabel) {
@@ -105,22 +145,34 @@ async function init() {
   currentTabId = tab.id;
   currentTabUrl = tab.url;
 
-  confCfg = await chrome.storage.local.get({ showConfidence: false, confThreshold: 0 });
-  rulesCache = (await loadRuleSetState()).rules;
-
-  // 有爬虫在跑就把「爬取本站」置灰，点了变成打开侧栏看进度
-  const st = await chrome.runtime.sendMessage({ type: 'crawlStatus' });
-  if (st?.ok && st.running) {
-    document.getElementById('crawl-btn').classList.add('running');
-  }
-
-  const data = await chrome.runtime.sendMessage({ type: 'getResult', tabId: currentTabId });
+  // 首屏只等待页面结果和轻量配置；大规则集读取延后，避免 popup 打开时白屏。
+  const popupKey = `popup:${currentTabId}`;
+  const [config, compactStored] = await Promise.all([
+    chrome.storage.local.get({ showConfidence: false, confThreshold: 0 }),
+    chrome.storage.session.get(popupKey),
+  ]);
+  confCfg = config;
+  setTimeout(loadDeferredPopupState, 0);
+  const data = compactStored[popupKey]
+    || await chrome.runtime.sendMessage({ type: 'getPopupResult', tabId: currentTabId }).catch(() => null);
   if (!data) {
     statusEl.innerHTML = '<span class="icon">🔄</span>尚未采集到页面特征<br>请刷新页面后重试';
     return;
   }
   currentData = data;
   render(data);
+}
+
+async function loadDeferredPopupState() {
+  try {
+    const [state, crawlState] = await Promise.all([
+      loadRuleSetState(),
+      chrome.runtime.sendMessage({ type: 'crawlStatus' }),
+    ]);
+    document.getElementById('crawl-btn').classList.toggle('running', !!(crawlState?.ok && crawlState.running));
+  } catch {
+    // 次要状态加载失败不影响当前页面命中结果。
+  }
 }
 
 // 展示列表 = 规则命中 + 已合并的 AI 命中（按 name 小写去重，避免同技术重复展示）
@@ -190,7 +242,9 @@ function render({ features, result }) {
 
   const label = document.createElement('div');
   label.className = 'section-label';
-  label.textContent = `命中 ${hits.length} 个指纹` + (hidden > 0 ? `（隐藏 ${hidden} 个低置信度）` : '');
+  const totalHits = Math.max(hits.length, Number(result.totalHits) || 0);
+  const limited = totalHits > hits.length ? `，展示前 ${hits.length} 个` : '';
+  label.textContent = `命中 ${totalHits} 个指纹${limited}` + (hidden > 0 ? `（隐藏 ${hidden} 个低置信度）` : '');
   hitsEl.appendChild(label);
   for (const h of hits) {
     hitsEl.appendChild(renderHit(h));
@@ -243,7 +297,7 @@ function renderHit(hit) {
   }
 
   // 仅对当前页实际命中的已有规则开放优化：让 AI 用本页的额外特征补强 matcher。
-  const rule = GoPainterUtils.ruleByTechName(rulesCache, hit.name) || GoPainterUtils.ruleByTechName(rulesCache, hit.id);
+  const rule = cachedRule(hit.name) || cachedRule(hit.id);
   if (rule) {
     const btn = document.createElement('button');
     btn.className = 'opt-btn';
@@ -264,8 +318,12 @@ function makeChip(text, ok = false) {
 chrome.storage.onChanged.addListener(async (changes, area) => {
   if (area !== 'local') return;
   if (changes.rules) {
-    ({ rules: rulesCache = [] } = await chrome.storage.local.get('rules'));
+    rulesCache = [];
+    rulesLookup.clear();
     await loadRuleSetState();
+    if (agentGoal.value === 'optimize-rule' && agentModal.style.display === 'flex') {
+      await loadActiveRuleSummaries(true);
+    }
     if (currentData) render(currentData);
     return;
   }
@@ -278,12 +336,58 @@ chrome.storage.onChanged.addListener(async (changes, area) => {
 });
 
 function syncAgentInput() {
-  const needsInput = agentGoal.value !== 'identify-site';
-  agentInputField.style.display = needsInput ? '' : 'none';
-  agentInput.required = needsInput;
+  const research = agentGoal.value === 'research-rule';
+  const optimize = agentGoal.value === 'optimize-rule';
+  agentInputField.style.display = research ? '' : 'none';
+  agentRuleField.style.display = optimize ? '' : 'none';
+  agentInput.required = research;
+  agentRuleSelect.required = optimize;
+  if (optimize) loadActiveRuleSummaries().catch((error) => showAgentMessage(`规则列表加载失败：${error.message}`));
 }
 
+function populateAgentRuleSelect() {
+  const selected = agentRuleSelect.value;
+  const query = agentRuleFilter.value.trim().toLowerCase();
+  const matches = query
+    ? rulesCache.filter((rule) => `${rule.id}\n${rule.name || ''}`.toLowerCase().includes(query))
+    : rulesCache;
+  const visible = matches.slice(0, 200);
+  agentRuleSelect.replaceChildren();
+  agentRuleCount.textContent = matches.length > visible.length
+    ? `匹配 ${matches.length} 条，显示前 ${visible.length} 条`
+    : `${matches.length} 条规则`;
+  if (!visible.length) {
+    const option = document.createElement('option');
+    option.value = '';
+    option.textContent = rulesCache.length ? '没有匹配规则' : '当前规则集为空';
+    agentRuleSelect.appendChild(option);
+    return;
+  }
+  const fragment = document.createDocumentFragment();
+  for (const rule of visible) {
+    const option = document.createElement('option');
+    option.value = rule.id;
+    option.textContent = `${rule.name || rule.id}（${rule.id}）`;
+    fragment.appendChild(option);
+  }
+  agentRuleSelect.appendChild(fragment);
+  if ([...agentRuleSelect.options].some((option) => option.value === selected)) agentRuleSelect.value = selected;
+}
+
+let agentRuleFilterTimer = null;
+agentRuleFilter.addEventListener('input', () => {
+  clearTimeout(agentRuleFilterTimer);
+  agentRuleFilterTimer = setTimeout(populateAgentRuleSelect, 80);
+});
+
 function closeAgentModal() {
+  agentRunSerial++;
+  if (activeAgentPort) {
+    try { activeAgentPort.disconnect(); } catch { /* 已断开 */ }
+    activeAgentPort = null;
+  }
+  agentPermissionModal.style.display = 'none';
+  setBusy(agentRun, false);
   agentModal.style.display = 'none';
 }
 
@@ -313,8 +417,12 @@ agentBtn.addEventListener('click', () => {
   agentOutcome.style.display = 'none';
   agentResult.style.display = 'none';
   agentResult.replaceChildren();
+  pendingAgentRuleYaml = '';
+  pendingAgentRuleId = '';
+  agentApplyRule.style.display = 'none';
+  agentApplyRule.disabled = false;
   agentModal.style.display = 'flex';
-  (agentGoal.value === 'identify-site' ? agentGoal : agentInput).focus();
+  (agentGoal.value === 'identify-site' ? agentGoal : agentGoal.value === 'optimize-rule' ? agentRuleSelect : agentInput).focus();
 });
 
 agentGoal.addEventListener('change', syncAgentInput);
@@ -347,11 +455,27 @@ function renderAgentTrace(trace = []) {
   agentTrace.replaceChildren(details);
 }
 
+function appendAgentTrace(item, count) {
+  let details = agentTrace.querySelector('details');
+  if (!details) {
+    details = document.createElement('details');
+    details.open = true;
+    details.appendChild(document.createElement('summary'));
+    agentTrace.replaceChildren(details);
+  }
+  details.querySelector('summary').textContent = `执行记录（${count} 项，不含模型私有推理）`;
+  const row = document.createElement('div');
+  row.className = 'agent-trace-row';
+  row.textContent = `第 ${item.step} 步 · ${item.message}`;
+  details.appendChild(row);
+}
+
 agentRun.addEventListener('click', async () => {
+  const runSerial = ++agentRunSerial;
   const goalId = agentGoal.value;
-  const input = agentInput.value.trim();
+  const input = goalId === 'optimize-rule' ? agentRuleSelect.value : agentInput.value.trim();
   if (goalId !== 'identify-site' && !input) {
-    showAgentMessage('研究或优化规则时，请填写技术名或规则 ID。');
+    showAgentMessage(goalId === 'optimize-rule' ? '当前规则集中没有可优化的规则。' : '研究规则时，请填写技术名。');
     return;
   }
   setBusy(agentRun, true, '执行中…');
@@ -360,53 +484,102 @@ agentRun.addEventListener('click', async () => {
   agentResult.style.display = 'none';
   agentResult.replaceChildren();
   agentOutcome.style.display = 'none';
+  agentApplyRule.style.display = 'none';
+  pendingAgentRuleYaml = '';
+  pendingAgentRuleId = '';
   try {
     const result = await new Promise((resolve, reject) => {
       const port = chrome.runtime.connect({ name: 'gopainter-agent' });
+      activeAgentPort = port;
       let settled = false;
+      const keepalive = setInterval(() => {
+        if (settled) return;
+        try { port.postMessage({ type: 'keepalive' }); }
+        catch (error) { finish(reject, new Error(`Agent 后台连接中断：${error.message}`)); }
+      }, 15_000);
       const finish = (callback, value) => {
         if (settled) return;
         settled = true;
+        clearInterval(keepalive);
+        if (activeAgentPort === port) activeAgentPort = null;
         callback(value);
       };
       port.onMessage.addListener((message) => {
         if (message.type === 'trace') {
           liveTrace.push(message.item);
-          renderAgentTrace(liveTrace);
+          appendAgentTrace(message.item, liveTrace.length);
         } else if (message.type === 'permission') {
           agentPermissionDescription.textContent = permissionDescription(message.request);
           agentPermissionModal.style.display = 'flex';
-          const respond = (granted) => {
+          const respond = (granted, remember = false) => {
             agentPermissionModal.style.display = 'none';
-            port.postMessage({ type: 'permissionResponse', granted });
+            port.postMessage({ type: 'permissionResponse', granted, remember });
           };
           agentPermissionAllow.onclick = () => respond(true);
+          agentPermissionSession.onclick = () => respond(true, true);
           agentPermissionDeny.onclick = () => respond(false);
         } else if (message.type === 'complete') {
-          port.disconnect();
           finish(resolve, message.result);
-        } else if (message.type === 'error') {
           port.disconnect();
+        } else if (message.type === 'error') {
           finish(reject, new Error(message.error));
+          port.disconnect();
         }
       });
       port.onDisconnect.addListener(() => {
         const lastError = chrome.runtime.lastError;
-        if (lastError) finish(reject, new Error(lastError.message));
+        finish(reject, new Error(lastError?.message || 'Agent 后台连接意外中断，请重试'));
       });
       port.postMessage({
         type: 'runAgent', goalId, tabId: currentTabId, input,
       });
     });
-    renderAgentTrace(result.trace);
+    if (runSerial !== agentRunSerial) return;
+    // trace 已通过 port 按序增量渲染；完成时不再销毁重建，避免最后一帧卡顿。
     showAgentOutcome(result.status, result.steps);
     const citations = result.citations?.length ? `\n来源：${result.citations.join('、')}` : '';
-    showAgentMessage(`${result.summary || result.text || ''}${citations}`);
+    const summary = `${result.summary || result.text || ''}${citations}`;
+    showAgentMessage(summary);
+    if (result.status === 'complete' && goalId !== 'identify-site') {
+      const yaml = extractAgentRuleYaml(summary);
+      if (yaml) {
+        pendingAgentRuleYaml = yaml;
+        pendingAgentRuleId = goalId === 'optimize-rule' ? input : '';
+        agentApplyRule.textContent = goalId === 'optimize-rule' ? '覆盖当前规则' : '导入规则';
+        agentApplyRule.style.display = 'block';
+      } else {
+        showAgentOutcome('incomplete', result.steps);
+      }
+    }
   } catch (error) {
+    if (runSerial !== agentRunSerial) return;
     showAgentOutcome('incomplete');
     showAgentMessage(`Agent 出错：${error.message}`);
   } finally {
-    setBusy(agentRun, false);
+    if (runSerial === agentRunSerial) setBusy(agentRun, false);
+  }
+});
+
+function extractAgentRuleYaml(text) {
+  const match = String(text || '').match(/```(?:yaml|yml)[^\S\r\n]*\r?\n([\s\S]*?)```/i);
+  return match ? match[1].trim() : '';
+}
+
+agentApplyRule.addEventListener('click', async () => {
+  if (!pendingAgentRuleYaml) return;
+  agentApplyRule.disabled = true;
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: 'addRule', yaml: pendingAgentRuleYaml, requireSingle: true,
+      expectedId: pendingAgentRuleId || undefined,
+    });
+    if (!response?.ok) throw new Error(response?.error || '规则入库失败');
+    agentApplyRule.textContent = pendingAgentRuleId ? '已覆盖入库' : '已导入';
+    pendingAgentRuleYaml = '';
+    await loadActiveRuleSummaries(true);
+  } catch (error) {
+    agentApplyRule.disabled = false;
+    showAgentMessage(`规则入库失败：${error.message}`);
   }
 });
 
@@ -495,8 +668,9 @@ ruleSave.addEventListener('click', async () => {
       : `已加入 ${resp.added} 条规则，刷新页面即可生效`;
     showAiMessage(msg);
     // 规则变了：刷新快照，并重取当前结果让新规则即时反映
-    ({ rules: rulesCache = [] } = await chrome.storage.local.get('rules'));
-    const data = await chrome.runtime.sendMessage({ type: 'getResult', tabId: currentTabId });
+    rulesCache = [];
+    rulesLookup.clear();
+    const data = await chrome.runtime.sendMessage({ type: 'getPopupResult', tabId: currentTabId });
     if (data) {
       currentData = data;
       render(data);
@@ -611,7 +785,7 @@ function renderAiCandidates(techs) {
     const actions = document.createElement('div');
     actions.className = 'actions';
     const alreadyHit = currentNames.has(tech.name.toLowerCase());
-    const rule = GoPainterUtils.ruleByTechName(rulesCache, tech.name);
+    const rule = cachedRule(tech.name);
     if (alreadyHit) {
       cb.disabled = true;
       const tag = document.createElement('span');

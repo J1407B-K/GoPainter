@@ -4,7 +4,7 @@
 WASM_OUT := extension/wasm/matcher.wasm
 EXEC_JS  := extension/wasm/wasm_exec.js
 
-.PHONY: build build-tinygo build-go build-go-stdlib build-go-re2 icons test test-go test-go-stdlib test-go-re2 test-js bench-regex clean
+.PHONY: build build-tinygo build-go build-go-stdlib build-go-re2 icons test test-go test-go-stdlib test-go-re2 test-js bench-js bench-regex clean
 
 icons:
 	node scripts/generate-icons.mjs
@@ -23,6 +23,9 @@ test-go-stdlib:
 
 test-js:
 	node --test test/*.test.cjs
+
+bench-js:
+	node scripts/bench-js.mjs
 
 # 独立比较浏览器 WASM 下可用的 regex 后端；不改变生产引擎。
 bench-regex:

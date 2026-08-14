@@ -10,13 +10,21 @@ function showMsg(text, isError = false) {
 // --- 规则存取 ---
 
 let ruleSetState = null;
+const RULE_RENDER_LIMIT = 300;
+const LIST_RENDER_LIMIT = 300;
 
-async function loadRuleSetState() {
+function scheduleIdle(task) {
+  const run = () => Promise.resolve(task()).catch((error) => console.warn('延迟加载失败:', error));
+  if ('requestIdleCallback' in window) requestIdleCallback(run, { timeout: 1200 });
+  else setTimeout(run, 0);
+}
+
+async function loadRuleSetState(force = false) {
+  if (!force && ruleSetState) return ruleSetState;
   const raw = await chrome.storage.local.get(['rules', 'ruleSets', 'activeRuleSetId']);
   const state = GoPainterUtils.normalizeRuleSets(raw.ruleSets, raw.activeRuleSetId, raw.rules);
-  // 旧版只有 rules；首次打开设置页时迁移，并始终维持当前 rules 镜像。
-  if (!Array.isArray(raw.ruleSets) || raw.activeRuleSetId !== state.activeRuleSetId
-      || JSON.stringify(raw.rules || []) !== JSON.stringify(state.rules)) {
+  // 只在结构缺失/激活集失效时修复，避免每次操作 stringify 整个大型规则库。
+  if (!Array.isArray(raw.ruleSets) || raw.activeRuleSetId !== state.activeRuleSetId || !Array.isArray(raw.rules)) {
     await chrome.storage.local.set(state);
   }
   ruleSetState = state;
@@ -47,12 +55,20 @@ async function refreshRuleList() {
   const rules = state.rules;
   renderRuleSetControls(state);
   const active = state.ruleSets.find((set) => set.id === state.activeRuleSetId);
-  document.getElementById('rule-stats').textContent = `「${active.name}」共 ${rules.length} 条规则（点击查看详情）`;
+  const filtered = GoPainterUtils.filterRules(rules, document.getElementById('rule-filter').value, RULE_RENDER_LIMIT);
+  const suffix = filtered.total > filtered.items.length ? `，显示前 ${filtered.items.length} 条` : '';
+  document.getElementById('rule-stats').textContent = `「${active.name}」共 ${rules.length} 条规则，匹配 ${filtered.total} 条${suffix}`;
   const list = document.getElementById('rule-list');
-  list.innerHTML = rules.length
-    ? rules.map((r) => `<div class="rule-item" data-id="${escapeHtml(r.id)}" title="点击查看该规则"><span class="name">${escapeHtml(r.name)}</span><span class="id">${escapeHtml(r.id)}</span></div>`).join('')
+  list.innerHTML = filtered.items.length
+    ? filtered.items.map((r) => `<div class="rule-item" data-id="${escapeHtml(r.id)}" title="点击查看该规则"><span class="name">${escapeHtml(r.name)}</span><span class="id">${escapeHtml(r.id)}</span></div>`).join('')
     : '<div class="muted">（空）</div>';
 }
+
+let ruleFilterFrame = 0;
+document.getElementById('rule-filter').addEventListener('input', () => {
+  cancelAnimationFrame(ruleFilterFrame);
+  ruleFilterFrame = requestAnimationFrame(refreshRuleList);
+});
 
 // --- 规则详情：点击列表项实时查看单条规则的完整 YAML ---
 
@@ -68,11 +84,10 @@ function openRuleDetail(rule) {
   ruleModal.classList.add('open');
 }
 
-// 点击列表项时从 storage 重新读一次，保证看到的是最新规则
 document.getElementById('rule-list').addEventListener('click', (e) => {
   const el = e.target.closest('.rule-item');
   if (!el) return;
-  loadRules().then((rules) => {
+  loadRuleSetState().then(({ rules }) => {
     const rule = rules.find((r) => r.id === el.dataset.id);
     if (rule) openRuleDetail(rule);
   });
@@ -357,7 +372,7 @@ async function refreshHashList() {
   document.getElementById('hash-stats').textContent = `自定义 ${entries.length} 条（内置 956 条）`;
   const list = document.getElementById('hash-list');
   list.innerHTML = '';
-  for (const [h, name] of entries) {
+  for (const [h, name] of entries.slice(0, LIST_RENDER_LIMIT)) {
     const row = document.createElement('div');
     row.className = 'hash-item';
     row.innerHTML = `<span class="h"></span><span class="n"></span><button class="del" title="删除">✕</button>`;
@@ -371,6 +386,7 @@ async function refreshHashList() {
     });
     list.appendChild(row);
   }
+  if (entries.length > LIST_RENDER_LIMIT) list.insertAdjacentHTML('beforeend', `<div class="muted">仅显示前 ${LIST_RENDER_LIMIT} 条</div>`);
 }
 
 document.getElementById('hash-import').addEventListener('click', async () => {
@@ -411,7 +427,7 @@ document.getElementById('hash-clear').addEventListener('click', async () => {
   showMsg('自定义哈希已清空');
 });
 
-refreshHashList();
+scheduleIdle(refreshHashList);
 
 // --- 扫描历史与报告 ---
 
@@ -452,7 +468,7 @@ async function refreshScanHistory() {
     list.innerHTML = '<div class="muted" style="padding: 10px;">尚无扫描记录</div>';
     return;
   }
-  for (const item of history) {
+  for (const item of history.slice(0, LIST_RENDER_LIMIT)) {
     const row = document.createElement('div');
     row.className = 'history-item';
     const top = document.createElement('div');
@@ -474,6 +490,7 @@ async function refreshScanHistory() {
     row.append(top, url, hits);
     list.appendChild(row);
   }
+  if (history.length > LIST_RENDER_LIMIT) list.insertAdjacentHTML('beforeend', `<div class="muted" style="padding: 10px;">仅显示最新 ${LIST_RENDER_LIMIT} 条；导出仍包含全部记录</div>`);
 }
 
 document.getElementById('history-limit').addEventListener('input', (event) => {
@@ -515,7 +532,7 @@ document.getElementById('history-clear').addEventListener('click', async () => {
   showMsg('扫描历史已清空');
 });
 
-refreshScanHistory();
+scheduleIdle(refreshScanHistory);
 
 // --- 书签整理：勾选哪些就处理哪些，没勾的一律不动 ---
 
@@ -671,11 +688,12 @@ document.getElementById('script-add').addEventListener('click', async () => {
   showMsg(`脚本「${name}」已添加并启用`);
 });
 
-refreshScriptList();
+scheduleIdle(refreshScriptList);
 
 // --- 站点爬取 ---
 
 let crawlTimer = null;
+let crawlRenderSignature = '';
 
 async function pollCrawl() {
   const resp = await chrome.runtime.sendMessage({ type: 'crawlStatus' });
@@ -694,25 +712,29 @@ async function pollCrawl() {
   } else {
     statusEl.textContent = '';
   }
-  const list = document.getElementById('crawl-results');
-  list.innerHTML = '';
-  for (const r of resp.results) {
-    const row = document.createElement('div');
-    row.className = 'crawl-item';
-    const names = (r.hits || []).map((h) => h.name).join('、');
-    row.innerHTML = `<div class="t"></div><div class="u"></div><div class="hits"></div>`;
-    row.querySelector('.t').textContent = r.title;
-    row.querySelector('.u').textContent = `${r.url}（HTTP ${r.status}）`;
-    row.querySelector('.hits').textContent = names ? `🎯 ${names}` : '— 未识别';
-    list.appendChild(row);
-  }
-  for (const r of (resp.failed || []).slice(-20)) {
-    const row = document.createElement('div');
-    row.className = 'crawl-item failed';
-    row.innerHTML = `<div class="t">抓取失败</div><div class="u"></div><div class="hits"></div>`;
-    row.querySelector('.u').textContent = r.url;
-    row.querySelector('.hits').textContent = r.error || '未知错误';
-    list.appendChild(row);
+  const signature = GoPainterUtils.crawlRenderSignature(resp);
+  if (signature !== crawlRenderSignature) {
+    crawlRenderSignature = signature;
+    const list = document.getElementById('crawl-results');
+    list.innerHTML = '';
+    for (const r of resp.results.slice(-LIST_RENDER_LIMIT)) {
+      const row = document.createElement('div');
+      row.className = 'crawl-item';
+      const names = (r.hits || []).map((h) => h.name).join('、');
+      row.innerHTML = `<div class="t"></div><div class="u"></div><div class="hits"></div>`;
+      row.querySelector('.t').textContent = r.title;
+      row.querySelector('.u').textContent = `${r.url}（HTTP ${r.status}）`;
+      row.querySelector('.hits').textContent = names ? `🎯 ${names}` : '— 未识别';
+      list.appendChild(row);
+    }
+    for (const r of (resp.failed || []).slice(-20)) {
+      const row = document.createElement('div');
+      row.className = 'crawl-item failed';
+      row.innerHTML = `<div class="t">抓取失败</div><div class="u"></div><div class="hits"></div>`;
+      row.querySelector('.u').textContent = r.url;
+      row.querySelector('.hits').textContent = r.error || '未知错误';
+      list.appendChild(row);
+    }
   }
   if (!resp.running && crawlTimer) {
     clearInterval(crawlTimer);
@@ -721,7 +743,7 @@ async function pollCrawl() {
 }
 
 // 打开设置页时拉一次，把上次爬的结果（或进行中的进度）恢复出来
-pollCrawl();
+scheduleIdle(pollCrawl);
 
 // 页数上限记住上次填的
 chrome.storage.local.get('crawlMaxPages').then((d) => {
@@ -861,6 +883,34 @@ function escapeHtml(s) {
   }[c]));
 }
 
+// Keep the compact settings navigation anchored to the section in view.
+function initSettingsNav() {
+  const links = [...document.querySelectorAll('.settings-nav a[href^="#"]')];
+  const sections = links.map((link) => document.querySelector(link.hash)).filter(Boolean);
+  if (!sections.length) return;
+  let scheduled = false;
+  const update = () => {
+    scheduled = false;
+    let current = sections[0];
+    for (const section of sections) {
+      if (section.getBoundingClientRect().top <= 130) current = section;
+    }
+    for (const link of links) link.classList.toggle('active', link.hash === `#${current.id}`);
+  };
+  document.addEventListener('scroll', () => {
+    if (scheduled) return;
+    scheduled = true;
+    requestAnimationFrame(update);
+  }, { passive: true });
+  update();
+}
+
+initSettingsNav();
 refreshRuleList();
-loadAiConfig();
-loadConfConfig();
+scheduleIdle(loadAiConfig);
+scheduleIdle(loadConfConfig);
+
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== 'local') return;
+  if (changes.rules || changes.ruleSets || changes.activeRuleSetId) ruleSetState = null;
+});

@@ -4,6 +4,38 @@ This is the project's living performance record. Every material performance chan
 its measured workload, trade-offs, and reproduction command belongs here. The goal
 is not to collect micro-benchmarks; it is to make future design decisions auditable.
 
+## v0.6.1 - remove JavaScript and DOM long tasks
+
+v0.6.1 targets the UI-side stalls that remained after the matcher became fast. The
+content script no longer materializes the complete document before truncating it;
+it now serializes at most 200 KB and stops walking immediately at the limit.
+Favicon downloads use six workers, rule/hash/script data is cached until storage
+changes, and rescans read only the session entries for open tabs.
+
+Popup snapshots remain bounded at 100 hits, 20 evidence rows per hit, and 500
+characters per evidence row. Options, history, hash, and crawl views render at most
+300 rows; crawl polling skips unchanged result DOM. A 20,000-rule Chromium run
+rendered exactly 300 rule rows, produced 1,080 DOM nodes, and loaded in 32 ms in the
+test profile.
+
+| JavaScript benchmark | Result |
+|---|---:|
+| Filter 10,000 / 50,000 rules | 0.56 / 5.12 ms |
+| Filter and sort 10,000 / 50,000 hits | 0.98 / 6.46 ms |
+| Compact 2,000 hits x 40 evidence rows | 0.20 ms |
+| Compile 100 user scripts / run cached scripts | 0.06 / 0.01 ms |
+| Stringify 10,000 custom hashes / cached read | 0.70 / <0.01 ms |
+| Three rule searches across 50,000 rules, legacy / indexed | 43.23 / 1.56 ms |
+
+The matching engine stayed in its existing range after these changes: the 8,000-rule
+steady benchmark measured a 13.6 ms median, while the 200-page scan measured 28.0 ms
+p90 and 31.2 ms p99. Run the JS suite with `make bench-js`.
+
+The Agent path now reads a body-free page overview and shares a cooperatively built
+rule-search index. In a Chromium end-to-end run with 20,000 rules, one model round
+requested `inspect_page`, three `search_rules` calls, and `search_page_js` before
+synthesis. A 10 ms popup heartbeat observed a maximum delay of 37.1 ms throughout.
+
 ## v0.5.1 — upgrade the final regex verifier
 
 v0.5.0 made the planner effective: AST + AC eliminates nearly every regex that can

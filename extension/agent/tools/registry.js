@@ -3,17 +3,28 @@
   const tools = new Map();
 
   function register(tool) {
-    if (!tool?.name || typeof tool.execute !== 'function' || typeof tool.validate !== 'function' || !tool.inputSchema) throw new Error('无效 Agent 工具声明');
+    if (!tool?.name || typeof tool.execute !== 'function' || typeof tool.validate !== 'function' || !tool.inputSchema
+      || !Array.isArray(tool.skillIds) || !tool.skillIds.length) throw new Error('无效 Agent 工具声明');
     if (tools.has(tool.name)) throw new Error(`重复注册 Agent 工具：${tool.name}`);
     tools.set(tool.name, Object.freeze(tool));
   }
 
   function getTool(name) { return tools.get(name) || null; }
-  function list(names) { return names.map(getTool).filter(Boolean); }
+  function list(names, skillId) {
+    return names.map((name) => {
+      const tool = getTool(name);
+      if (!tool) throw new Error(`skill ${skillId} 引用了未知工具：${name}`);
+      if (!tool.skillIds.includes(skillId)) throw new Error(`工具 ${name} 未授权给 skill ${skillId}`);
+      return tool;
+    });
+  }
 
   async function executeTool(name, input, context = {}) {
     const tool = getTool(name);
     if (!tool) throw new Error(`未知 Agent 工具：${name}`);
+    if (!context.skillId) throw new Error(`执行工具 ${name} 缺少 skill 上下文`);
+    if (!tool.skillIds.includes(context.skillId)) throw new Error(`skill ${context.skillId} 不允许执行工具 ${name}`);
+    if (context.allowedTools && !context.allowedTools.includes(name)) throw new Error(`工具 ${name} 未在本次会话中启用`);
     if (tool.permission !== 'auto' && !context.grants?.includes(name)) throw new Error(`工具 ${name} 需要用户授权`);
     return tool.execute(tool.validate(input), context);
   }

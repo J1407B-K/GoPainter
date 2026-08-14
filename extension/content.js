@@ -3,6 +3,67 @@
 // SPA 路由变化（pushState/replaceState/popstate/hashchange）时重采重扫。
 
 (() => {
+  const BODY_LIMIT = 200_000;
+
+  function appendBounded(parts, value, state) {
+    if (state.length >= state.limit || !value) return false;
+    const remaining = state.limit - state.length;
+    const chunk = String(value);
+    parts.push(chunk.length > remaining ? chunk.slice(0, remaining) : chunk);
+    state.length += Math.min(chunk.length, remaining);
+    return state.length < state.limit;
+  }
+
+  function escapeText(value) {
+    return String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  function escapeAttr(value) {
+    return escapeText(value).replace(/"/g, '&quot;');
+  }
+
+  // outerHTML.slice() still serializes the whole document first. This walker stops as soon
+  // as the matcher input budget is full, so very large/infinite-feed pages cannot freeze it.
+  function serializeDocumentPrefix(limit = BODY_LIMIT) {
+    const root = document.documentElement;
+    if (!root || limit <= 0) return '';
+    const parts = [];
+    const state = { length: 0, limit };
+    const stack = [{ node: root, closing: false }];
+    const voidTags = new Set(['AREA', 'BASE', 'BR', 'COL', 'EMBED', 'HR', 'IMG', 'INPUT', 'LINK', 'META', 'PARAM', 'SOURCE', 'TRACK', 'WBR']);
+
+    while (stack.length && state.length < state.limit) {
+      const item = stack.pop();
+      const node = item.node;
+      if (item.closing) {
+        appendBounded(parts, `</${node.localName}>`, state);
+        continue;
+      }
+      if (node.nodeType === Node.TEXT_NODE) {
+        const parent = node.parentElement?.tagName;
+        appendBounded(parts, parent === 'SCRIPT' || parent === 'STYLE' ? node.data : escapeText(node.data), state);
+        continue;
+      }
+      if (node.nodeType === Node.COMMENT_NODE) {
+        appendBounded(parts, `<!--${node.data}-->`, state);
+        continue;
+      }
+      if (node.nodeType !== Node.ELEMENT_NODE) continue;
+
+      if (!appendBounded(parts, `<${node.localName}`, state)) break;
+      for (const attr of node.attributes) {
+        if (!appendBounded(parts, ` ${attr.name}="${escapeAttr(attr.value)}"`, state)) break;
+      }
+      if (!appendBounded(parts, '>', state)) break;
+      if (voidTags.has(node.tagName)) continue;
+      stack.push({ node, closing: true });
+      for (let child = node.lastChild; child; child = child.previousSibling) {
+        stack.push({ node: child, closing: false });
+      }
+    }
+    return parts.join('');
+  }
+
   // js 探测：路径列表 postMessage 给 main world，等它回结果，超时就当没有
   function probeJs(paths) {
     return new Promise((resolve) => {
@@ -32,11 +93,17 @@
         if (p.attrs && !sel.includes('[')) {
           sel += Object.keys(p.attrs).map((k) => `[${CSS.escape(k)}]`).join('');
         }
+        if (!p.text && !p.attrs) {
+          if (document.querySelector(sel)) hit.push(p.id);
+          continue;
+        }
         const els = document.querySelectorAll(sel);
         // 任一元素满足条件就算中（第一个匹配元素不一定是对的那个，
         // 比如 link[type*='application'] 第一个可能是 oembed 而不是 RSS）
         let ok = false;
-        for (const el of [...els].slice(0, 50)) {
+        const count = Math.min(els.length, 50);
+        for (let i = 0; i < count; i++) {
+          const el = els[i];
           if (p.text && !(new RegExp(p.text, 'i')).test(el.textContent || '')) continue;
           if (p.attrs) {
             let attrOk = true;
@@ -81,8 +148,8 @@
         features: {
           url: location.href,
           title: document.title || '',
-          // 截断防超大页面，关键词一般都在前面
-          body: document.documentElement.outerHTML.slice(0, 200_000),
+          // 真正有界的序列化；不能先 outerHTML 再 slice，否则超大页面仍会阻塞主线程。
+          body: serializeDocumentPrefix(),
           favicon,
           js,
           domHits,

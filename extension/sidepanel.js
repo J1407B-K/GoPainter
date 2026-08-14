@@ -2,6 +2,8 @@
 // 状态在 background（storage.session + wasm 内存），这里只做展示和下发命令。
 
 let pollTimer = null;
+let resultsSignature = '';
+const RESULT_RENDER_LIMIT = 300;
 
 const badge = document.getElementById('crawl-badge');
 const statusEl = document.getElementById('crawl-status');
@@ -17,8 +19,11 @@ function setBadge(running, interrupted) {
 }
 
 function renderResults(resp) {
+  const signature = GoPainterUtils.crawlRenderSignature(resp);
+  if (signature === resultsSignature) return;
+  resultsSignature = signature;
   const rows = [];
-  for (const r of resp.results) {
+  for (const r of resp.results.slice(-RESULT_RENDER_LIMIT)) {
     const names = (r.hits || []).map((h) => h.name).join('、');
     rows.push(
       `<div class="crawl-item"><div class="t">${escapeHtml(r.title)}</div>` +

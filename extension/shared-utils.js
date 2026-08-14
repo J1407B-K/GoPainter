@@ -11,36 +11,113 @@
     const source = Array.isArray(hits) ? hits : [];
     const threshold = Number(config.confThreshold) || 0;
     const showConfidence = Boolean(config.showConfidence);
-    const annotated = source.filter((hit) => confidenceValue(hit) !== null).length;
+    let annotated = 0;
     let hidden = 0;
-    let visible = source;
-
-    if (showConfidence && threshold > 0) {
-      hidden = source.filter((hit) => {
-        const confidence = confidenceValue(hit);
-        return confidence !== null && confidence < threshold;
-      }).length;
-      visible = source.filter((hit) => {
-        const confidence = confidenceValue(hit);
-        return confidence === null || confidence >= threshold;
-      });
+    const visible = [];
+    for (let index = 0; index < source.length; index++) {
+      const hit = source[index];
+      const confidence = confidenceValue(hit);
+      if (confidence !== null) annotated++;
+      if (showConfidence && threshold > 0 && confidence !== null && confidence < threshold) {
+        hidden++;
+        continue;
+      }
+      visible.push(showConfidence ? { hit, index, confidence } : hit);
     }
 
     if (showConfidence) {
-      visible = visible.map((hit, index) => ({ hit, index })).sort((a, b) => {
-        const aValue = confidenceValue(a.hit);
-        const bValue = confidenceValue(b.hit);
+      visible.sort((a, b) => {
+        const aValue = a.confidence;
+        const bValue = b.confidence;
         if (aValue !== null && bValue !== null) return bValue - aValue || a.index - b.index;
         if (aValue !== null) return -1;
         if (bValue !== null) return 1;
         return a.index - b.index;
-      }).map(({ hit }) => hit);
+      });
+      return { hits: visible.map(({ hit }) => hit), hidden, annotated };
     }
     return { hits: visible, hidden, annotated };
   }
 
+  function filterRules(rules = [], query = '', limit = 300) {
+    const source = Array.isArray(rules) ? rules : [];
+    const needle = String(query || '').trim().toLowerCase();
+    const max = Math.max(0, Number(limit) || 0);
+    const items = [];
+    let total = 0;
+    for (const rule of source) {
+      if (needle && !`${rule?.id || ''}\n${rule?.name || ''}`.toLowerCase().includes(needle)) continue;
+      total++;
+      if (items.length < max) items.push(rule);
+    }
+    return { items, total };
+  }
+
+  function crawlRenderSignature(resp = {}) {
+    const results = Array.isArray(resp.results) ? resp.results : [];
+    const failed = Array.isArray(resp.failed) ? resp.failed : [];
+    const last = results[results.length - 1] || {};
+    const lastFailed = failed[failed.length - 1] || {};
+    return [results.length, failed.length, last.url || '', last.status || '', (last.hits || []).length,
+      lastFailed.url || '', lastFailed.error || ''].join('|');
+  }
+
+  function popupResultSnapshot(features = {}, result = {}, at = Date.now()) {
+    const hits = (result.hits || []).slice(0, 100).map((hit) => ({
+      id: hit.id,
+      name: hit.name,
+      confidence: hit.confidence,
+      source: hit.source,
+      evidence: (hit.evidence || []).slice(0, 20).map((item) => ({
+        type: item.type || item.matcher,
+        part: item.part || item.location,
+        detail: String(item.detail ?? item.matched ?? '').slice(0, 500),
+      })),
+    }));
+    return {
+      features: {
+        url: features.url || '', title: features.title || '', status: features.status || 0,
+        headers: { server: features.headers?.server || '' }, favicon: features.favicon || '',
+        faviconHashes: (features.faviconHashes || []).slice(0, 20),
+      },
+      result: { note: result.note, hits, totalHits: (result.hits || []).length },
+      at,
+    };
+  }
+
+  function limitedObject(value, limit = 80, valueLimit = 500) {
+    const out = {};
+    for (const [key, item] of Object.entries(value || {}).slice(0, limit)) {
+      out[String(key).slice(0, 200)] = String(item ?? '').slice(0, valueLimit);
+    }
+    return out;
+  }
+
+  function agentPageSnapshot(features = {}, at = Date.now()) {
+    return {
+      url: features.url || '', title: features.title || '', status: features.status ?? null,
+      headers: limitedObject(features.headers, 50), meta: limitedObject(features.meta, 100),
+      scripts: (features.scripts || []).slice(0, 100).map((value) => String(value).slice(0, 500)),
+      faviconHashes: (features.faviconHashes || []).slice(0, 20),
+      js: limitedObject(features.js, 100),
+      domHits: limitedObject(features.domHits, 100, 20),
+      at,
+    };
+  }
+
   function faviconHashValues(features = {}) {
     return [...new Set((features.faviconHashes || []).filter(Boolean))];
+  }
+
+  // Convert raw bytes to the binary string expected by btoa. TextDecoder('latin1')
+  // is a Windows-1252 alias in browsers, so bytes 0x80-0x9f are not round-tripped.
+  function bytesToBinaryString(bytes) {
+    const input = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes || []);
+    const chunks = [];
+    for (let offset = 0; offset < input.length; offset += 0x8000) {
+      chunks.push(String.fromCharCode(...input.subarray(offset, offset + 0x8000)));
+    }
+    return chunks.join('');
   }
 
   function mergeRules(existingRules = [], rulesToAdd = []) {
@@ -410,7 +487,7 @@
   }
 
   const api = {
-    confidenceValue, filterAndSortHits, faviconHashValues, mergeRules, mergeConvertedRules,
+    confidenceValue, filterAndSortHits, filterRules, crawlRenderSignature, popupResultSnapshot, agentPageSnapshot, faviconHashValues, bytesToBinaryString, mergeRules, mergeConvertedRules,
     normalizeRuleSets, replaceActiveRuleSetRules, extractYaml,
     extractJson, normalizeAiEvidence, normalizeAiTech, techsFromAiReply, ruleByTechName,
     sanitizeRuleDocs, sanitizeRule, sanitizeMatcher,

@@ -21,8 +21,20 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   clearTabIcons(tabId);
   iconJobs.delete(tabId);
   tabNavigationVersions.delete(tabId);
-  chrome.storage.session.remove(`result:${tabId}`);
+  chrome.storage.session.remove([`result:${tabId}`, `popup:${tabId}`, `agent:${tabId}`]);
 });
+
+function popupResultSnapshot(features = {}, result = {}, at = Date.now()) {
+  return GoPainterUtils.popupResultSnapshot(features, result, at);
+}
+
+function popupResultEntry(tabId, features, result, at = Date.now()) {
+  return { [`popup:${tabId}`]: popupResultSnapshot(features, result, at) };
+}
+
+function agentPageEntry(tabId, features, at = Date.now()) {
+  return { [`agent:${tabId}`]: GoPainterUtils.agentPageSnapshot(features, at) };
+}
 
 const ICONS = (state) => ({
   16: `icons/icon16${state}.png`,
@@ -155,7 +167,11 @@ async function flushIcons(tabId) {
   // 哈希和匹配期间可能已经发生导航，再确认一次才提交。
   if (!(await isCurrentTabPage(tabId, stored.features?.url, navigationVersion))) return;
   stored.result = result;
-  await chrome.storage.session.set({ [key]: stored });
+  await chrome.storage.session.set({
+    [key]: stored,
+    ...popupResultEntry(tabId, stored.features, result, stored.at),
+    ...agentPageEntry(tabId, stored.features, stored.at),
+  });
   await recordScanHistory(stored.features, result, 'page');
   await updateIcon(tabId, result.hits?.length || 0);
 }

@@ -9,8 +9,9 @@ async function hashIconUrl(url) {
     const resp = await fetch(url, { signal: ctrl.signal });
     if (!resp.ok) return 0;
     const buf = new Uint8Array(await resp.arrayBuffer());
-    // 逐字节 String.fromCharCode 慢；latin1 解码字节即字符，语义一致，快 4-8x
-    const bin = new TextDecoder('latin1').decode(buf);
+    // btoa 要求每个字符保留原始字节值；不要用 TextDecoder('latin1')，
+    // 浏览器将该标签映射到 Windows-1252，会改写 0x80-0x9f 等字节。
+    const bin = GoPainterUtils.bytesToBinaryString(buf);
     // fofa 标准是 python codecs.encode 出来的 base64，每 76 个字符折行
     const b64 = btoa(bin).replace(/.{76}/g, '$&\n') + '\n';
     await ensureWasm();
@@ -27,10 +28,15 @@ async function hashIconUrl(url) {
 async function hashIcons(urls) {
   const hashes = new Set();
   const unique = [...new Set(urls)];
-  await Promise.all(unique.map(async (u) => {
-    const h = await hashIconUrl(u);
-    if (h) hashes.add(h);
-  }));
+  let next = 0;
+  const worker = async () => {
+    while (next < unique.length) {
+      const u = unique[next++];
+      const h = await hashIconUrl(u);
+      if (h) hashes.add(h);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(6, unique.length) }, worker));
   return [...hashes];
 }
 
@@ -183,11 +189,11 @@ async function appendHashHit(features, result) {
   if (!hashes.length) return result;
   try {
     await ensureWasm();
-    const { customHashes = {} } = await chrome.storage.local.get('customHashes');
+    const customHashesJSON = await getCustomHashesJSON();
     result.hits = result.hits || [];
     const seenNames = new Set(result.hits.map((h) => h.name).filter(Boolean));
     for (const hash of hashes) {
-      const hit = JSON.parse(globalThis.goHashLookup(hash, JSON.stringify(customHashes)));
+      const hit = JSON.parse(globalThis.goHashLookup(hash, customHashesJSON));
       if (hit.name && !seenNames.has(hit.name)) {
         result.hits.push({
           id: `icon-${hash}`,
@@ -202,16 +208,23 @@ async function appendHashHit(features, result) {
   return result;
 }
 
+let customHashesJsonCache = null;
+async function getCustomHashesJSON() {
+  if (customHashesJsonCache === null) {
+    const { customHashes = {} } = await chrome.storage.local.get('customHashes');
+    customHashesJsonCache = JSON.stringify(customHashes);
+  }
+  return customHashesJsonCache;
+}
+
 // 外接脚本：规则匹配之后执行，脚本返回要追加的指纹。
 async function runUserScripts(features, hits) {
-  const { userScripts = [] } = await chrome.storage.local.get('userScripts');
+  const scripts = await getCompiledUserScripts();
   const out = [...(hits || [])];
   const seen = new Set(out.map((h) => h.id || h.name).filter(Boolean));
-  for (const s of userScripts) {
-    if (!s.enabled) continue;
+  for (const s of scripts) {
     try {
-      const fn = new Function('features', 'hits', s.code);
-      const extra = fn(features, out);
+      const extra = s.fn(features, out);
       if (Array.isArray(extra)) {
         for (const h of extra) {
           const key = h?.id || h?.name;
@@ -228,23 +241,47 @@ async function runUserScripts(features, hits) {
   return out;
 }
 
+let compiledUserScriptsCache = null;
+async function getCompiledUserScripts() {
+  if (compiledUserScriptsCache) return compiledUserScriptsCache;
+  const { userScripts = [] } = await chrome.storage.local.get('userScripts');
+  compiledUserScriptsCache = userScripts.filter((s) => s.enabled).flatMap((s) => {
+    try {
+      return [{ id: s.id, name: s.name, fn: new Function('features', 'hits', s.code) }];
+    } catch (e) {
+      console.warn(`用户脚本「${s.name}」编译失败:`, e);
+      return [];
+    }
+  });
+  return compiledUserScriptsCache;
+}
+
 // 规则/哈希库变动 → 自动重扫所有已打开的 tab。
 let rescanTimer = null;
 let probeCache = null; // 规则里的 js/dom 探测清单，规则变了就失效
 
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area !== 'local' || (!changes.rules && !changes.customHashes)) return;
-  probeCache = null;
-  rulesJsonCache = null;
-  matchCache.clear(); // 规则/哈希库变了，重复页面缓存必须失效
+  if (area !== 'local') return;
+  if (changes.userScripts) compiledUserScriptsCache = null;
+  if (changes.customHashes) customHashesJsonCache = null;
+  if (!changes.rules && !changes.customHashes && !changes.userScripts) return;
+  if (changes.rules) {
+    probeCache = null;
+    rulesJsonCache = null;
+    matchCache.clear();
+  }
   clearTimeout(rescanTimer);
   rescanTimer = setTimeout(rescanAllTabs, 500); // 防抖，连续导入合并成一次
 });
 
 async function rescanAllTabs() {
-  const all = await chrome.storage.session.get(null);
-  for (const [key, val] of Object.entries(all)) {
-    if (!key.startsWith('result:') || !val?.features) continue;
+  const tabs = await chrome.tabs.query({});
+  const keys = tabs.filter((tab) => Number.isInteger(tab.id)).map((tab) => `result:${tab.id}`);
+  if (!keys.length) return;
+  const stored = await chrome.storage.session.get(keys);
+  for (const key of keys) {
+    const val = stored[key];
+    if (!val?.features) continue;
     const tabId = Number(key.slice(7));
     const navigationVersion = currentNavigationVersion(tabId);
     try {
@@ -253,7 +290,10 @@ async function rescanAllTabs() {
       const result = await appendHashHit(val.features, await runMatch(val.features));
       result.hits = await runUserScripts(val.features, result.hits);
       if (!(await isCurrentTabPage(tabId, val.features.url, navigationVersion))) continue;
-      await chrome.storage.session.set({ [key]: { ...val, result } });
+      await chrome.storage.session.set({
+        [key]: { ...val, result },
+        ...popupResultEntry(tabId, val.features, result, val.at),
+      });
       await updateIcon(tabId, result.hits?.length || 0);
     } catch { /* 单个 tab 重扫失败就算了 */ }
   }
@@ -276,7 +316,8 @@ async function getProbeList() {
         }
       }
     }
-    probeCache = { paths: [...paths], probes: [...probeMap.values()] };
+    const probes = [...probeMap.values()];
+    probeCache = { paths: [...paths], probes, byId: new Map(probes.map((p) => [p.id, p.sel])) };
   }
   return probeCache;
 }
@@ -300,8 +341,7 @@ function probeId(p) {
 async function matchedDomSelectors(features) {
   if (!features?.domHits) return [];
   const list = await getProbeList();
-  const byId = new Map(list.probes.map((p) => [p.id, p.sel]));
   return Object.keys(features.domHits)
-    .map((id) => byId.get(id))
+    .map((id) => list.byId.get(id))
     .filter(Boolean);
 }

@@ -345,16 +345,21 @@ async function crawlSite(seed, maxPages) {
 // Agent 的每个可见步骤通过长连接实时回传；不包含模型私有推理，只发送工具编排事件。
 chrome.runtime.onConnect.addListener((port) => {
   if (port.name !== 'gopainter-agent') return;
+  const controller = new AbortController();
   let pendingPermission = null;
   let running = false;
-  const answerPermission = (granted) => {
+  const answerPermission = (decision) => {
     if (!pendingPermission) return;
-    pendingPermission(Boolean(granted));
+    pendingPermission(decision);
     pendingPermission = null;
   };
   port.onMessage.addListener(async (msg) => {
+    if (msg?.type === 'keepalive') {
+      port.postMessage({ type: 'keepaliveAck' });
+      return;
+    }
     if (msg?.type === 'permissionResponse') {
-      answerPermission(msg.granted);
+      answerPermission({ granted: Boolean(msg.granted), remember: Boolean(msg.remember) });
       return;
     }
     if (msg?.type !== 'runAgent') return;
@@ -369,6 +374,7 @@ chrome.runtime.onConnect.addListener((port) => {
         tabId: msg.tabId,
         input: msg.input || '',
         grants: [],
+        signal: controller.signal,
         onTrace: (item) => port.postMessage({ type: 'trace', item }),
         onPermissionRequest: (request) => new Promise((resolve) => {
           pendingPermission = resolve;
@@ -382,7 +388,10 @@ chrome.runtime.onConnect.addListener((port) => {
       running = false;
     }
   });
-  port.onDisconnect.addListener(() => answerPermission(false));
+  port.onDisconnect.addListener(() => {
+    controller.abort();
+    answerPermission({ granted: false, remember: false });
+  });
 });
 
 // --- 消息路由 ---
@@ -417,8 +426,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           sendResponse({ ok: true, stale: true });
           break;
         }
+        const at = Date.now();
         await chrome.storage.session.set({
-          [`result:${tabId}`]: { features, result, at: Date.now() },
+          [`result:${tabId}`]: { features, result, at },
+          ...popupResultEntry(tabId, features, result, at),
+          ...agentPageEntry(tabId, features, at),
         });
         await recordScanHistory(features, result, 'page');
         await updateIcon(tabId, result.hits?.length || 0);
@@ -428,6 +440,42 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       case 'getResult': {
         const data = await chrome.storage.session.get(`result:${msg.tabId}`);
         sendResponse(data[`result:${msg.tabId}`] || null);
+        break;
+      }
+      case 'getPopupResult': {
+        const popupKey = `popup:${msg.tabId}`;
+        const data = await chrome.storage.session.get([popupKey, `result:${msg.tabId}`]);
+        let compact = data[popupKey] || null;
+        if (!compact && data[`result:${msg.tabId}`]) {
+          const stored = data[`result:${msg.tabId}`];
+          compact = popupResultSnapshot(stored.features, stored.result, stored.at);
+          await chrome.storage.session.set({ [popupKey]: compact });
+        }
+        sendResponse(compact);
+        break;
+      }
+      case 'getRuleSetOverview': {
+        const stored = await chrome.storage.local.get(['rules', 'ruleSets', 'activeRuleSetId']);
+        const state = GoPainterUtils.normalizeRuleSets(stored.ruleSets, stored.activeRuleSetId, stored.rules);
+        sendResponse({
+          activeRuleSetId: state.activeRuleSetId,
+          ruleSets: state.ruleSets.map((set) => ({ id: set.id, name: set.name, count: set.rules.length })),
+        });
+        break;
+      }
+      case 'getActiveRuleSummaries': {
+        const stored = await chrome.storage.local.get(['rules', 'ruleSets', 'activeRuleSetId']);
+        const state = GoPainterUtils.normalizeRuleSets(stored.ruleSets, stored.activeRuleSetId, stored.rules);
+        sendResponse({ rules: state.rules.map((rule) => ({ id: rule.id, name: rule.name })) });
+        break;
+      }
+      case 'setActiveRuleSet': {
+        const stored = await chrome.storage.local.get(['rules', 'ruleSets', 'activeRuleSetId']);
+        const state = GoPainterUtils.normalizeRuleSets(stored.ruleSets, stored.activeRuleSetId, stored.rules);
+        const next = state.ruleSets.find((set) => set.id === msg.ruleSetId);
+        if (!next) throw new Error('规则集不存在');
+        await chrome.storage.local.set({ ...state, activeRuleSetId: next.id, rules: next.rules });
+        sendResponse({ ok: true });
         break;
       }
       case 'aiIdentify': {
@@ -494,6 +542,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const out = JSON.parse(globalThis.goNormalizeRules(JSON.stringify(clean)));
         if (out.error) throw new Error(out.error);
         if (!out.rules?.length) throw new Error('YAML 里没有有效规则');
+        if (msg.requireSingle && out.rules.length !== 1) throw new Error('Agent 必须交付且只能交付一条完整规则');
+        const expectedId = String(msg.expectedId || '').trim();
+        if (expectedId && out.rules.some((rule) => rule.id !== expectedId)) {
+          throw new Error(`优化规则必须保留原 id：${expectedId}`);
+        }
         const storedRules = await chrome.storage.local.get(['rules', 'ruleSets', 'activeRuleSetId']);
         const state = GoPainterUtils.normalizeRuleSets(storedRules.ruleSets, storedRules.activeRuleSetId, storedRules.rules);
         const existing = state.rules;

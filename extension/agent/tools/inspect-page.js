@@ -9,7 +9,7 @@ GoPainterAgentTools.register({
     return {};
   },
   async execute(_input, context) {
-    const features = await GoPainterAgentPage.getFeatures({}, context);
+    const features = await GoPainterAgentPage.getOverview({}, context);
     return {
       url: features.url || '', title: features.title || '', status: features.status ?? null,
       headers: features.headers || {}, meta: features.meta || {}, scripts: (features.scripts || []).slice(0, 100),

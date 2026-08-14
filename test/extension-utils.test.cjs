@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
-  confidenceValue, filterAndSortHits, faviconHashValues, mergeRules, mergeConvertedRules,
+  confidenceValue, filterAndSortHits, filterRules, crawlRenderSignature, popupResultSnapshot, agentPageSnapshot, faviconHashValues, bytesToBinaryString, mergeRules, mergeConvertedRules,
   normalizeRuleSets, replaceActiveRuleSetRules, extractYaml,
   extractJson, normalizeAiEvidence, normalizeAiTech, techsFromAiReply, ruleByTechName, sanitizeRuleDocs,
   scanHistoryEntry, mergeScanHistory, normalizeHistoryLimit, scanHistoryReport, scanHistoryCsv,
@@ -30,8 +30,40 @@ test('filterAndSortHits preserves unannotated hits and sorts confidence stably',
   assert.deepEqual(hits.map((hit) => hit.id), ['first', 'plain', 'highest', 'too-low', 'same-score']);
 });
 
+test('large UI collections are filtered and compacted without returning the full source', () => {
+  const rules = Array.from({ length: 1000 }, (_, i) => ({ id: `r${i}`, name: `Rule ${i}` }));
+  const filtered = filterRules(rules, 'rule', 300);
+  assert.equal(filtered.total, 1000);
+  assert.equal(filtered.items.length, 300);
+
+  const hits = Array.from({ length: 200 }, (_, i) => ({ id: `h${i}`, name: `Hit ${i}`, evidence: Array(30).fill({ detail: 'x'.repeat(1000) }) }));
+  const snapshot = popupResultSnapshot({ faviconHashes: Array(30).fill(1) }, { hits }, 123);
+  assert.equal(snapshot.result.totalHits, 200);
+  assert.equal(snapshot.result.hits.length, 100);
+  assert.equal(snapshot.result.hits[0].evidence.length, 20);
+  assert.equal(snapshot.result.hits[0].evidence[0].detail.length, 500);
+  assert.equal(snapshot.features.faviconHashes.length, 20);
+  const agent = agentPageSnapshot({
+    url: 'https://example.test', body: 'x'.repeat(200_000),
+    meta: Object.fromEntries(Array.from({ length: 200 }, (_, i) => [`m${i}`, 'x'.repeat(1000)])),
+    js: Object.fromEntries(Array.from({ length: 200 }, (_, i) => [`j${i}`, 'x'.repeat(1000)])),
+  }, 123);
+  assert.equal(agent.body, undefined);
+  assert.equal(Object.keys(agent.meta).length, 100);
+  assert.equal(Object.keys(agent.js).length, 100);
+  assert.equal(agent.meta.m0.length, 500);
+  assert.equal(crawlRenderSignature({ results: [{ url: 'a', status: 200, hits: [] }], failed: [] }), '1|0|a|200|0||');
+});
+
 test('faviconHashValues removes duplicates and empty values', () => {
   assert.deepEqual(faviconHashValues({ faviconHashes: [0, 12, -8, -8] }), [12, -8]);
+});
+
+test('bytesToBinaryString preserves every byte for base64 hashing', () => {
+  const bytes = Uint8Array.from([0x00, 0x7f, 0x80, 0x9f, 0xff]);
+  const binary = bytesToBinaryString(bytes);
+  assert.deepEqual([...binary].map((char) => char.charCodeAt(0)), [...bytes]);
+  assert.equal(btoa(binary), 'AH+An/8=');
 });
 
 test('mergeRules updates duplicate ids while retaining existing rule order', () => {

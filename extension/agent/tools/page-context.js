@@ -8,10 +8,28 @@
   }
   async function getFeatures(input, context) {
     const tabId = checkedTabId(input, context);
-    const stored = await chrome.storage.session.get(`result:${tabId}`);
-    const features = stored[`result:${tabId}`]?.features;
-    if (!features) throw new Error('当前页面尚无特征，请先刷新页面');
-    return features;
+    const load = async () => {
+      const stored = await chrome.storage.session.get(`result:${tabId}`);
+      const features = stored[`result:${tabId}`]?.features;
+      if (!features) throw new Error('当前页面尚无特征，请先刷新页面');
+      return features;
+    };
+    if (!context.cache) return load();
+    context.cache.pageFeatures ||= load();
+    return context.cache.pageFeatures;
+  }
+  async function getOverview(input, context) {
+    const tabId = checkedTabId(input, context);
+    const load = async () => {
+      const key = `agent:${tabId}`;
+      const stored = await chrome.storage.session.get(key);
+      if (stored[key]?.url) return stored[key];
+      const features = await getFeatures({}, context);
+      return GoPainterUtils.agentPageSnapshot ? GoPainterUtils.agentPageSnapshot(features) : features;
+    };
+    if (!context.cache) return load();
+    context.cache.pageOverview ||= load();
+    return context.cache.pageOverview;
   }
   function string(value) { return String(value ?? ''); }
   function limit(value, fallback, max) {
@@ -19,5 +37,5 @@
     if (!Number.isInteger(number) || number < 1 || number > max) throw new Error(`limit 必须是 1-${max} 的整数`);
     return number;
   }
-  globalThis.GoPainterAgentPage = Object.freeze({ getFeatures, string, limit });
+  globalThis.GoPainterAgentPage = Object.freeze({ getFeatures, getOverview, string, limit });
 })();

@@ -1,3 +1,70 @@
+(() => {
+let activeCache = null;
+let activeLoadPromise = null;
+let allCache = null;
+let allLoadPromise = null;
+let cacheVersion = 0;
+
+const yieldToEventLoop = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+async function buildEntries(sets) {
+  const entries = [];
+  const byKey = new Map();
+  let processed = 0;
+  for (const set of sets) {
+    for (const rule of set.rules || []) {
+      const entry = {
+        ruleSetId: set.id, ruleSetName: set.name, rule,
+        searchText: `${rule.id || ''}\n${rule.name || ''}\n${JSON.stringify(rule.matchers || [])}`.toLowerCase(),
+      };
+      entries.push(entry);
+      for (const key of [rule.id, rule.name]) {
+        const normalized = String(key || '').toLowerCase();
+        if (normalized && !byKey.has(normalized)) byKey.set(normalized, entry);
+      }
+      if (++processed % 250 === 0) await yieldToEventLoop();
+    }
+  }
+  return { entries, byKey };
+}
+
+async function loadActiveIndex() {
+  if (activeCache) return activeCache;
+  if (activeLoadPromise) return activeLoadPromise;
+  const version = cacheVersion;
+  activeLoadPromise = (async () => {
+    const stored = await chrome.storage.local.get(['rules', 'activeRuleSetId']);
+    const set = { id: stored.activeRuleSetId || 'default', name: stored.activeRuleSetId || '当前规则集', rules: stored.rules || [] };
+    const built = await buildEntries([set]);
+    if (version === cacheVersion) activeCache = built;
+    return version === cacheVersion ? built : loadActiveIndex();
+  })().finally(() => { activeLoadPromise = null; });
+  return activeLoadPromise;
+}
+
+async function loadAllIndex() {
+  if (allCache) return allCache;
+  if (allLoadPromise) return allLoadPromise;
+  const version = cacheVersion;
+  allLoadPromise = (async () => {
+    const stored = await chrome.storage.local.get(['rules', 'ruleSets', 'activeRuleSetId']);
+    const state = GoPainterUtils.normalizeRuleSets(stored.ruleSets, stored.activeRuleSetId, stored.rules);
+    const built = await buildEntries(state.ruleSets);
+    if (version === cacheVersion) allCache = built;
+    return version === cacheVersion ? built : loadAllIndex();
+  })().finally(() => { allLoadPromise = null; });
+  return allLoadPromise;
+}
+
+chrome.storage.onChanged?.addListener((changes, area) => {
+  if (area !== 'local' || (!changes.rules && !changes.ruleSets && !changes.activeRuleSetId)) return;
+  cacheVersion++;
+  activeCache = null;
+  activeLoadPromise = null;
+  allCache = null;
+  allLoadPromise = null;
+});
+
 GoPainterAgentTools.register({
   name: 'search_rules',
   description: '搜索当前激活规则集或全部命名规则集中的规则 ID、名称和 matcher 内容，避免生成重复规则。',
@@ -10,16 +77,21 @@ GoPainterAgentTools.register({
     if (!['active', 'all'].includes(scope)) throw new Error('scope 只能是 active 或 all');
     return { query, scope, limit: GoPainterAgentPage.limit(input?.limit, 10, 30) };
   },
-  async execute({ query, scope, limit }) {
-    const stored = await chrome.storage.local.get(['rules', 'ruleSets', 'activeRuleSetId']);
-    const state = GoPainterUtils.normalizeRuleSets(stored.ruleSets, stored.activeRuleSetId, stored.rules);
-    const sets = scope === 'all' ? state.ruleSets : state.ruleSets.filter((set) => set.id === state.activeRuleSetId);
+  async execute({ query, scope, limit }, context) {
+    const index = await (scope === 'all' ? loadAllIndex() : loadActiveIndex());
     const matches = [];
-    for (const set of sets) for (const rule of set.rules) {
-      if (!JSON.stringify(rule).toLowerCase().includes(query)) continue;
-      matches.push({ ruleSetId: set.id, ruleSetName: set.name, id: rule.id, name: rule.name, matcherCount: (rule.matchers || []).length });
+    const exact = index.byKey.get(query);
+    const candidates = exact ? [exact, ...index.entries] : index.entries;
+    for (const entry of candidates) {
+      if (entry !== exact && !entry.searchText.includes(query)) continue;
+      if (matches.some((match) => match.id === entry.rule.id && match.ruleSetId === entry.ruleSetId)) continue;
+      const { rule } = entry;
+      const match = { ruleSetId: entry.ruleSetId, ruleSetName: entry.ruleSetName, id: rule.id, name: rule.name, matcherCount: (rule.matchers || []).length };
+      if (entry === exact) match.rule = rule;
+      matches.push(match);
       if (matches.length >= limit) return { query, scope, matches };
     }
     return { query, scope, matches };
   },
 });
+})();
