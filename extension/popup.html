@@ -325,6 +325,22 @@
     </div>
   </div>
 
+  <div class="modal-backdrop" id="rule-conflict-modal" style="z-index:24">
+    <div class="modal rule-conflict-modal" role="dialog" aria-modal="true" aria-labelledby="rule-conflict-title">
+      <h2 id="rule-conflict-title">规则冲突</h2>
+      <p id="rule-conflict-progress" class="modal-description"></p>
+      <div class="rule-diff-legend"><span class="removed">旧规则</span><span class="added">新规则</span></div>
+      <div id="rule-conflict-diff" class="rule-diff"></div>
+      <div class="rule-conflict-actions">
+        <button id="rule-conflict-keep" class="conflict-secondary">保留旧规则</button>
+        <button id="rule-conflict-use" class="conflict-primary">覆盖规则</button>
+        <button id="rule-conflict-keep-all" class="conflict-secondary">剩余全部保留</button>
+        <button id="rule-conflict-use-all" class="conflict-primary">剩余全部覆盖</button>
+        <button id="rule-conflict-cancel" class="ghost">取消</button>
+      </div>
+    </div>
+  </div>
+
   <div class="modal-backdrop" id="agent-modal">
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="agent-modal-title">
       <h2 id="agent-modal-title">Agent</h2>

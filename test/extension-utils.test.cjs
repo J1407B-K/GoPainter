@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
-  confidenceValue, filterAndSortHits, filterRules, crawlRenderSignature, popupResultSnapshot, agentPageSnapshot, faviconHashValues, bytesToBinaryString, mergeRules, mergeConvertedRules,
+  confidenceValue, filterAndSortHits, filterRules, crawlRenderSignature, popupResultSnapshot, agentPageSnapshot, faviconHashValues, bytesToBinaryString, mergeRules, planRuleMerge, diffTextLines, mergeConvertedRules,
   normalizeRuleSets, replaceActiveRuleSetRules, extractYaml, sanitizeImportedRuleDocs,
   extractJson, normalizeAiEvidence, normalizeAiTech, techsFromAiReply, ruleByTechName, sanitizeRuleDocs,
   scanHistoryEntry, mergeScanHistory, normalizeHistoryLimit, scanHistoryReport, scanHistoryCsv,
@@ -69,6 +69,31 @@ test('bytesToBinaryString preserves every byte for base64 hashing', () => {
 test('mergeRules updates duplicate ids while retaining existing rule order', () => {
   const out = mergeRules([{ id: 'a', name: 'old' }, { id: 'b' }], [{ id: 'a', name: 'new' }, { id: 'c' }]);
   assert.deepEqual(out, [{ id: 'a', name: 'new' }, { id: 'b' }, { id: 'c' }]);
+});
+
+test('rule merge planning requires explicit choices for changed duplicate ids', () => {
+  const existing = [{ id: 'same', name: 'Same' }, { id: 'conflict', name: 'Old' }];
+  const incoming = [{ id: 'same', name: 'Same' }, { id: 'conflict', name: 'New' }, { id: 'added', name: 'Added' }];
+  const pending = planRuleMerge(existing, incoming);
+  assert.deepEqual(pending.unresolved.map((item) => item.id), ['conflict']);
+  assert.equal(pending.added, 1);
+  assert.equal(pending.unchanged, 1);
+  assert.deepEqual(pending.rules, [...existing, incoming[2]]);
+
+  const accepted = planRuleMerge(existing, incoming, { conflict: 'incoming' });
+  assert.equal(accepted.replaced, 1);
+  assert.deepEqual(accepted.rules, [existing[0], incoming[1], incoming[2]]);
+  const rejected = planRuleMerge(existing, incoming, { conflict: 'existing' });
+  assert.equal(rejected.kept, 1);
+  assert.deepEqual(rejected.rules, [...existing, incoming[2]]);
+});
+
+test('line diff marks additions and removals while retaining context', () => {
+  assert.deepEqual(diffTextLines('id: old\nname: Same\n', 'id: new\nname: Same\n'), [
+    { type: 'remove', line: 'id: old' },
+    { type: 'add', line: 'id: new' },
+    { type: 'same', line: 'name: Same' },
+  ]);
 });
 
 test('rule sets migrate legacy rules and keep the active rules mirror in sync', () => {

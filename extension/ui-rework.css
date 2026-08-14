@@ -357,6 +357,23 @@ html.gp-popup .rule-actions,
 html.gp-popup .modal-actions { display: flex; gap: 7px; margin-top: 10px; }
 html.gp-popup .rule-actions button,
 html.gp-popup .modal-actions button { flex: 1; }
+html.gp-popup .rule-conflict-modal { width: min(520px, calc(100vw - 24px)); }
+html.gp-popup .rule-conflict-modal h2 { overflow-wrap: anywhere; }
+html.gp-popup .rule-diff-legend { display: flex; gap: 12px; margin: 8px 0 5px; font: 10px var(--gp-mono); }
+html.gp-popup .rule-diff-legend .removed { color: #a82f3b; }
+html.gp-popup .rule-diff-legend .added { color: #177245; }
+html.gp-popup .rule-diff { max-height: 310px; overflow: auto; padding: 7px 0; background: #101820; border: 1px solid #34414d; border-radius: 6px; font: 10px/1.5 var(--gp-mono); }
+html.gp-popup .rule-diff-line { display: block; min-height: 15px; padding: 0 8px; white-space: pre-wrap; overflow-wrap: anywhere; }
+html.gp-popup .rule-diff-line.remove { color: #fecaca; background: rgba(185, 28, 28, .22); }
+html.gp-popup .rule-diff-line.add { color: #bbf7d0; background: rgba(21, 128, 61, .22); }
+html.gp-popup .rule-diff-line.same { color: #94a3b8; }
+html.gp-popup .rule-conflict-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-top: 10px; }
+html.gp-popup .rule-conflict-actions button { margin: 0; }
+html.gp-popup .rule-conflict-actions .conflict-primary { color: #fff; background: var(--gp-accent); border-color: var(--gp-accent); }
+html.gp-popup .rule-conflict-actions .conflict-primary:hover:not(:disabled) { color: #fff; background: var(--gp-accent-hover); border-color: var(--gp-accent-hover); }
+html.gp-popup .rule-conflict-actions .conflict-secondary { color: var(--gp-text-2); background: #eef1f4; border-color: #cfd6dd; }
+html.gp-popup .rule-conflict-actions .conflict-secondary:hover:not(:disabled) { color: var(--gp-text); background: #e3e8ed; border-color: #b9c2cb; }
+html.gp-popup .rule-conflict-actions #rule-conflict-cancel { grid-column: 1 / -1; }
 html.gp-popup #agent-permission-modal .modal-actions { display: grid; grid-template-columns: 1fr 1fr; }
 html.gp-popup #agent-permission-session { grid-column: 1 / -1; grid-row: 1; }
 html.gp-popup #ai-raw,
@@ -534,6 +551,20 @@ html.gp-options .ruleset-enabled-list { display: grid; gap: 6px; margin-top: 7px
 html.gp-options .ruleset-enabled-item { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px; margin: 0; }
 html.gp-options .ruleset-enabled-item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 html.gp-options .ruleset-enabled-item small { color: var(--gp-text-3); font: 11px var(--gp-mono); }
+html.gp-options .rule-data-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+html.gp-options .rule-data-actions button { margin-top: 10px; }
+html.gp-options .rule-conflict-dialog { width: min(820px, 94vw); }
+html.gp-options .rule-diff-legend { display: flex; gap: 14px; margin-bottom: 7px; font: 11px var(--gp-mono); }
+html.gp-options .rule-diff-legend .removed { color: #a82f3b; }
+html.gp-options .rule-diff-legend .added { color: #177245; }
+html.gp-options .rule-diff { min-height: 180px; max-height: 52vh; overflow: auto; padding: 8px 0; background: #fbfcfd; border: 1px solid var(--gp-line); border-radius: 6px; font: 11px/1.55 var(--gp-mono); }
+html.gp-options .rule-diff-line { display: block; min-height: 17px; padding: 0 10px; white-space: pre-wrap; overflow-wrap: anywhere; }
+html.gp-options .rule-diff-line.remove { color: #8f2732; background: #fff0f1; }
+html.gp-options .rule-diff-line.add { color: #12633b; background: #eaf8f0; }
+html.gp-options .rule-diff-line.same { color: var(--gp-text-3); }
+html.gp-options .rule-conflict-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
+html.gp-options .rule-conflict-actions button { margin: 0; }
+html.gp-options .rule-conflict-actions .danger { grid-column: 1 / -1; }
 html.gp-options .file-drop {
   display: flex;
   align-items: center;
@@ -746,6 +777,9 @@ html.gp-sidepanel .empty { padding: 28px 0; color: var(--gp-text-3); text-align:
   html.gp-options .ruleset-actions { grid-template-columns: 1fr 1fr; }
   html.gp-options .ruleset-actions input { grid-column: 1 / -1; }
   html.gp-options .ruleset-actions button { width: 100%; }
+  html.gp-options .rule-data-actions { display: grid; grid-template-columns: 1fr 1fr; }
+  html.gp-options .rule-data-actions .primary { grid-column: 1 / -1; }
+  html.gp-options .rule-data-actions button { width: 100%; margin-top: 0; }
 }
 
 @media (prefers-reduced-motion: reduce) {

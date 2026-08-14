@@ -246,8 +246,11 @@
         <input type="file" id="file-input" accept=".yaml,.yml" multiple>
         选择 YAML 文件导入（支持多选）
       </label>
-      <button id="import-builtin" class="primary">导入内置规则库（130 条常用指纹）</button>
-      <button id="clear-rules" class="danger">清空规则</button>
+      <div class="rule-data-actions">
+        <button id="import-builtin" class="primary">导入内置规则库</button>
+        <button id="ruleset-export">导出当前集</button>
+        <button id="clear-rules" class="danger">清空规则</button>
+      </div>
       <div id="rule-stats" class="muted"></div>
       <input id="rule-filter" type="search" placeholder="筛选规则 ID 或名称" autocomplete="off">
       <div id="rule-list"></div>
@@ -261,6 +264,24 @@
         </div>
         <pre id="rule-modal-body"></pre>
         <button id="rule-copy" class="primary">复制 YAML</button>
+      </div>
+    </div>
+
+    <div id="rule-conflict-modal" class="rule-modal-mask">
+      <div class="rule-modal rule-conflict-dialog" role="dialog" aria-modal="true" aria-labelledby="rule-conflict-title">
+        <div class="rule-modal-head">
+          <span class="t" id="rule-conflict-title">规则冲突</span>
+          <span id="rule-conflict-progress" class="muted"></span>
+        </div>
+        <div class="rule-diff-legend"><span class="removed">旧规则</span><span class="added">新规则</span></div>
+        <div id="rule-conflict-diff" class="rule-diff"></div>
+        <div class="rule-conflict-actions">
+          <button id="rule-conflict-keep">保留旧规则</button>
+          <button id="rule-conflict-use" class="primary">覆盖规则</button>
+          <button id="rule-conflict-keep-all">剩余全部保留</button>
+          <button id="rule-conflict-use-all" class="primary">剩余全部覆盖</button>
+          <button id="rule-conflict-cancel" class="danger">取消导入</button>
+        </div>
       </div>
     </div>
 

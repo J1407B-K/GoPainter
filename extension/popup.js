@@ -35,6 +35,10 @@ const agentPermissionDescription = document.getElementById('agent-permission-des
 const agentPermissionAllow = document.getElementById('agent-permission-allow');
 const agentPermissionSession = document.getElementById('agent-permission-session');
 const agentPermissionDeny = document.getElementById('agent-permission-deny');
+const ruleConflictModal = document.getElementById('rule-conflict-modal');
+const ruleConflictTitle = document.getElementById('rule-conflict-title');
+const ruleConflictProgress = document.getElementById('rule-conflict-progress');
+const ruleConflictDiff = document.getElementById('rule-conflict-diff');
 
 let currentTabId = null;
 let currentTabUrl = '';
@@ -130,6 +134,78 @@ function setBusy(el, busy, busyLabel) {
     label.textContent = busyLabel;
   } else if (label.dataset.orig) {
     label.textContent = label.dataset.orig;
+  }
+}
+
+let cancelRuleConflictDialog = null;
+
+function renderPopupRuleDiff(existingYaml, incomingYaml) {
+  const diff = GoPainterUtils.diffTextLines(existingYaml, incomingYaml);
+  ruleConflictDiff.replaceChildren(...diff.map((item) => {
+    const line = document.createElement('span');
+    line.className = `rule-diff-line ${item.type}`;
+    line.textContent = `${item.type === 'remove' ? '-' : item.type === 'add' ? '+' : ' '} ${item.line}`;
+    return line;
+  }));
+  ruleConflictDiff.scrollTop = 0;
+}
+
+function resolvePopupRuleConflicts(conflicts) {
+  if (!conflicts.length) return Promise.resolve({});
+  return new Promise((resolve) => {
+    const resolutions = {};
+    let index = 0;
+    const finish = (result) => {
+      ruleConflictModal.style.display = 'none';
+      cancelRuleConflictDialog = null;
+      resolve(result);
+    };
+    const render = () => {
+      const conflict = conflicts[index];
+      ruleConflictTitle.textContent = `规则冲突：${conflict.name}（${conflict.id}）`;
+      ruleConflictProgress.textContent = `${index + 1} / ${conflicts.length}`;
+      renderPopupRuleDiff(conflict.existingYaml, conflict.incomingYaml);
+      const hasRemaining = index < conflicts.length - 1;
+      document.getElementById('rule-conflict-keep-all').style.display = hasRemaining ? '' : 'none';
+      document.getElementById('rule-conflict-use-all').style.display = hasRemaining ? '' : 'none';
+    };
+    const choose = (choice, all) => {
+      if (all) {
+        for (; index < conflicts.length; index++) resolutions[conflicts[index].id] = choice;
+        finish(resolutions);
+        return;
+      }
+      resolutions[conflicts[index].id] = choice;
+      if (++index >= conflicts.length) finish(resolutions);
+      else render();
+    };
+    document.getElementById('rule-conflict-keep').onclick = () => choose('existing', false);
+    document.getElementById('rule-conflict-use').onclick = () => choose('incoming', false);
+    document.getElementById('rule-conflict-keep-all').onclick = () => choose('existing', true);
+    document.getElementById('rule-conflict-use-all').onclick = () => choose('incoming', true);
+    document.getElementById('rule-conflict-cancel').onclick = () => finish(null);
+    cancelRuleConflictDialog = () => finish(null);
+    ruleConflictModal.style.display = 'flex';
+    render();
+  });
+}
+
+ruleConflictModal.addEventListener('click', (event) => {
+  if (event.target === ruleConflictModal && cancelRuleConflictDialog) cancelRuleConflictDialog();
+});
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && cancelRuleConflictDialog) cancelRuleConflictDialog();
+});
+
+async function addRuleWithResolution(payload) {
+  const resolutions = {};
+  while (true) {
+    const response = await chrome.runtime.sendMessage({ ...payload, resolutions });
+    if (!response?.ok) throw new Error(response?.error || '规则入库失败');
+    if (!response.needsResolution) return response;
+    const choices = await resolvePopupRuleConflicts(response.conflicts || []);
+    if (!choices) return { ok: true, cancelled: true };
+    Object.assign(resolutions, choices);
   }
 }
 
@@ -569,12 +645,20 @@ agentApplyRule.addEventListener('click', async () => {
   if (!pendingAgentRuleYaml) return;
   agentApplyRule.disabled = true;
   try {
-    const response = await chrome.runtime.sendMessage({
+    const response = await addRuleWithResolution({
       type: 'addRule', yaml: pendingAgentRuleYaml, requireSingle: true,
       expectedId: pendingAgentRuleId || undefined,
     });
-    if (!response?.ok) throw new Error(response?.error || '规则入库失败');
-    agentApplyRule.textContent = pendingAgentRuleId ? '已覆盖入库' : '已导入';
+    if (response.cancelled) {
+      agentApplyRule.disabled = false;
+      showAgentMessage('已取消规则入库。');
+      return;
+    }
+    agentApplyRule.textContent = response.replaced
+      ? '已覆盖入库'
+      : response.kept
+        ? '已保留旧规则'
+        : response.unchanged ? '规则无变化' : '已导入';
     pendingAgentRuleYaml = '';
     await loadActiveRuleSummaries(true);
   } catch (error) {
@@ -656,24 +740,32 @@ ruleGenerate.addEventListener('click', async () => {
   await generateRule(name);
 });
 
-// 保存：两条流都走 addRule（同 id 覆盖），成功后刷新规则库并重扫当前页
+// 保存：两条流都走 addRule；同 id 内容变化时先展示 diff，由用户决定是否覆盖。
 ruleSave.addEventListener('click', async () => {
   ruleSave.disabled = true;
   try {
-    const resp = await chrome.runtime.sendMessage({ type: 'addRule', yaml: ruleYaml.textContent });
-    if (!resp.ok) throw new Error(resp.error);
+    const resp = await addRuleWithResolution({ type: 'addRule', yaml: ruleYaml.textContent });
+    if (resp.cancelled) {
+      showAiMessage('已取消规则入库');
+      return;
+    }
     ruleArea.style.display = 'none';
-    const msg = ruleMode === 'optimize' && optimizeRuleId
-      ? `已覆盖规则 ${optimizeRuleId}，刷新页面即可生效`
-      : `已加入 ${resp.added} 条规则，刷新页面即可生效`;
+    const msg = resp.replaced
+      ? `已覆盖 ${resp.replaced} 条规则，刷新页面即可生效`
+      : resp.kept
+        ? '已保留旧规则，没有写入新版本'
+        : resp.unchanged
+          ? '规则内容没有变化'
+          : `已加入 ${resp.added} 条规则，刷新页面即可生效`;
     showAiMessage(msg);
-    // 规则变了：刷新快照，并重取当前结果让新规则即时反映
-    rulesCache = [];
-    rulesLookup.clear();
-    const data = await chrome.runtime.sendMessage({ type: 'getPopupResult', tabId: currentTabId });
-    if (data) {
-      currentData = data;
-      render(data);
+    if (resp.added || resp.replaced) {
+      rulesCache = [];
+      rulesLookup.clear();
+      const data = await chrome.runtime.sendMessage({ type: 'getPopupResult', tabId: currentTabId });
+      if (data) {
+        currentData = data;
+        render(data);
+      }
     }
   } catch (e) {
     showAiMessage(`入库失败：${e.message}`);

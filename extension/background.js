@@ -526,8 +526,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const data = await chrome.storage.session.get(`result:${msg.tabId}`);
         const features = data[`result:${msg.tabId}`]?.features;
         if (!features) throw new Error('没有当前页面的特征，请先刷新页面');
-        const { rules = [] } = await chrome.storage.local.get('rules');
-        const rule = rules.find((r) => r.id === msg.ruleId);
+        const stored = await chrome.storage.local.get(['rules', 'ruleSets', 'activeRuleSetId', 'enabledRuleSetIds']);
+        const state = GoPainterUtils.normalizeRuleSets(
+          stored.ruleSets, stored.activeRuleSetId, stored.rules, stored.enabledRuleSetIds
+        );
+        const activeRules = state.ruleSets.find((set) => set.id === state.activeRuleSetId)?.rules || [];
+        const rule = activeRules.find((r) => r.id === msg.ruleId);
         if (!rule) throw new Error(`规则 ${msg.ruleId} 不存在`);
         const extra = `页面特征已给出。\n当前规则(YAML)：\n${jsyaml.dump(rule)}\n\n请基于该页面特征优化此规则，保持 id 不变，只输出优化后的 YAML。`;
         const yaml = extractYaml(await callAI(await customPrompt('optimize'), features, extra));
@@ -545,7 +549,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         break;
       }
       case 'addRule': {
-        // popup 把 AI 给的 YAML 发回来，解析入库（同 id 覆盖）。
+        // popup 把 AI 给的 YAML 发回来；同 id 内容变化时先返回冲突，确认后才原子写入。
         // 先清洗再走 wasm：AI 输出常见标量/浮点/单对象偏差，goNormalizeRules 一处不对就丢整条规则
         const docs = [];
         jsyaml.loadAll(msg.yaml, (d) => docs.push(d));
@@ -565,10 +569,30 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           storedRules.ruleSets, storedRules.activeRuleSetId, storedRules.rules, storedRules.enabledRuleSetIds
         );
         const existing = state.ruleSets.find((set) => set.id === state.activeRuleSetId)?.rules || [];
-        const byId = new Map(existing.map((r) => [r.id, r]));
-        for (const r of out.rules) byId.set(r.id, r);
-        await chrome.storage.local.set(GoPainterUtils.replaceActiveRuleSetRules(state, [...byId.values()]));
-        sendResponse({ ok: true, added: out.rules.length });
+        const merge = GoPainterUtils.planRuleMerge(existing, out.rules, msg.resolutions || {});
+        if (merge.unresolved.length) {
+          sendResponse({
+            ok: true,
+            needsResolution: true,
+            conflicts: merge.unresolved.map((conflict) => ({
+              id: conflict.id,
+              name: conflict.name,
+              existingYaml: jsyaml.dump(conflict.existing, { noRefs: true, lineWidth: -1 }),
+              incomingYaml: jsyaml.dump(conflict.incoming, { noRefs: true, lineWidth: -1 }),
+            })),
+          });
+          break;
+        }
+        if (merge.added || merge.replaced) {
+          await chrome.storage.local.set(GoPainterUtils.replaceActiveRuleSetRules(state, merge.rules));
+        }
+        sendResponse({
+          ok: true,
+          added: merge.added,
+          replaced: merge.replaced,
+          kept: merge.kept,
+          unchanged: merge.unchanged,
+        });
         break;
       }
       case 'normalizeRules': {

@@ -8,14 +8,14 @@ GoPainter provides the detection and crawling engine. Rules can come from your o
 
 While you browse, GoPainter fingerprints the current site automatically and surfaces hits in real time: the toolbar icon stays gray when nothing matches, and turns colored with a badge showing the hit count when it does.
 
-## Current release: v0.6.1
+## Current release: v0.6.2
 
-This release focuses on interaction latency: bounded page serialization, compact popup and Agent snapshots, capped UI rendering, cached user scripts and hash data, and an indexed Agent rule search. In the current benchmark, three searches across 50,000 rules take about **1.56 ms** instead of 43.23 ms; an end-to-end 20,000-rule Agent run kept popup heartbeat delay below **37.1 ms**. See the [current performance record](BENCHMARK.md) for workloads and reproduction commands.
+This release expands rule-set management: multiple sets can participate in matching, editing stays scoped to one selected set, and conflicting imports or AI updates require an explicit YAML diff decision before replacement. It also fixes nuclei template imports, moves large rule-set activation work off the settings-page main thread, and adds YAML export for the current editing set. The latest published performance measurements remain available in the [performance record](BENCHMARK.md).
 
 ## Features
 
 - **YAML fingerprint rules** — word / regex / status / icon_hash / dsl / js / dom matchers, with `and`/`or` combinations and `negative` inversion
-- **Composable rule sets** — keep imports separated, choose an editing target, and enable any combination of rule sets for matching
+- **Composable rule sets** — keep imports separated, enable any combination for matching, and review a YAML diff before replacing a conflicting rule
 - **nuclei template compatibility** — imports automatically extract the HTTP matchers subset, so the large community template library is directly usable
 - **Third-party rule sources** — Wappalyzer / EHole / nuclei-templates can be pulled and converted in one click; whether to download is your choice, and their complete libraries are not vendored into the repository
 - **Performance-focused runtime** — Go WASM + Google RE2 matching, bounded page/UI data paths, and indexed Agent rule search

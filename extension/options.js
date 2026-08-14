@@ -49,6 +49,8 @@ function renderRuleSetControls(state) {
   ).join('');
   select.value = state.activeRuleSetId;
   document.getElementById('ruleset-delete').disabled = state.ruleSets.length <= 1;
+  const active = state.ruleSets.find((set) => set.id === state.activeRuleSetId);
+  document.getElementById('ruleset-export').disabled = !active?.rules.length;
   const enabled = new Set(state.enabledRuleSetIds);
   document.getElementById('ruleset-enabled-list').innerHTML = state.ruleSets.map((set) => `
     <label class="ruleset-enabled-item">
@@ -109,6 +111,75 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') ruleModal.classList.remove('open');
 });
 
+const conflictModal = document.getElementById('rule-conflict-modal');
+const conflictTitle = document.getElementById('rule-conflict-title');
+const conflictProgress = document.getElementById('rule-conflict-progress');
+const conflictDiff = document.getElementById('rule-conflict-diff');
+let cancelConflictDialog = null;
+
+function renderRuleDiff(existing, incoming) {
+  const options = { noRefs: true, lineWidth: -1 };
+  const diff = GoPainterUtils.diffTextLines(jsyaml.dump(existing, options), jsyaml.dump(incoming, options));
+  conflictDiff.replaceChildren(...diff.map((item) => {
+    const line = document.createElement('span');
+    line.className = `rule-diff-line ${item.type}`;
+    line.textContent = `${item.type === 'remove' ? '-' : item.type === 'add' ? '+' : ' '} ${item.line}`;
+    return line;
+  }));
+  conflictDiff.scrollTop = 0;
+}
+
+function resolveRuleConflicts(conflicts) {
+  if (!conflicts.length) return Promise.resolve({});
+  return new Promise((resolve) => {
+    const resolutions = {};
+    let index = 0;
+    const finish = (result) => {
+      conflictModal.classList.remove('open');
+      cancelConflictDialog = null;
+      resolve(result);
+    };
+    const render = () => {
+      const conflict = conflicts[index];
+      conflictTitle.textContent = `规则冲突：${conflict.name}（${conflict.id}）`;
+      conflictProgress.textContent = `${index + 1} / ${conflicts.length}`;
+      renderRuleDiff(conflict.existing, conflict.incoming);
+      const hasRemaining = index < conflicts.length - 1;
+      document.getElementById('rule-conflict-keep-all').style.display = hasRemaining ? '' : 'none';
+      document.getElementById('rule-conflict-use-all').style.display = hasRemaining ? '' : 'none';
+    };
+    const choose = (choice, all) => {
+      if (all) {
+        for (; index < conflicts.length; index++) resolutions[conflicts[index].id] = choice;
+        finish(resolutions);
+        return;
+      }
+      resolutions[conflicts[index].id] = choice;
+      if (++index >= conflicts.length) finish(resolutions);
+      else render();
+    };
+    document.getElementById('rule-conflict-keep').onclick = () => choose('existing', false);
+    document.getElementById('rule-conflict-use').onclick = () => choose('incoming', false);
+    document.getElementById('rule-conflict-keep-all').onclick = () => choose('existing', true);
+    document.getElementById('rule-conflict-use-all').onclick = () => choose('incoming', true);
+    document.getElementById('rule-conflict-cancel').onclick = () => finish(null);
+    cancelConflictDialog = () => finish(null);
+    conflictModal.classList.add('open');
+    render();
+  });
+}
+
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && cancelConflictDialog) cancelConflictDialog();
+});
+
+async function resolveIncomingRules(existingRules, incomingRules) {
+  const pending = GoPainterUtils.planRuleMerge(existingRules, incomingRules);
+  if (!pending.unresolved.length) return pending;
+  const resolutions = await resolveRuleConflicts(pending.unresolved);
+  return resolutions ? GoPainterUtils.planRuleMerge(existingRules, incomingRules, resolutions) : null;
+}
+
 document.getElementById('rule-copy').addEventListener('click', async () => {
   try {
     await navigator.clipboard.writeText(currentRuleYaml);
@@ -135,8 +206,8 @@ document.getElementById('file-input').addEventListener('change', async (e) => {
   const files = [...e.target.files];
   if (!files.length) return;
   const rules = await loadRules();
-  const byId = new Map(rules.map((r) => [r.id, r]));
-  let added = 0, failed = [];
+  const incomingRules = [];
+  const failed = [];
 
   for (const f of files) {
     try {
@@ -150,19 +221,23 @@ document.getElementById('file-input').addEventListener('change', async (e) => {
       const docs = [];
       jsyaml.loadAll(text, (d) => docs.push(d));
       const normalized = await normalizeImportedDocs(docs);
-      for (const rule of normalized) {
-        byId.set(rule.id, rule); // 同 id 覆盖，便于更新规则
-        added++;
-      }
+      incomingRules.push(...normalized);
     } catch (err) {
       failed.push(`${f.name}: ${err.message}`);
     }
   }
 
-  await saveActiveRules([...byId.values()]);
+  const result = await resolveIncomingRules(rules, incomingRules);
+  if (!result) {
+    showMsg('已取消导入，没有修改当前编辑集');
+    e.target.value = '';
+    return;
+  }
+  if (result.added || result.replaced) await saveActiveRules(result.rules);
   await refreshRuleList();
   showMsg(
-    `导入完成：新增/更新 ${added} 条规则` + (failed.length ? `；失败 ${failed.length} 个文件` : ''),
+    `导入完成：新增 ${result.added}，替换 ${result.replaced}，保留旧版 ${result.kept}，未变化 ${result.unchanged}`
+      + (failed.length ? `；失败：${failed.slice(0, 3).join('；')}${failed.length > 3 ? `；另有 ${failed.length - 3} 个` : ''}` : ''),
     failed.length > 0
   );
   if (failed.length) console.warn('导入失败:', failed);
@@ -172,9 +247,11 @@ document.getElementById('file-input').addEventListener('change', async (e) => {
 // 规则导入（文件或内置库）共用的合并逻辑
 async function importRules(rulesToAdd) {
   const rules = await loadRules();
-  await saveActiveRules(GoPainterUtils.mergeRules(rules, rulesToAdd));
+  const result = await resolveIncomingRules(rules, rulesToAdd);
+  if (!result) return null;
+  if (result.added || result.replaced) await saveActiveRules(result.rules);
   await refreshRuleList();
-  return rulesToAdd.length;
+  return result;
 }
 
 document.getElementById('import-builtin').addEventListener('click', async (e) => {
@@ -185,13 +262,24 @@ document.getElementById('import-builtin').addEventListener('click', async (e) =>
     const docs = [];
     jsyaml.loadAll(text, (d) => docs.push(d));
     const rules = await normalizeImportedDocs(docs);
-    const n = await importRules(rules);
-    showMsg(`内置规则库导入完成：${n} 条`);
+    const result = await importRules(rules);
+    if (!result) return showMsg('已取消导入内置规则库');
+    showMsg(`内置规则库导入完成：新增 ${result.added}，替换 ${result.replaced}，保留旧版 ${result.kept}`);
   } catch (err) {
     showMsg(`内置规则导入失败：${err.message}`, true);
   } finally {
     btn.disabled = false;
   }
+});
+
+document.getElementById('ruleset-export').addEventListener('click', async () => {
+  const state = await loadRuleSetState();
+  const active = state.ruleSets.find((set) => set.id === state.activeRuleSetId);
+  if (!active?.rules.length) return showMsg('当前编辑集没有可导出的规则', true);
+  const filename = String(active.name || active.id || 'rules')
+    .trim().replace(/[^a-zA-Z0-9\u4e00-\u9fff_-]+/g, '-').replace(/^-+|-+$/g, '') || 'rules';
+  downloadReport(`${filename}.yaml`, jsyaml.dump(active.rules, { noRefs: true, lineWidth: -1 }), 'application/yaml;charset=utf-8');
+  showMsg(`已导出「${active.name}」的 ${active.rules.length} 条规则`);
 });
 
 // --- 第三方规则源：用户浏览器实时拉取 + wasm 转换，数据不随扩展分发 ---
@@ -323,9 +411,15 @@ document.querySelectorAll('[data-source]').forEach((btn) => {
     btn.textContent = '拉取中…';
     try {
       const rules = await RULE_SOURCES[source]();
-      const n = await importRules(rules);
-      sourceStatus(`${SOURCE_LABELS[source] || source}：导入完成，${n} 条规则（同 id 已覆盖）`);
-      showMsg(`导入完成：${n} 条规则（同 id 已覆盖）`);
+      const result = await importRules(rules);
+      if (!result) {
+        sourceStatus(`${SOURCE_LABELS[source] || source}：已取消，没有修改当前编辑集`);
+        showMsg('已取消导入');
+        return;
+      }
+      const summary = `新增 ${result.added}，替换 ${result.replaced}，保留旧版 ${result.kept}，未变化 ${result.unchanged}`;
+      sourceStatus(`${SOURCE_LABELS[source] || source}：导入完成，${summary}`);
+      showMsg(`导入完成：${summary}`);
     } catch (err) {
       sourceStatus(`${SOURCE_LABELS[source] || source}：失败：${err.message}`, true);
       showMsg(`拉取失败：${err.message}`, true);

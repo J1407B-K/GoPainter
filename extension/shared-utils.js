@@ -126,6 +126,83 @@
     return [...byId.values()];
   }
 
+  function planRuleMerge(existingRules = [], incomingRules = [], resolutions = {}) {
+    const existing = Array.isArray(existingRules) ? existingRules : [];
+    const incomingById = new Map();
+    for (const rule of Array.isArray(incomingRules) ? incomingRules : []) {
+      if (rule?.id) incomingById.set(rule.id, rule);
+    }
+    const existingById = new Map(existing.map((rule) => [rule.id, rule]));
+    const merged = new Map(existingById);
+    const conflicts = [];
+    const unresolved = [];
+    let added = 0, replaced = 0, kept = 0, unchanged = 0;
+    const hasResolution = (id) => resolutions instanceof Map
+      ? resolutions.has(id)
+      : Object.prototype.hasOwnProperty.call(resolutions || {}, id);
+    const resolutionFor = (id) => resolutions instanceof Map ? resolutions.get(id) : resolutions?.[id];
+
+    for (const incoming of incomingById.values()) {
+      const current = existingById.get(incoming.id);
+      if (!current) {
+        merged.set(incoming.id, incoming);
+        added++;
+        continue;
+      }
+      if (JSON.stringify(current) === JSON.stringify(incoming)) {
+        unchanged++;
+        continue;
+      }
+      const conflict = { id: incoming.id, name: incoming.name || current.name || incoming.id, existing: current, incoming };
+      conflicts.push(conflict);
+      if (!hasResolution(incoming.id)) {
+        unresolved.push(conflict);
+      } else if (resolutionFor(incoming.id) === 'incoming') {
+        merged.set(incoming.id, incoming);
+        replaced++;
+      } else {
+        kept++;
+      }
+    }
+    return { rules: [...merged.values()], conflicts, unresolved, added, replaced, kept, unchanged };
+  }
+
+  function diffTextLines(before = '', after = '') {
+    const lines = (text) => {
+      const normalized = String(text).replace(/\r\n/g, '\n').replace(/\n$/, '');
+      return normalized ? normalized.split('\n') : [];
+    };
+    const oldLines = lines(before);
+    const newLines = lines(after);
+    if (oldLines.length * newLines.length > 250000) {
+      return [
+        ...oldLines.map((line) => ({ type: 'remove', line })),
+        ...newLines.map((line) => ({ type: 'add', line })),
+      ];
+    }
+    const table = Array.from({ length: oldLines.length + 1 }, () => new Uint32Array(newLines.length + 1));
+    for (let i = oldLines.length - 1; i >= 0; i--) {
+      for (let j = newLines.length - 1; j >= 0; j--) {
+        table[i][j] = oldLines[i] === newLines[j]
+          ? table[i + 1][j + 1] + 1
+          : Math.max(table[i + 1][j], table[i][j + 1]);
+      }
+    }
+    const diff = [];
+    let i = 0, j = 0;
+    while (i < oldLines.length || j < newLines.length) {
+      if (i < oldLines.length && j < newLines.length && oldLines[i] === newLines[j]) {
+        diff.push({ type: 'same', line: oldLines[i++] });
+        j++;
+      } else if (j < newLines.length && (i === oldLines.length || table[i][j + 1] > table[i + 1][j])) {
+        diff.push({ type: 'add', line: newLines[j++] });
+      } else {
+        diff.push({ type: 'remove', line: oldLines[i++] });
+      }
+    }
+    return diff;
+  }
+
   function enabledRulesForSets(ruleSets, enabledRuleSetIds) {
     const enabled = new Set(enabledRuleSetIds);
     const byId = new Map();
@@ -526,7 +603,7 @@
   }
 
   const api = {
-    confidenceValue, filterAndSortHits, filterRules, crawlRenderSignature, popupResultSnapshot, agentPageSnapshot, faviconHashValues, bytesToBinaryString, mergeRules, mergeConvertedRules,
+    confidenceValue, filterAndSortHits, filterRules, crawlRenderSignature, popupResultSnapshot, agentPageSnapshot, faviconHashValues, bytesToBinaryString, mergeRules, planRuleMerge, diffTextLines, mergeConvertedRules,
     normalizeRuleSets, replaceActiveRuleSetRules, extractYaml,
     extractJson, normalizeAiEvidence, normalizeAiTech, techsFromAiReply, ruleByTechName,
     sanitizeRuleDocs, sanitizeImportedRuleDocs, sanitizeRule, sanitizeMatcher,
