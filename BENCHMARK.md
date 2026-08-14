@@ -36,12 +36,32 @@ rule-search index. In a Chromium end-to-end run with 20,000 rules, one model rou
 requested `inspect_page`, three `search_rules` calls, and `search_page_js` before
 synthesis. A 10 ms popup heartbeat observed a maximum delay of 37.1 ms throughout.
 
-## v0.5.1 — upgrade the final regex verifier
+### Reproduce v0.6.1
+
+```bash
+make bench-js                         # JS, popup, collection, and Agent search paths
+node scripts/bench-cold.mjs 8000 12  # matcher cold-start curve
+node scripts/bench-steady.mjs 8000   # matcher steady-state distribution
+node scripts/bench-scan.mjs 8000 200 # continuous 200-page distribution
+make test                             # Go, JS, and WASM smoke coverage
+```
+
+## Version history
+
+<details>
+<summary><strong>v0.5.1 - migrate from Go regexp to embedded Google RE2</strong></summary>
+
+Historical measurements for migrating the final verifier from Go's standard-library
+`regexp` to `wasilibs/go-re2`. The main runtime had already moved to standard Go
+WASM in v0.5.0; v0.5.1 changes the regex verifier, not the WASM toolchain.
+
+## v0.5.1 — migrate from Go regexp to embedded Google RE2
 
 v0.5.0 made the planner effective: AST + AC eliminates nearly every regex that can
-be proved irrelevant. v0.5.1 upgrades the small set that remains. The final verifier
-now uses embedded Google RE2 through `wasilibs/go-re2`; it retains RE2's linear-time,
-safe matching model and leaves the planner, cache, and rule semantics unchanged.
+be proved irrelevant. v0.5.1 migrates the verifier for the small set that remains
+from Go's standard-library `regexp` to embedded Google RE2 through `wasilibs/go-re2`.
+It retains RE2's linear-time, safe matching model and leaves the planner, cache, and
+rule semantics unchanged.
 
 This was selected by end-to-end measurement, not a microbenchmark. Chrome crawled the
 same 20 pages from `https://github.com/` using the same 1.85 MB / 6,908-rule corpus.
@@ -56,7 +76,15 @@ same 20 pages from `https://github.com/` using the same 1.85 MB / 6,908-rule cor
 
 The extra 8.8 MB is an intentional trade: this is an automatic scanner and crawler,
 where a five-second reduction per 20-page crawl is materially more valuable than a
-smaller binary. The TinyGo and standard-library figures below are historical development comparisons only; neither is a supported or maintained release target.
+smaller binary. The runtime comparisons retained under v0.5.0 are historical only;
+neither TinyGo nor the standard-library regex backend is a supported release target.
+
+</details>
+
+<details>
+<summary><strong>v0.5.0 - regex scaling and runtime history</strong></summary>
+
+Historical measurements for the v0.5.0 matching-path redesign and its runtime baselines.
 
 ## v0.5.0 — make regex rules scale
 
@@ -72,7 +100,7 @@ regex remains the final authority.
 
 This is a change in execution strategy, not a weakening of detection.
 
-### Performance release timeline
+### Comparison with v0.4.0
 
 #### v0.4.0 — fast word matching, incomplete regex scaling
 
@@ -107,7 +135,7 @@ scan while preserving the original regex as the final check.
 The remaining cost is a handful of broad HTML regexes (for example, a XenForo
 pattern), which are rule-quality concerns rather than a general engine bottleneck.
 
-### What changed from v0.4.0
+### Execution strategy changes
 
 | v0.4.0 | v0.5.0 |
 |---|---|
@@ -210,7 +238,4 @@ node scripts/bench-cold.mjs 8000        # first-scan curve
 node scripts/bench-steady.mjs 8000      # synthetic steady-state distribution
 ```
 
-The real-rule figures above were collected in Chrome with the user's imported rule
-set and a real Chinese page. Re-run the browser measurement after materially
-changing the rule corpus, and add the resulting comparison to this document rather
-than replacing the v0.5.0/v0.5.1 records.
+</details>

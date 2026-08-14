@@ -1,19 +1,23 @@
 # GoPainter 🎨
 
-[English](./README.md) | **简体中文**
+[English](./README.md) | **简体中文** · [性能记录](./BENCHMARK_CN.md) · [示例规则](./rules/examples.yaml)
 
 基于 YAML 指纹规则的 Web 资产测绘工具：**Go WASM + Google RE2** 匹配引擎 + AI 辅助识别。
 
-GoPainter 只负责检测与爬取（引擎），规则（颜料）来自社区规则源或你自己的 YAML，仓库本身不内置任何规则数据。
+GoPainter 提供检测与爬取引擎。规则可以来自你自己的 YAML、运行时转换的社区规则源、示例文件或内置的精选入门规则；仓库不会打包第三方完整规则库。
 
 浏览网页时自动对当前站点做指纹识别，命中结果实时展示——工具栏图标**灰色 = 未命中，彩色 + 数字角标 = 命中 N 个指纹**。
+
+## 当前版本：v0.6.1
+
+本版集中处理交互延迟：页面序列化有明确上限，popup 与 Agent 使用紧凑快照，大列表限制渲染数量，用户脚本和哈希数据复用缓存，Agent 规则搜索改为索引。当前基准中，在 50,000 条规则里执行 3 次搜索约 **1.56 ms**，旧实现为 43.23 ms；20,000 条规则的 Agent 端到端测试中，popup 心跳最大延迟为 **37.1 ms**。完整负载和复现命令见[当前性能记录](BENCHMARK_CN.md)。
 
 ## 特性
 
 - 🧩 **YAML 指纹规则**：word / regex / status / icon_hash / dsl / js / dom 七种 matcher，支持 and/or 组合与 negative 取反
 - 🔁 **兼容 nuclei 模板**：导入时自动提取 http matchers 子集，社区海量规则可直接使用
-- 🌐 **第三方规则源**：Wappalyzer / EHole / nuclei-templates 一键拉取转换，是否下载由你决定，仓库本身不含任何规则数据
-- ⚡ **[性能导向的 Go WASM 引擎](BENCHMARK_CN.md)**：生产构建约 13.5MB，以安全的正则字面量 AC 预筛 + 内嵌 Google RE2 执行器换取稳定低延迟；v0.5.1 真实 20 页爬虫在命中一致时提速 39%
+- 🌐 **第三方规则源**：Wappalyzer / EHole / nuclei-templates 一键拉取转换，是否下载由你决定，仓库不会打包这些第三方完整规则库
+- ⚡ **[性能导向的运行时](BENCHMARK_CN.md)**：Go WASM + Google RE2 匹配、受限的页面/UI 数据路径，以及可复现的 Agent 规则搜索基准
 - 🔍 **命中证据展示**：每个指纹附带具体命中的关键词/正则/状态码/哈希
 - 🎨 **图标状态感知**：灰色 = 未命中，彩色 + 角标数字 = 命中数
 - 🤖 **Agent 指纹研究**：受限的流式工具循环可识别当前标签页、研究指纹或给出规则优化建议；执行记录可审计，最终交付基于证据的任务报告
@@ -56,7 +60,7 @@ powershell -ExecutionPolicy Bypass -File scripts/build.ps1
 
 1. 点击工具栏 GoPainter 图标 → 「⚙️ 规则」→ 导入 `rules/examples.yaml`（或任意 nuclei 模板）
 2. 访问网站，图标变彩色即表示命中，点击图标查看详情与证据
-3. 点击「🤖 Agent」可识别当前标签页、研究指纹或准备规则优化建议。Agent 每轮只执行一个工具并流式展示可见执行记录；联网工具仅在实际调用时弹出一次性授权，且不会自动写入规则。
+3. 点击「🤖 Agent」可识别当前标签页、研究指纹或准备规则优化建议。自动只读工具最多 5 路并发；需要授权的工具仍串行执行并在调用前确认。执行记录会实时展示，且不会自动写入规则。
 
 ### 5. 爬取站点（Side Panel）
 
@@ -129,9 +133,9 @@ dsl 表达式支持：标识符 `body` / `title` / `url` / `header` / `raw` / `m
 ## AI 安全提示
 
 - GoPainter 不内置、不代管、不上传你的 API Key；API Key 只保存在浏览器扩展本地存储里，由扩展直接请求你填写的 Base URL。
-- 使用云端 LLM 时，页面特征会发送给你配置的模型服务：URL、标题、响应头、meta、script 路径、favicon 哈希，以及截断后的页面 HTML。除非确认这些信息可以交给对应服务商处理，否则不要在敏感站点上启用 AI。
+- 使用云端 LLM 时，页面特征会发送给你配置的模型服务。Agent 工作流先发送紧凑概览，只有调用正文搜索工具时才发送 HTML 片段；直接 AI 识别/规则辅助流程可能发送截断后的 HTML。除非确认这些信息可以交给对应服务商处理，否则不要在敏感站点上启用 AI。
 - AI 辅助识别、AI 生成规则、书签 AI 兜底分类都可能出错或编造结果。请人工确认后再把 AI 生成的规则加入长期规则库；本项目不对 AI 输出的准确性、合规性或外部服务费用负责。
-- Agent 的工具调用限定于所选任务并按串行执行；具备联网能力的工具会在每次实际调用前暂停，等待一次性授权，返回内容仅是不可信参考资料。
+- Agent 工具调用限定于所选任务；自动只读工具最多 5 路并发，需要授权的联网工具仍串行执行并在调用前暂停确认，返回内容仅是不可信参考资料。
 - 外接脚本会以扩展权限执行。只添加自己编写或完全信任的脚本，不要粘贴来源不明的代码。
 
 ## 外接脚本
@@ -168,12 +172,16 @@ if (features.body.includes('hello-world-cta')) {
 | `make test` | 跑 Go、JS 单元测试，再跑 WASM 冒烟测试 |
 | `make test-go` | 只跑 Go 单元测试（js/wasm 目标，经 node 执行，无需先构建） |
 | `make test-js` | 只跑扩展共享逻辑的 Node 单元测试 |
+| `make bench-js` | 测量 popup、大集合、序列化与 Agent 规则搜索路径 |
 | `make icons` | 重新生成扩展图标 |
 | `make clean` | 删除 `extension/wasm/matcher.wasm` 和 `wasm_exec.js` |
 | `node scripts/generate-icons.mjs` | 直接运行图标生成器 |
 | `node scripts/generate-hashdb.mjs` | 从 `data/favicon-hashes.json` 生成 `wasm/engine/hashdb.go` |
 | `node scripts/smoke-test.mjs` | 直接运行 WASM 冒烟测试 |
 | `powershell -ExecutionPolicy Bypass -File scripts/build.ps1` | Windows 构建 WASM |
+
+<details>
+<summary><strong>架构与目录结构</strong></summary>
 
 ## 架构
 
@@ -229,36 +237,11 @@ sidepanel    爬取进度实时展示 / 启停（Side Panel，与页面并存）
 └── Makefile                  # macOS/Linux 构建
 ```
 
-## 路线图
+</details>
 
-**已完成** ✅
-- [x] Go WASM 匹配引擎（word / regex / status / icon_hash）
-- [x] nuclei 模板导入兼容（http matchers 子集）
-- [x] 命中证据展示
-- [x] 图标状态感知（灰色/彩色 + 角标）
-- [x] AI 技术栈识别（结构化候选，带置信度/证据，可合并进命中列表）
-- [x] AI 规则优化与新建（基于当前命中页面补强已有规则，或新建缺失规则）
-- [x] 书签自动分类（勾选想整理的书签，按指纹命中挪入「🎨 指纹分类」文件夹，可开 AI 兜底）
-- [x] mmh3 / HTML 特征提取 / nuclei 转换收编进 Go（新增 meta、script 匹配维度）
-- [x] 内置 favicon 哈希库（956 条，BishopFox 数据集）+ 自定义哈希导入
-- [x] 内置 Top 130 常用指纹规则库（options 页一键导入）
-- [x] 书签扫描补全 favicon 哈希（icon_hash 规则与哈希库对书签生效）
-- [x] 外接脚本（自定义 JS 挂钩匹配管线，追加指纹）
-- [x] 站点递归爬取（BFS/去重/同站过滤在 Go 侧，最大页数可配、留空不限，popup 一键爬本站）
-- [x] 爬取进度侧边栏（Side Panel 实时展示已扫/队列/失败 + 命中指纹，爬取中按钮置灰）
-- [x] 多 favicon 持续匹配（DOM + 网络包里所有 icon 都算哈希，晚到的 icon 触发重匹配）
-- [x] SPA 路由变化监听（main world hook pushState/replaceState，变化即重扫）
-- [x] matcher 支持 dsl 表达式子集（自研递归下降求值器，nuclei 模板的 dsl 也可转换）
-- [x] 第三方规则源市场（Wappalyzer / EHole / nuclei-templates官方仓库地址）
-- [x] js 运行时变量探测（MAIN world 探针）+ dom 选择器探测 + implies 级联推导
-- [x] Go 侧单元测试（matcher / dsl / mmh3 / extract / normalize / crawl / convert，`make test-go`）
-- [x] JS 侧单元测试（置信度筛选、规则合并、favicon 哈希去重、YAML 提取；`make test-js`）
-- [x] 扫描历史与报告导出（JSON/CSV）
-- [x] 命名规则集与即时切换
+## 项目状态
 
-
-**进行中 / 计划** 🚧
-- [ ] 规则集分组启用/禁用、远程规则源订阅与自动更新
+浏览器核心工作流已经完整：自动匹配与证据、规则集和导入、Agent 研究与可导入规则生成、站点爬取、历史/报告导出、书签整理和外接脚本。下一阶段计划是规则分组启停，以及远程规则源订阅与更新。
 
 ## License
 

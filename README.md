@@ -1,19 +1,23 @@
 # GoPainter
 
-**English** | [简体中文](./README_CN.md)
+**English** | [简体中文](./README_CN.md) · [Performance](./BENCHMARK.md) · [Example rules](./rules/examples.yaml)
 
 Web asset fingerprinting for the browser. A **Go WASM + Google RE2** matching engine with optional LLM-assisted identification.
 
-GoPainter provides the engine — detection and crawling. The fingerprint definitions (rules) come from community rule sources or your own YAML files; the repository ships no rule data itself.
+GoPainter provides the detection and crawling engine. Rules can come from your own YAML, live community-source conversion, the example file, or the curated built-in starter set. Third-party rule libraries are not vendored into the repository.
 
 While you browse, GoPainter fingerprints the current site automatically and surfaces hits in real time: the toolbar icon stays gray when nothing matches, and turns colored with a badge showing the hit count when it does.
+
+## Current release: v0.6.1
+
+This release focuses on interaction latency: bounded page serialization, compact popup and Agent snapshots, capped UI rendering, cached user scripts and hash data, and an indexed Agent rule search. In the current benchmark, three searches across 50,000 rules take about **1.56 ms** instead of 43.23 ms; an end-to-end 20,000-rule Agent run kept popup heartbeat delay below **37.1 ms**. See the [current performance record](BENCHMARK.md) for workloads and reproduction commands.
 
 ## Features
 
 - **YAML fingerprint rules** — word / regex / status / icon_hash / dsl / js / dom matchers, with `and`/`or` combinations and `negative` inversion
 - **nuclei template compatibility** — imports automatically extract the HTTP matchers subset, so the large community template library is directly usable
-- **Third-party rule sources** — Wappalyzer / EHole / nuclei-templates can be pulled and converted in one click; whether to download is your choice, and the repository ships no rule data itself
-- **[Performance-focused Go WASM engine](BENCHMARK.md)** — a ~13.5MB production binary that combines safe regex-literal AC prefiltering with embedded Google RE2; v0.5.1 reduced a real 20-page crawl by 39% with identical hits
+- **Third-party rule sources** — Wappalyzer / EHole / nuclei-templates can be pulled and converted in one click; whether to download is your choice, and their complete libraries are not vendored into the repository
+- **[Performance-focused runtime](BENCHMARK.md)** — Go WASM + Google RE2 matching, bounded page/UI data paths, and indexed Agent rule search with reproducible release measurements
 - **Hit evidence** — each fingerprint carries the specific keyword, regex, status code, or hash that matched
 - **Icon state indicator** — gray = no match, colored + badge = N matches
 - **Agent-assisted fingerprint research** — a bounded, streaming tool loop researches the current tab or a rule, shows its auditable tool trace, and returns an evidence-based task report
@@ -56,7 +60,7 @@ powershell -ExecutionPolicy Bypass -File scripts/build.ps1
 
 1. Click the GoPainter toolbar icon → "Rules" → import `rules/examples.yaml` (or any nuclei template)
 2. Visit a site — the icon turns colored on a match; click it to inspect details and evidence
-3. Click **Agent** to identify the current tab, research a fingerprint, or prepare an optimization suggestion. The Agent works one tool call at a time and streams its visible trace. Network tools ask for one-time approval at the moment they are requested; no rule is written automatically.
+3. Click **Agent** to identify the current tab, research a fingerprint, or prepare an optimization suggestion. Automatic read-only tools may run concurrently up to five; permission-gated tools remain serialized and ask before use. The visible trace streams as work completes, and no rule is written automatically.
 
 ### 5. Crawl a site (Side Panel)
 
@@ -127,9 +131,9 @@ Choose the OpenAI-compatible or Anthropic protocol in Settings, then fill in you
 ## AI & security notes
 
 - GoPainter never embeds, stores on a server, or uploads your API key. Keys live only in the extension's local storage and the extension requests your Base URL directly.
-- When using a cloud LLM, page features are sent to the model service you configure: URL, title, response headers, meta, script paths, favicon hashes, and a truncated HTML snippet. Do not enable AI on sensitive sites unless you are certain these can be shared with that provider.
+- When using a cloud LLM, page features are sent to the model service you configure. Agent workflows start with a compact overview and send HTML snippets only when the page-body search tool is used; the direct AI identification/rule helpers may send a truncated HTML snippet. Do not enable AI on sensitive sites unless these can be shared with that provider.
 - AI-assisted identification, AI-generated rules, and AI bookmark fallback can be wrong or hallucinated. Review before promoting AI-generated rules into your long-term rule set. The project is not responsible for AI output accuracy, compliance, or external service costs.
-- Agent tool calls are limited to the selected task and run serially. Network-capable tools pause for one-time, per-call approval; their results are untrusted reference material, not instructions.
+- Agent tool calls are limited to the selected task. Automatic read-only calls may run concurrently up to five; permission-gated network calls remain serialized and pause for approval. External results are untrusted reference material, not instructions.
 - External scripts execute with extension privileges. Only add scripts you wrote or fully trust; don't paste code of unknown provenance.
 
 ## External scripts
@@ -166,12 +170,16 @@ Returned items need at least `id` and `name`. An `id` that already exists is ski
 | `make test` | Run Go and JS unit tests, then the WASM smoke test |
 | `make test-go` | Run only the Go unit tests (js/wasm target, executed via node; no build required) |
 | `make test-js` | Run only the Node unit tests for shared extension logic |
+| `make bench-js` | Benchmark popup, collection, serialization, and Agent rule-search paths |
 | `make icons` | Regenerate extension icons |
 | `make clean` | Remove `extension/wasm/matcher.wasm` and `wasm_exec.js` |
 | `node scripts/generate-icons.mjs` | Run the icon generator directly |
 | `node scripts/generate-hashdb.mjs` | Generate `wasm/engine/hashdb.go` from `data/favicon-hashes.json` |
 | `node scripts/smoke-test.mjs` | Run the WASM smoke test directly |
 | `powershell -ExecutionPolicy Bypass -File scripts/build.ps1` | Build WASM on Windows |
+
+<details>
+<summary><strong>Architecture and repository layout</strong></summary>
 
 ## Architecture
 
@@ -228,35 +236,11 @@ Matching, mmh3, HTML feature extraction, and nuclei conversion all live in Go.
 └── Makefile                  # macOS/Linux build
 ```
 
-## Roadmap
+</details>
 
-**Done**
-- [x] Go WASM matching engine (word / regex / status / icon_hash)
-- [x] nuclei template import compatibility (http matchers subset)
-- [x] hit evidence display
-- [x] icon state indicator (gray/colored + badge)
-- [x] agent-assisted site identification and fingerprint research (streaming trace, per-call permissions, task report)
-- [x] AI rule optimization & creation (strengthen a matched rule against the current page, or create a missing rule)
-- [x] bookmark auto-categorization (sort bookmarks by fingerprint hit; optional AI fallback)
-- [x] mmh3 / HTML extraction / nuclei conversion moved into Go (added meta, script dimensions)
-- [x] built-in favicon hash database (956 entries, BishopFox dataset) + custom hash import
-- [x] built-in top-130 common fingerprint rule library (one-click import in options)
-- [x] bookmark scan backfills favicon hashes (icon_hash rules & DB apply to bookmarks)
-- [x] external scripts (custom JS hooking into the match pipeline)
-- [x] recursive site crawling (BFS / dedup / same-site filtering in Go; max pages configurable, blank = unlimited; one-click from popup)
-- [x] crawl progress side panel (live scanned / queue / failures + matched fingerprints; button disabled while running)
-- [x] multi-favicon continuous matching (all icons from DOM + network count; late icons trigger re-match)
-- [x] SPA route-change watching (main world hooks pushState/replaceState; re-scan on change)
-- [x] dsl expression matcher subset (hand-rolled recursive descent evaluator; nuclei dsl converts too)
-- [x] third-party rule source marketplace (Wappalyzer / EHole / nuclei-templates)
-- [x] js runtime variable probing (MAIN world) + dom selector probing + implies cascading
-- [x] Go unit tests (matcher / dsl / mmh3 / extract / normalize / crawl / convert, `make test-go`)
-- [x] JS unit tests (confidence filtering, rule merging, favicon hash de-duplication, YAML extraction; `make test-js`)
-- [x] scan history and report export (JSON/CSV)
-- [x] named rule sets with instant switching
+## Project status
 
-**In progress / planned**
-- [ ] rule-set group enable/disable and remote rule source subscriptions & auto-update
+The core browser workflow is implemented: automatic matching, evidence, rule sets and imports, Agent research and importable rule generation, crawling, history/report export, bookmark organization, and external scripts. The next planned area is rule-group enable/disable plus remote source subscriptions and updates.
 
 ## License
 

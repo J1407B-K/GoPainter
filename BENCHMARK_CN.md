@@ -30,9 +30,26 @@ Chromium 端到端测试灌入 20,000 条规则，一轮模型请求 `inspect_pa
 `search_rules` 和 `search_page_js` 后完成归纳；popup 的 10 ms 心跳在全程观测到的
 最大延迟为 37.1 ms。
 
-## v0.5.1 —— 升级最终正则执行器
+### 复现 v0.6.1
 
-v0.5.0 已把 planner 做到有效：AST + AC 能排除几乎所有可证明无关的正则。v0.5.1 升级的是最后留下的 verifier：通过 `wasilibs/go-re2` 使用嵌入式 Google RE2。它保持 RE2 的线性时间与安全模型；planner、缓存和规则语义均不改变。
+```bash
+make bench-js                         # JS、popup、大集合和 Agent 规则搜索
+node scripts/bench-cold.mjs 8000 12  # 匹配器冷启动曲线
+node scripts/bench-steady.mjs 8000   # 匹配器稳态分布
+node scripts/bench-scan.mjs 8000 200 # 连续 200 页分布
+make test                             # Go、JS 与 WASM 冒烟测试
+```
+
+## 历史版本
+
+<details>
+<summary><strong>v0.5.1 —— 从 Go regexp 迁移到内嵌 Google RE2</strong></summary>
+
+以下为 v0.5.1 将最终正则执行器从 Go 标准库 `regexp` 迁移到 `wasilibs/go-re2` 的历史测量。主运行时在 v0.5.0 已经切换为标准 Go WASM；本版更换的是正则 verifier，不是 WASM 工具链。
+
+## v0.5.1 —— 从 Go regexp 迁移到内嵌 Google RE2
+
+v0.5.0 已把 planner 做到有效：AST + AC 能排除几乎所有可证明无关的正则。v0.5.1 将最后留下的 verifier 从 Go 标准库 `regexp` 迁移到 `wasilibs/go-re2`，在 Go WASM 中使用内嵌 Google RE2。它保持 RE2 的线性时间与安全模型；planner、缓存和规则语义均不改变。
 
 这不是根据微基准拍板，而是 Chrome 端到端实测：同一份 1.85 MB / 6,908 条规则，从 `https://github.com/` 爬取相同的 20 页。
 
@@ -44,7 +61,14 @@ v0.5.0 已把 planner 做到有效：AST + AC 能排除几乎所有可证明无�
 | 端到端提升 | — | **耗时减少 39%（吞吐 1.65×）** |
 | WASM 体积 | 4.62 MB | 13.45 MB |
 
-多出的约 8.8 MB 是有意取舍：这是自动扫描器和爬虫，每 20 页少约 5 秒，比减小二进制更有价值。下文 TinyGo 与标准库数据仅保留为历史开发对照，均非受支持或维护的发布目标。
+多出的约 8.8 MB 是有意取舍：这是自动扫描器和爬虫，每 20 页少约 5 秒，比减小二进制更有价值。v0.5.0 中保留的运行时数据仅作历史对照；TinyGo 与标准库 regex 后端均不是受支持的发布目标。
+
+</details>
+
+<details>
+<summary><strong>v0.5.0 —— 正则规模化与运行时历史</strong></summary>
+
+以下为 v0.5.0 匹配路径重构及运行时基线的历史测量。
 
 ## v0.5.0 —— 让正则规则能够规模化运行
 
@@ -54,7 +78,7 @@ v0.5.0 是一次性能导向的发布。在 v0.4.0 中，大型导入规则集�
 
 这是执行策略的改变，不是削弱检测语义。
 
-### 性能版本更新记录
+### 与 v0.4.0 的性能对比
 
 #### v0.4.0 —— word 路径很快，但 regex 规模化不完整
 
@@ -78,7 +102,7 @@ v0.5.0 将既有的 body AC 索引扩展到 regex 的必需字面量，并加入
 
 剩余成本来自少量泛 HTML 正则（例如 XenForo pattern）；这属于规则质量治理，而不是通用引擎瓶颈。
 
-### 相比 v0.4.0，改变了什么
+### 执行策略变化
 
 | v0.4.0 | v0.5.0 |
 |---|---|
@@ -163,4 +187,4 @@ node scripts/bench-cold.mjs 8000        # 首轮扫描曲线
 node scripts/bench-steady.mjs 8000      # 合成稳态分布
 ```
 
-上述真实规则数据来自 Chrome、用户导入的规则集和真实中文页面。规则库有实质变化后，应重新测量并将新的对比追加在本文件中，而不是覆盖 v0.5.0 / v0.5.1 的记录。
+</details>
