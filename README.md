@@ -1,6 +1,6 @@
 # GoPainter
 
-**English** | [简体中文](./README_CN.md) · [Performance](./BENCHMARK.md) · [Example rules](./rules/examples.yaml)
+**English** | [简体中文](./README_CN.md) · [Example rules](./rules/examples.yaml)
 
 Web asset fingerprinting for the browser. A **Go WASM + Google RE2** matching engine with optional LLM-assisted identification.
 
@@ -15,9 +15,10 @@ This release focuses on interaction latency: bounded page serialization, compact
 ## Features
 
 - **YAML fingerprint rules** — word / regex / status / icon_hash / dsl / js / dom matchers, with `and`/`or` combinations and `negative` inversion
+- **Composable rule sets** — keep imports separated, choose an editing target, and enable any combination of rule sets for matching
 - **nuclei template compatibility** — imports automatically extract the HTTP matchers subset, so the large community template library is directly usable
 - **Third-party rule sources** — Wappalyzer / EHole / nuclei-templates can be pulled and converted in one click; whether to download is your choice, and their complete libraries are not vendored into the repository
-- **[Performance-focused runtime](BENCHMARK.md)** — Go WASM + Google RE2 matching, bounded page/UI data paths, and indexed Agent rule search with reproducible release measurements
+- **Performance-focused runtime** — Go WASM + Google RE2 matching, bounded page/UI data paths, and indexed Agent rule search
 - **Hit evidence** — each fingerprint carries the specific keyword, regex, status code, or hash that matched
 - **Icon state indicator** — gray = no match, colored + badge = N matches
 - **Agent-assisted fingerprint research** — a bounded, streaming tool loop researches the current tab or a rule, shows its auditable tool trace, and returns an evidence-based task report
@@ -240,7 +241,7 @@ Matching, mmh3, HTML feature extraction, and nuclei conversion all live in Go.
 
 ## Project status
 
-The core browser workflow is implemented: automatic matching, evidence, rule sets and imports, Agent research and importable rule generation, crawling, history/report export, bookmark organization, and external scripts. The next planned area is rule-group enable/disable plus remote source subscriptions and updates.
+The core browser workflow is implemented: automatic matching, evidence, composable rule sets and imports, Agent research and importable rule generation, crawling, history/report export, bookmark organization, and external scripts. The next planned area is remote rule-source subscriptions and updates.
 
 ## License
 

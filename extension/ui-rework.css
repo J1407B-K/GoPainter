@@ -524,10 +524,16 @@ html.gp-options button.primary { color: #fff; background: var(--gp-accent); bord
 html.gp-options button.primary:hover:not(:disabled) { color: #fff; background: var(--gp-accent-hover); border-color: var(--gp-accent-hover); }
 html.gp-options button.danger { color: var(--gp-danger); background: var(--gp-surface); border-color: #e8b8bd; }
 html.gp-options button.danger:hover:not(:disabled) { color: #a82f3b; background: var(--gp-danger-soft); }
-html.gp-options .ruleset-actions { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; margin-top: 8px; }
+html.gp-options .ruleset-actions { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px; margin-top: 8px; }
 html.gp-options .ruleset-actions input,
 html.gp-options .ruleset-actions button { margin: 0; }
-html.gp-options .ruleset-delete-row { display: flex; justify-content: flex-end; margin-top: 4px; }
+html.gp-options .ruleset-enable-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; }
+html.gp-options .ruleset-enable-actions { display: flex; gap: 6px; }
+html.gp-options .ruleset-enable-actions button { min-height: 28px; margin: 0; padding: 4px 9px; }
+html.gp-options .ruleset-enabled-list { display: grid; gap: 6px; margin-top: 7px; padding: 9px 10px; background: var(--gp-surface-2); border: 1px solid var(--gp-line); border-radius: 6px; }
+html.gp-options .ruleset-enabled-item { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px; margin: 0; }
+html.gp-options .ruleset-enabled-item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+html.gp-options .ruleset-enabled-item small { color: var(--gp-text-3); font: 11px var(--gp-mono); }
 html.gp-options .file-drop {
   display: flex;
   align-items: center;
@@ -737,7 +743,8 @@ html.gp-sidepanel .empty { padding: 28px 0; color: var(--gp-text-3); text-align:
   html.gp-options .banner .sub { display: none; }
   html.gp-options .source-item { grid-template-columns: 1fr; }
   html.gp-options .source-item button { width: 100%; }
-  html.gp-options .ruleset-actions { grid-template-columns: 1fr; }
+  html.gp-options .ruleset-actions { grid-template-columns: 1fr 1fr; }
+  html.gp-options .ruleset-actions input { grid-column: 1 / -1; }
   html.gp-options .ruleset-actions button { width: 100%; }
 }
 

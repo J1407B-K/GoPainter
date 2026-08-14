@@ -33,8 +33,9 @@ async function loadActiveIndex() {
   if (activeLoadPromise) return activeLoadPromise;
   const version = cacheVersion;
   activeLoadPromise = (async () => {
-    const stored = await chrome.storage.local.get(['rules', 'activeRuleSetId']);
-    const set = { id: stored.activeRuleSetId || 'default', name: stored.activeRuleSetId || '当前规则集', rules: stored.rules || [] };
+    const stored = await chrome.storage.local.get(['rules', 'ruleSets', 'activeRuleSetId', 'enabledRuleSetIds']);
+    const state = GoPainterUtils.normalizeRuleSets(stored.ruleSets, stored.activeRuleSetId, stored.rules, stored.enabledRuleSetIds);
+    const set = state.ruleSets.find((item) => item.id === state.activeRuleSetId) || state.ruleSets[0];
     const built = await buildEntries([set]);
     if (version === cacheVersion) activeCache = built;
     return version === cacheVersion ? built : loadActiveIndex();
@@ -47,8 +48,8 @@ async function loadAllIndex() {
   if (allLoadPromise) return allLoadPromise;
   const version = cacheVersion;
   allLoadPromise = (async () => {
-    const stored = await chrome.storage.local.get(['rules', 'ruleSets', 'activeRuleSetId']);
-    const state = GoPainterUtils.normalizeRuleSets(stored.ruleSets, stored.activeRuleSetId, stored.rules);
+    const stored = await chrome.storage.local.get(['rules', 'ruleSets', 'activeRuleSetId', 'enabledRuleSetIds']);
+    const state = GoPainterUtils.normalizeRuleSets(stored.ruleSets, stored.activeRuleSetId, stored.rules, stored.enabledRuleSetIds);
     const built = await buildEntries(state.ruleSets);
     if (version === cacheVersion) allCache = built;
     return version === cacheVersion ? built : loadAllIndex();
@@ -57,7 +58,7 @@ async function loadAllIndex() {
 }
 
 chrome.storage.onChanged?.addListener((changes, area) => {
-  if (area !== 'local' || (!changes.rules && !changes.ruleSets && !changes.activeRuleSetId)) return;
+  if (area !== 'local' || (!changes.rules && !changes.ruleSets && !changes.activeRuleSetId && !changes.enabledRuleSetIds)) return;
   cacheVersion++;
   activeCache = null;
   activeLoadPromise = null;
@@ -67,7 +68,7 @@ chrome.storage.onChanged?.addListener((changes, area) => {
 
 GoPainterAgentTools.register({
   name: 'search_rules',
-  description: '搜索当前激活规则集或全部命名规则集中的规则 ID、名称和 matcher 内容，避免生成重复规则。',
+  description: '搜索当前编辑规则集或全部命名规则集中的规则 ID、名称和 matcher 内容，避免生成重复规则。',
   inputSchema: { type: 'object', properties: { query: { type: 'string', minLength: 1 }, scope: { type: 'string', enum: ['active', 'all'] }, limit: { type: 'integer', minimum: 1, maximum: 30 } }, required: ['query'], additionalProperties: false },
   effect: 'read', permission: 'auto', annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, skillIds: ['fingerprint-research'],
   validate(input) {

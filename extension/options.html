@@ -31,8 +31,6 @@
 
     .ruleset-actions { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; margin-top: 8px; }
     .ruleset-actions input, .ruleset-actions button { margin: 0; }
-    .ruleset-delete-row { display: flex; justify-content: flex-end; margin-top: 2px; }
-    .ruleset-delete-row button { margin-top: 0; }
 
     label { display: block; margin: 12px 0 4px; font-weight: 600; font-size: 13px; }
     input[type=text], input[type=password], select {
@@ -227,15 +225,21 @@
       <h2>指纹规则</h2>
       <p class="muted">
         支持 GoPainter 原生格式（见 rules/examples.yaml）和 nuclei 模板（自动提取 http matchers 子集）。
-        可多选文件，同 id 规则会在当前规则集中覆盖更新；切换规则集会立即重扫已打开页面。
+        可多选文件，同 id 规则会在当前编辑集覆盖更新；可同时启用多个规则集参与匹配。
       </p>
-      <label for="ruleset-select">当前规则集</label>
+      <label for="ruleset-select">当前编辑集</label>
       <select id="ruleset-select"></select>
+      <div class="ruleset-enable-heading">
+        <span>参与匹配的规则集</span>
+        <div class="ruleset-enable-actions">
+          <button id="ruleset-enable-all" type="button">全部启用</button>
+          <button id="ruleset-enable-current" type="button">仅当前</button>
+        </div>
+      </div>
+      <div id="ruleset-enabled-list" class="ruleset-enabled-list"></div>
       <div class="ruleset-actions">
         <input id="ruleset-name" type="text" maxlength="40" placeholder="新规则集名称">
         <button id="ruleset-create">新建并切换</button>
-      </div>
-      <div class="ruleset-delete-row">
         <button id="ruleset-delete" class="danger">删除当前集</button>
       </div>
       <label class="file-drop">

@@ -21,10 +21,10 @@ function scheduleIdle(task) {
 
 async function loadRuleSetState(force = false) {
   if (!force && ruleSetState) return ruleSetState;
-  const raw = await chrome.storage.local.get(['rules', 'ruleSets', 'activeRuleSetId']);
-  const state = GoPainterUtils.normalizeRuleSets(raw.ruleSets, raw.activeRuleSetId, raw.rules);
+  const raw = await chrome.storage.local.get(['rules', 'ruleSets', 'activeRuleSetId', 'enabledRuleSetIds']);
+  const state = GoPainterUtils.normalizeRuleSets(raw.ruleSets, raw.activeRuleSetId, raw.rules, raw.enabledRuleSetIds);
   // 只在结构缺失/激活集失效时修复，避免每次操作 stringify 整个大型规则库。
-  if (!Array.isArray(raw.ruleSets) || raw.activeRuleSetId !== state.activeRuleSetId || !Array.isArray(raw.rules)) {
+  if (!Array.isArray(raw.ruleSets) || raw.activeRuleSetId !== state.activeRuleSetId || !Array.isArray(raw.enabledRuleSetIds) || !Array.isArray(raw.rules)) {
     await chrome.storage.local.set(state);
   }
   ruleSetState = state;
@@ -32,7 +32,8 @@ async function loadRuleSetState(force = false) {
 }
 
 async function loadRules() {
-  return (await loadRuleSetState()).rules;
+  const state = await loadRuleSetState();
+  return state.ruleSets.find((set) => set.id === state.activeRuleSetId)?.rules || [];
 }
 
 async function saveActiveRules(rules) {
@@ -48,13 +49,19 @@ function renderRuleSetControls(state) {
   ).join('');
   select.value = state.activeRuleSetId;
   document.getElementById('ruleset-delete').disabled = state.ruleSets.length <= 1;
+  const enabled = new Set(state.enabledRuleSetIds);
+  document.getElementById('ruleset-enabled-list').innerHTML = state.ruleSets.map((set) => `
+    <label class="ruleset-enabled-item">
+      <input type="checkbox" data-ruleset-id="${escapeHtml(set.id)}" ${enabled.has(set.id) ? 'checked' : ''}>
+      <span>${escapeHtml(set.name)}</span><small>${set.rules.length} 条</small>
+    </label>`).join('');
 }
 
 async function refreshRuleList() {
   const state = await loadRuleSetState();
-  const rules = state.rules;
-  renderRuleSetControls(state);
   const active = state.ruleSets.find((set) => set.id === state.activeRuleSetId);
+  const rules = active?.rules || [];
+  renderRuleSetControls(state);
   const filtered = GoPainterUtils.filterRules(rules, document.getElementById('rule-filter').value, RULE_RENDER_LIMIT);
   const suffix = filtered.total > filtered.items.length ? `，显示前 ${filtered.items.length} 条` : '';
   document.getElementById('rule-stats').textContent = `「${active.name}」共 ${rules.length} 条规则，匹配 ${filtered.total} 条${suffix}`;
@@ -87,8 +94,9 @@ function openRuleDetail(rule) {
 document.getElementById('rule-list').addEventListener('click', (e) => {
   const el = e.target.closest('.rule-item');
   if (!el) return;
-  loadRuleSetState().then(({ rules }) => {
-    const rule = rules.find((r) => r.id === el.dataset.id);
+  loadRuleSetState().then((state) => {
+    const activeRules = state.ruleSets.find((set) => set.id === state.activeRuleSetId)?.rules || [];
+    const rule = activeRules.find((r) => r.id === el.dataset.id);
     if (rule) openRuleDetail(rule);
   });
 });
@@ -110,6 +118,19 @@ document.getElementById('rule-copy').addEventListener('click', async () => {
   }
 });
 
+async function normalizeImportedDocs(docs, onProgress) {
+  const rules = [];
+  const chunkSize = 100;
+  for (let offset = 0; offset < docs.length; offset += chunkSize) {
+    const chunk = docs.slice(offset, offset + chunkSize);
+    const resp = await chrome.runtime.sendMessage({ type: 'normalizeRules', docsJSON: JSON.stringify(chunk) });
+    if (!resp?.ok) throw new Error(resp?.error || '规则转换失败');
+    rules.push(...(resp.rules || []));
+    onProgress?.(Math.min(offset + chunkSize, docs.length), docs.length);
+  }
+  return rules;
+}
+
 document.getElementById('file-input').addEventListener('change', async (e) => {
   const files = [...e.target.files];
   if (!files.length) return;
@@ -128,9 +149,8 @@ document.getElementById('file-input').addEventListener('change', async (e) => {
       // js-yaml 支持多文档（--- 分隔），逐份解析，规范化交给 wasm
       const docs = [];
       jsyaml.loadAll(text, (d) => docs.push(d));
-      const resp = await chrome.runtime.sendMessage({ type: 'normalizeRules', docsJSON: JSON.stringify(docs) });
-      if (!resp.ok) throw new Error(resp.error);
-      for (const rule of resp.rules) {
+      const normalized = await normalizeImportedDocs(docs);
+      for (const rule of normalized) {
         byId.set(rule.id, rule); // 同 id 覆盖，便于更新规则
         added++;
       }
@@ -164,9 +184,8 @@ document.getElementById('import-builtin').addEventListener('click', async (e) =>
     const text = await (await fetch(chrome.runtime.getURL('rules/builtin.yaml'))).text();
     const docs = [];
     jsyaml.loadAll(text, (d) => docs.push(d));
-    const resp = await chrome.runtime.sendMessage({ type: 'normalizeRules', docsJSON: JSON.stringify(docs) });
-    if (!resp.ok) throw new Error(resp.error);
-    const n = await importRules(resp.rules);
+    const rules = await normalizeImportedDocs(docs);
+    const n = await importRules(rules);
     showMsg(`内置规则库导入完成：${n} 条`);
   } catch (err) {
     showMsg(`内置规则导入失败：${err.message}`, true);
@@ -270,7 +289,8 @@ const RULE_SOURCES = {
     const listResp = await fetch('https://api.github.com/repos/projectdiscovery/nuclei-templates/contents/http/technologies');
     if (!listResp.ok) throw new Error(`列目录失败: HTTP ${listResp.status}（可能触发了 GitHub 限流，过会儿再试）`);
     const entries = await listResp.json();
-    const files = entries.filter((e) => e.type === 'file' && e.name.endsWith('.yaml'));
+    const files = entries.filter((e) => e.type === 'file' && /\.ya?ml$/i.test(e.name));
+    if (!files.length) throw new Error('目录中没有找到可导入的 YAML 模板');
     const docs = [];
     let done = 0;
     // 8 路并发拉 yaml，解析成文档
@@ -279,16 +299,19 @@ const RULE_SOURCES = {
       while (queue.length) {
         const f = queue.shift();
         try {
-          const text = await (await fetch(f.download_url)).text();
+          const response = await fetch(f.download_url);
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const text = await response.text();
           jsyaml.loadAll(text, (d) => docs.push(d));
         } catch { /* 单个文件坏了就跳过 */ }
         sourceStatus(`nuclei-templates：拉取中… ${++done}/${files.length}`);
       }
     }));
+    if (!docs.length) throw new Error('模板文件下载完成，但没有解析出 YAML 文档');
     sourceStatus('nuclei-templates：转换中…');
-    const resp = await chrome.runtime.sendMessage({ type: 'normalizeRules', docsJSON: JSON.stringify(docs) });
-    if (!resp.ok) throw new Error(resp.error);
-    return resp.rules;
+    return normalizeImportedDocs(docs, (converted, total) => {
+      sourceStatus(`nuclei-templates：转换中… ${converted}/${total}`);
+    });
   },
 };
 
@@ -314,20 +337,80 @@ document.querySelectorAll('[data-source]').forEach((btn) => {
 });
 
 document.getElementById('clear-rules').addEventListener('click', async () => {
-  if (!confirm('确定清空所有规则？')) return;
+  if (!confirm('确定清空当前编辑集中的所有规则？')) return;
   await saveActiveRules([]);
   await refreshRuleList();
-  showMsg('规则已清空');
+  showMsg('当前编辑集已清空');
 });
 
 document.getElementById('ruleset-select').addEventListener('change', async (e) => {
   const state = await loadRuleSetState();
   const next = state.ruleSets.find((set) => set.id === e.target.value);
   if (!next || next.id === state.activeRuleSetId) return;
-  ruleSetState = { ...state, activeRuleSetId: next.id, rules: next.rules };
-  await chrome.storage.local.set(ruleSetState);
+  const response = await chrome.runtime.sendMessage({ type: 'setActiveRuleSet', ruleSetId: next.id });
+  if (!response?.ok) return showMsg(response?.error || '切换编辑集失败', true);
+  ruleSetState = { ...state, activeRuleSetId: next.id };
   await refreshRuleList();
-  showMsg(`已切换到「${next.name}」，已打开页面会自动重扫`);
+  showMsg(`当前编辑集已切换到「${next.name}」`);
+});
+
+async function saveEnabledRuleSets(enabledRuleSetIds, message) {
+  const state = await loadRuleSetState();
+  const response = await chrome.runtime.sendMessage({ type: 'setEnabledRuleSets', enabledRuleSetIds });
+  if (!response?.ok) throw new Error(response?.error || '更新启用规则集失败');
+  ruleSetState = { ...state, enabledRuleSetIds: response.enabledRuleSetIds };
+  renderRuleSetControls(ruleSetState);
+  showMsg(message || `已启用 ${response.enabledRuleSetIds.length} 个规则集，共 ${response.ruleCount} 条匹配规则`);
+}
+
+document.getElementById('ruleset-enabled-list').addEventListener('change', async (e) => {
+  const checkbox = e.target.closest('input[data-ruleset-id]');
+  if (!checkbox) return;
+  const state = await loadRuleSetState();
+  const enabled = new Set(state.enabledRuleSetIds);
+  if (checkbox.checked) enabled.add(checkbox.dataset.rulesetId);
+  else enabled.delete(checkbox.dataset.rulesetId);
+  checkbox.disabled = true;
+  try {
+    await saveEnabledRuleSets([...enabled]);
+  } catch (error) {
+    checkbox.checked = !checkbox.checked;
+    showMsg(error.message, true);
+  } finally {
+    checkbox.disabled = false;
+  }
+});
+
+document.getElementById('ruleset-enable-all').addEventListener('click', async () => {
+  const state = await loadRuleSetState();
+  const button = document.getElementById('ruleset-enable-all');
+  button.disabled = true;
+  const label = button.textContent;
+  button.textContent = '启用中…';
+  try {
+    await saveEnabledRuleSets(state.ruleSets.map((set) => set.id), '已启用全部规则集');
+  } catch (error) {
+    showMsg(error.message, true);
+  } finally {
+    button.disabled = false;
+    button.textContent = label;
+  }
+});
+
+document.getElementById('ruleset-enable-current').addEventListener('click', async () => {
+  const state = await loadRuleSetState();
+  const button = document.getElementById('ruleset-enable-current');
+  button.disabled = true;
+  const label = button.textContent;
+  button.textContent = '切换中…';
+  try {
+    await saveEnabledRuleSets([state.activeRuleSetId], '已仅启用当前编辑集');
+  } catch (error) {
+    showMsg(error.message, true);
+  } finally {
+    button.disabled = false;
+    button.textContent = label;
+  }
 });
 
 document.getElementById('ruleset-create').addEventListener('click', async () => {
@@ -339,8 +422,9 @@ document.getElementById('ruleset-create').addEventListener('click', async () => 
   const base = name.toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '') || 'ruleset';
   let id = base, suffix = 2;
   while (state.ruleSets.some((set) => set.id === id)) id = `${base}-${suffix++}`;
-  ruleSetState = { ruleSets: [...state.ruleSets, { id, name, rules: [] }], activeRuleSetId: id, rules: [] };
-  await chrome.storage.local.set(ruleSetState);
+  const ruleSets = [...state.ruleSets, { id, name, rules: [] }];
+  ruleSetState = { ...state, ruleSets, activeRuleSetId: id };
+  await chrome.storage.local.set({ ruleSets, activeRuleSetId: id });
   input.value = '';
   await refreshRuleList();
   showMsg(`已新建并切换到「${name}」`);
@@ -353,7 +437,8 @@ document.getElementById('ruleset-delete').addEventListener('click', async () => 
   if (!confirm(`删除规则集「${active.name}」及其中 ${active.rules.length} 条规则？`)) return;
   const ruleSets = state.ruleSets.filter((set) => set.id !== active.id);
   const next = ruleSets[0];
-  ruleSetState = { ruleSets, activeRuleSetId: next.id, rules: next.rules };
+  const enabledRuleSetIds = state.enabledRuleSetIds.filter((id) => id !== active.id);
+  ruleSetState = GoPainterUtils.normalizeRuleSets(ruleSets, next.id, [], enabledRuleSetIds);
   await chrome.storage.local.set(ruleSetState);
   await refreshRuleList();
   showMsg(`已删除「${active.name}」，切换到「${next.name}」`);
@@ -912,5 +997,5 @@ scheduleIdle(loadConfConfig);
 
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== 'local') return;
-  if (changes.rules || changes.ruleSets || changes.activeRuleSetId) ruleSetState = null;
+  if (changes.rules || changes.ruleSets || changes.activeRuleSetId || changes.enabledRuleSetIds) ruleSetState = null;
 });

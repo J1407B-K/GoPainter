@@ -126,26 +126,42 @@
     return [...byId.values()];
   }
 
-  // 规则集保存在 ruleSets；rules 是当前激活规则集的兼容镜像，供匹配层和旧版本 UI 读取。
-  // 首次升级时把旧 rules 无损迁入默认规则集。
-  function normalizeRuleSets(ruleSets, activeRuleSetId, legacyRules = []) {
+  function enabledRulesForSets(ruleSets, enabledRuleSetIds) {
+    const enabled = new Set(enabledRuleSetIds);
+    const byId = new Map();
+    for (const set of ruleSets) {
+      if (!enabled.has(set.id)) continue;
+      for (const rule of set.rules) byId.set(rule.id, rule);
+    }
+    return [...byId.values()];
+  }
+
+  // ruleSets 保存独立规则集，activeRuleSetId 是编辑目标；rules 是所有启用集的兼容合并镜像。
+  // 首次升级时把旧 rules 无损迁入默认规则集，并默认只启用原激活集。
+  function normalizeRuleSets(ruleSets, activeRuleSetId, legacyRules = [], enabledRuleSetIds) {
     const sets = Array.isArray(ruleSets)
       ? ruleSets.filter((set) => set && typeof set.id === 'string' && set.id && Array.isArray(set.rules))
         .map((set) => ({ id: set.id, name: String(set.name || set.id), rules: set.rules }))
       : [];
     if (!sets.length) sets.push({ id: 'default', name: '默认规则集', rules: Array.isArray(legacyRules) ? legacyRules : [] });
     const active = sets.find((set) => set.id === activeRuleSetId) || sets[0];
-    return { ruleSets: sets, activeRuleSetId: active.id, rules: active.rules };
+    const validIds = new Set(sets.map((set) => set.id));
+    const enabledIds = Array.isArray(enabledRuleSetIds)
+      ? [...new Set(enabledRuleSetIds.filter((id) => validIds.has(id)))]
+      : [active.id];
+    return {
+      ruleSets: sets,
+      activeRuleSetId: active.id,
+      enabledRuleSetIds: enabledIds,
+      rules: enabledRulesForSets(sets, enabledIds),
+    };
   }
 
   function replaceActiveRuleSetRules(state, rules) {
-    const normalized = normalizeRuleSets(state?.ruleSets, state?.activeRuleSetId, state?.rules);
+    const normalized = normalizeRuleSets(state?.ruleSets, state?.activeRuleSetId, state?.rules, state?.enabledRuleSetIds);
     const nextRules = Array.isArray(rules) ? rules : [];
-    return {
-      ...normalized,
-      ruleSets: normalized.ruleSets.map((set) => set.id === normalized.activeRuleSetId ? { ...set, rules: nextRules } : set),
-      rules: nextRules,
-    };
+    const ruleSets = normalized.ruleSets.map((set) => set.id === normalized.activeRuleSetId ? { ...set, rules: nextRules } : set);
+    return normalizeRuleSets(ruleSets, normalized.activeRuleSetId, [], normalized.enabledRuleSetIds);
   }
 
   function mergeConvertedRules(rules = []) {
@@ -386,6 +402,29 @@
     return out;
   }
 
+  // 文件导入既接受原生规则，也接受 nuclei 模板。nuclei 结构必须原样交给 Go 转换器，
+  // 不能先走原生规则清洗，否则 http/requests 会被当成缺少 matchers 而丢弃。
+  function sanitizeImportedRuleDocs(docs) {
+    const out = [];
+    const append = (doc) => {
+      if (!doc || typeof doc !== 'object') return;
+      if (Array.isArray(doc)) {
+        for (const item of doc) append(item);
+        return;
+      }
+      const isNuclei = String(doc.id || '').trim() && doc.info && typeof doc.info === 'object'
+        && (Array.isArray(doc.http) || Array.isArray(doc.requests));
+      if (isNuclei) {
+        out.push(doc);
+        return;
+      }
+      const rule = sanitizeRule(doc);
+      if (rule) out.push(rule);
+    };
+    for (const doc of docs || []) append(doc);
+    return out;
+  }
+
   function scanHistoryEntry(features = {}, result = {}, source = 'page', at = Date.now()) {
     return {
       url: String(features.url || ''),
@@ -490,7 +529,7 @@
     confidenceValue, filterAndSortHits, filterRules, crawlRenderSignature, popupResultSnapshot, agentPageSnapshot, faviconHashValues, bytesToBinaryString, mergeRules, mergeConvertedRules,
     normalizeRuleSets, replaceActiveRuleSetRules, extractYaml,
     extractJson, normalizeAiEvidence, normalizeAiTech, techsFromAiReply, ruleByTechName,
-    sanitizeRuleDocs, sanitizeRule, sanitizeMatcher,
+    sanitizeRuleDocs, sanitizeImportedRuleDocs, sanitizeRule, sanitizeMatcher,
     scanHistoryEntry, mergeScanHistory, normalizeHistoryLimit, scanHistoryReport, scanHistoryCsv,
   };
   globalThis.GoPainterUtils = Object.freeze(api);

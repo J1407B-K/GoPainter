@@ -61,7 +61,7 @@ async function loadRuleSetState() {
   ruleSetQuick.innerHTML = state.ruleSets.map((set) => {
     const option = document.createElement('option');
     option.value = set.id;
-    option.textContent = `${set.name}（${set.count}）`;
+    option.textContent = `${set.enabled ? '✓ ' : ''}${set.name}（${set.count}）`;
     return option.outerHTML;
   }).join('');
   ruleSetQuick.value = state.activeRuleSetId;
@@ -359,7 +359,7 @@ function populateAgentRuleSelect() {
   if (!visible.length) {
     const option = document.createElement('option');
     option.value = '';
-    option.textContent = rulesCache.length ? '没有匹配规则' : '当前规则集为空';
+    option.textContent = rulesCache.length ? '没有匹配规则' : '当前编辑集为空';
     agentRuleSelect.appendChild(option);
     return;
   }
@@ -475,7 +475,7 @@ agentRun.addEventListener('click', async () => {
   const goalId = agentGoal.value;
   const input = goalId === 'optimize-rule' ? agentRuleSelect.value : agentInput.value.trim();
   if (goalId !== 'identify-site' && !input) {
-    showAgentMessage(goalId === 'optimize-rule' ? '当前规则集中没有可优化的规则。' : '研究规则时，请填写技术名。');
+    showAgentMessage(goalId === 'optimize-rule' ? '当前编辑集中没有可优化的规则。' : '研究规则时，请填写技术名。');
     return;
   }
   setBusy(agentRun, true, '执行中…');

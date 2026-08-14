@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
   confidenceValue, filterAndSortHits, filterRules, crawlRenderSignature, popupResultSnapshot, agentPageSnapshot, faviconHashValues, bytesToBinaryString, mergeRules, mergeConvertedRules,
-  normalizeRuleSets, replaceActiveRuleSetRules, extractYaml,
+  normalizeRuleSets, replaceActiveRuleSetRules, extractYaml, sanitizeImportedRuleDocs,
   extractJson, normalizeAiEvidence, normalizeAiTech, techsFromAiReply, ruleByTechName, sanitizeRuleDocs,
   scanHistoryEntry, mergeScanHistory, normalizeHistoryLimit, scanHistoryReport, scanHistoryCsv,
 } = require('../extension/shared-utils.js');
@@ -75,11 +75,44 @@ test('rule sets migrate legacy rules and keep the active rules mirror in sync', 
   const initial = normalizeRuleSets(undefined, undefined, [{ id: 'legacy' }]);
   assert.deepEqual(initial, {
     ruleSets: [{ id: 'default', name: '默认规则集', rules: [{ id: 'legacy' }] }],
-    activeRuleSetId: 'default', rules: [{ id: 'legacy' }],
+    activeRuleSetId: 'default', enabledRuleSetIds: ['default'], rules: [{ id: 'legacy' }],
   });
   const next = replaceActiveRuleSetRules(initial, [{ id: 'new' }]);
   assert.deepEqual(next.rules, [{ id: 'new' }]);
   assert.deepEqual(next.ruleSets[0].rules, [{ id: 'new' }]);
+});
+
+test('rule sets merge every enabled set while edits stay scoped to the active set', () => {
+  const sets = [
+    { id: 'base', name: 'Base', rules: [{ id: 'shared', name: 'Base' }, { id: 'base-only' }] },
+    { id: 'extra', name: 'Extra', rules: [{ id: 'shared', name: 'Extra' }, { id: 'extra-only' }] },
+  ];
+  const state = normalizeRuleSets(sets, 'base', [], ['base', 'extra', 'missing', 'base']);
+  assert.deepEqual(state.enabledRuleSetIds, ['base', 'extra']);
+  assert.deepEqual(state.rules, [
+    { id: 'shared', name: 'Extra' }, { id: 'base-only' }, { id: 'extra-only' },
+  ]);
+
+  const next = replaceActiveRuleSetRules(state, [{ id: 'replacement' }]);
+  assert.deepEqual(next.ruleSets[0].rules, [{ id: 'replacement' }]);
+  assert.deepEqual(next.ruleSets[1].rules, sets[1].rules);
+  assert.deepEqual(next.rules, [{ id: 'replacement' }, ...sets[1].rules]);
+});
+
+test('rule sets may all be disabled without falling back to the active set', () => {
+  const state = normalizeRuleSets([{ id: 'one', name: 'One', rules: [{ id: 'a' }] }], 'one', [], []);
+  assert.deepEqual(state.enabledRuleSetIds, []);
+  assert.deepEqual(state.rules, []);
+});
+
+test('import sanitizing preserves nuclei templates while cleaning native rules', () => {
+  const nuclei = { id: 'nuclei-test', info: { name: 'Nuclei Test' }, http: [{ matchers: [{ type: 'word', words: ['x'] }] }] };
+  const out = sanitizeImportedRuleDocs([
+    nuclei,
+    [{ id: 'native', name: 'Native', matchers: { type: 'word', words: 'hello' } }],
+  ]);
+  assert.equal(out[0], nuclei);
+  assert.deepEqual(out[1], { id: 'native', name: 'Native', matchers: [{ type: 'word', words: ['hello'] }] });
 });
 
 test('mergeConvertedRules combines matchers and de-duplicates relations without mutating input', () => {
