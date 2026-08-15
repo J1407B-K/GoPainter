@@ -473,15 +473,18 @@ function showAgentMessage(text) {
 }
 
 function showAgentOutcome(status, steps = null) {
+  const noChange = status === 'nochange';
   const complete = status === 'complete';
-  agentOutcome.className = complete ? 'success' : 'warning';
+  agentOutcome.className = complete ? 'success' : noChange ? 'neutral' : 'warning';
   agentOutcome.style.display = 'flex';
   agentOutcome.replaceChildren();
   const icon = document.createElement('span');
   icon.className = 'outcome-icon';
-  icon.textContent = complete ? '✓' : '!';
+  icon.textContent = complete ? '✓' : noChange ? '·' : '!';
   const text = document.createElement('span');
-  text.textContent = complete
+  text.textContent = noChange
+    ? '当前 AI 无合理优化建议'
+    : complete
     ? `Agent 已完成${steps ? ` · ${steps} 步` : ''}`
     : `Agent 未完成${steps ? ` · ${steps} 步` : ''}`;
   agentOutcome.append(icon, text);

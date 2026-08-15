@@ -199,6 +199,18 @@ function extractYaml(text) {
   return GoPainterUtils.extractYaml(text);
 }
 
+async function normalizeRuleYaml(yaml) {
+  const docs = [];
+  jsyaml.loadAll(yaml, (doc) => docs.push(doc));
+  const clean = GoPainterUtils.sanitizeRuleDocs(docs);
+  if (!clean.length) throw new Error('YAML 里没有有效规则');
+  await ensureWasm();
+  const out = JSON.parse(globalThis.goNormalizeRules(JSON.stringify(clean)));
+  if (out.error) throw new Error(out.error);
+  if (!out.rules?.length) throw new Error('YAML 里没有有效规则');
+  return out.rules;
+}
+
 // --- 书签整理：勾选的处理，规则没命中可以选 AI 兜底 ---
 
 async function fetchFeatures(url) {
@@ -551,17 +563,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       case 'addRule': {
         // popup 把 AI 给的 YAML 发回来；同 id 内容变化时先返回冲突，确认后才原子写入。
         // 先清洗再走 wasm：AI 输出常见标量/浮点/单对象偏差，goNormalizeRules 一处不对就丢整条规则
-        const docs = [];
-        jsyaml.loadAll(msg.yaml, (d) => docs.push(d));
-        const clean = GoPainterUtils.sanitizeRuleDocs(docs);
-        if (!clean.length) throw new Error('YAML 里没有有效规则');
-        await ensureWasm();
-        const out = JSON.parse(globalThis.goNormalizeRules(JSON.stringify(clean)));
-        if (out.error) throw new Error(out.error);
-        if (!out.rules?.length) throw new Error('YAML 里没有有效规则');
-        if (msg.requireSingle && out.rules.length !== 1) throw new Error('Agent 必须交付且只能交付一条完整规则');
+        const incoming = await normalizeRuleYaml(msg.yaml);
+        if (msg.requireSingle && incoming.length !== 1) throw new Error('Agent 必须交付且只能交付一条完整规则');
         const expectedId = String(msg.expectedId || '').trim();
-        if (expectedId && out.rules.some((rule) => rule.id !== expectedId)) {
+        if (expectedId && incoming.some((rule) => rule.id !== expectedId)) {
           throw new Error(`优化规则必须保留原 id：${expectedId}`);
         }
         const storedRules = await chrome.storage.local.get(['rules', 'ruleSets', 'activeRuleSetId', 'enabledRuleSetIds']);
@@ -569,7 +574,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           storedRules.ruleSets, storedRules.activeRuleSetId, storedRules.rules, storedRules.enabledRuleSetIds
         );
         const existing = state.ruleSets.find((set) => set.id === state.activeRuleSetId)?.rules || [];
-        const merge = GoPainterUtils.planRuleMerge(existing, out.rules, msg.resolutions || {});
+        const merge = GoPainterUtils.planRuleMerge(existing, incoming, msg.resolutions || {});
         if (merge.unresolved.length) {
           sendResponse({
             ok: true,

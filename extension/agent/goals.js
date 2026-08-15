@@ -6,6 +6,7 @@
   const loadedRule = (state, id) => calls(state, 'search_rules').some((call) =>
     String(call.input?.query || '').trim().toLowerCase() === String(id || '').trim().toLowerCase()
     && call.output?.matches?.some((match) => match.rule?.id === id));
+  const noOptimization = (text) => /^## 结论\s*\n当前 AI 无合理优化建议[。]?\s*$/.test(String(text || '').trim());
   const fencedYaml = (text) => {
     const blocks = [...String(text || '').matchAll(/```(?:yaml|yml)[^\S\r\n]*\r?\n([\s\S]*?)```/gi)];
     return blocks.length === 1 ? blocks[0][1].trim() : '';
@@ -67,11 +68,14 @@
         '最终输出固定使用“## 结论”“## 修改依据”“## 优化后规则”“## 风险与限制”四个 Markdown 标题。',
         '除 YAML 外保持精简：结论只写一句，修改依据与风险各不超过 3 条，总说明文字不超过 250 个汉字。',
         '严格使用原生 matcher 结构：word={type,part?,words:[字符串]}；regex={type,part?,regex:[字符串]}；status={type,status:[整数]}；icon_hash={type,hash:[整数]}；dsl={type,dsl:[表达式]}；js={type,js:[{path,pattern?}]}；dom={type,dom:[{sel,text?,attrs?}]}。condition 只允许 and/or，绝不能放 JavaScript 表达式。优化后每个 matcher 都必须能被原生解析，不能依赖导入清洗丢弃无效项。',
+        '候选规则必须产生至少一项有公开证据支持的实质增删改，不得原样返回或只调整 YAML 排版。“修改依据”必须明确写出新增、删除或替换了哪个 matcher，不能只写“保留”“补强”之类笼统结论。',
+        '如果研究后没有可靠的实质改进，正常结束并只输出“## 结论\n当前 AI 无合理优化建议”，不要编造修改，也不要输出原规则 YAML。',
         '结论只能声称优化后 YAML 中实际 matcher 能检测到的能力；不要把未落入规则的研究证据描述成已覆盖能力。',
         '“## 优化后规则”下必须且只能包含一个 ```yaml 代码块，内容必须是可直接覆盖入库的完整 GoPainter 原生规则，保留原 id，并至少包含 id、name、matchers-condition 和非空 matchers。不要只输出 diff 或 matcher 片段，不要声称自动写入。',
       ].join('\n\n'),
       isComplete: (state, input) => loadedRule(state, input) && hasWebEvidence(state),
-      isOutputComplete: (text, input) => completeRuleOutput(text, String(input || '').trim()),
+      isNoChange: (text) => noOptimization(text),
+      isOutputComplete: (text, input) => noOptimization(text) || completeRuleOutput(text, String(input || '').trim()),
     }),
   });
   globalThis.GoPainterAgentGoals = Object.freeze({ get: (id) => goals[id] || null });

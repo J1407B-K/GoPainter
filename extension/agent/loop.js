@@ -89,13 +89,14 @@
         let summary = String(finalReply.text || '').trim();
         if (summary && evidenceComplete() && !outputComplete(summary)) {
           record(state.steps, '首版规则未通过原生 YAML 结构校验，正在自动修正');
-          synthesisSession.addUserText(`上一次输出不符合目标产物要求。立即重新输出精简的完整报告。规则必须是唯一一个 fenced YAML 代码块，可直接导入；必须包含 id、name、matchers-condition 和非空 matchers${goalId === 'optimize-rule' ? `，且 id 必须保持为 ${input}` : ''}。`);
+          synthesisSession.addUserText(`上一次输出不符合目标产物要求。立即重新输出精简的完整报告。${goalId === 'optimize-rule' ? `有可靠修改时，规则必须是唯一一个 fenced YAML 代码块且 id 必须保持为 ${input}；没有可靠修改时，只输出“## 结论\n当前 AI 无合理优化建议”。` : '规则必须是唯一一个 fenced YAML 代码块，可直接导入；必须包含 id、name、matchers-condition 和非空 matchers。'}`);
           finalReply = await synthesisSession.next({ noTools: true });
           summary = String(finalReply.text || '').trim();
         }
         if (summary && evidenceComplete() && outputComplete(summary)) {
-          record(state.steps, '可导入规则已通过结构校验');
-          return { status: 'complete', goalId, steps: state.steps, summary, trace };
+          const noChange = goal.isNoChange?.(summary, input) === true;
+          record(state.steps, noChange ? '当前 AI 无合理优化建议' : '可导入规则已通过结构校验');
+          return { status: noChange ? 'nochange' : 'complete', goalId, steps: state.steps, summary, trace };
         }
         record(state.steps, '归纳回合未生成符合要求的有效产物，安全停止');
       } catch (error) {
@@ -115,8 +116,9 @@
       if (!reply.calls.length) {
         const summary = String(reply.text || '').trim();
         if (summary && evidenceComplete() && outputComplete(summary)) {
-          record(step, '已满足目标的证据要求，目标完成');
-          return { status: 'complete', goalId, steps: step, summary, trace };
+          const noChange = goal.isNoChange?.(summary, input) === true;
+          record(step, noChange ? '当前 AI 无合理优化建议' : '已满足目标的证据要求，目标完成');
+          return { status: noChange ? 'nochange' : 'complete', goalId, steps: step, summary, trace };
         }
         record(step, '模型提前返回，但资料或产物要求尚未满足，安全停止');
         return { status: 'incomplete', goalId, steps: step, summary: '模型未在资料和产物要求均满足后给出有效结论。', trace };

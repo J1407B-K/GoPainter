@@ -74,6 +74,7 @@ test('goal completion requires the evidence tools relevant to each workflow', ()
   assert.equal(context.GoPainterAgentGoals.get('research-rule').isOutputComplete('只有研究结论'), false);
   assert.equal(context.GoPainterAgentGoals.get('optimize-rule').isOutputComplete(valid, 'react'), true);
   assert.equal(context.GoPainterAgentGoals.get('optimize-rule').isOutputComplete(valid, 'react-router'), false);
+  assert.equal(context.GoPainterAgentGoals.get('optimize-rule').isOutputComplete('## 结论\n当前 AI 无合理优化建议', 'react'), true);
   const partlyInvalid = '```yaml\nid: react\nname: React\nmatchers-condition: or\nmatchers:\n  - type: js\n    condition: "Object.keys(window)"\n  - type: regex\n    regex: [data-reactroot]\n```';
   assert.equal(context.GoPainterAgentGoals.get('research-rule').isOutputComplete(partlyInvalid), false);
 });

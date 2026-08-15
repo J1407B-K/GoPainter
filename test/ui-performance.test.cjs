@@ -27,6 +27,7 @@ test('shared UI CSS uses static page scopes instead of dynamic :has selectors', 
   const popupHtml = fs.readFileSync(path.join(extension, 'popup.html'), 'utf8');
   assert.match(optionsHtml, /id="rule-conflict-modal"/);
   assert.match(popupHtml, /id="rule-conflict-modal"/);
+  assert.doesNotMatch(popupHtml, /rule-conflict-debug/);
 });
 
 test('page collection and large lists keep bounded performance paths', () => {
@@ -43,6 +44,9 @@ test('page collection and large lists keep bounded performance paths', () => {
   const popup = fs.readFileSync(path.join(extension, 'popup.js'), 'utf8');
   assert.match(popup, /activeAgentPort\.disconnect\(\)/);
   assert.match(popup, /addRuleWithResolution/);
+  assert.doesNotMatch(popup, /previewRuleChange/);
+  assert.doesNotMatch(popup, /appendAgentRuleDiff/);
+  assert.doesNotMatch(popup, /renderPopupRuleComparison/);
   assert.match(options, /planRuleMerge/);
   assert.match(matching, /Math\.min\(6, unique\.length\)/);
   assert.match(matching, /chrome\.tabs\.query\(\{\}\)/);
