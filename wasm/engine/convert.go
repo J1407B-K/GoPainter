@@ -320,46 +320,53 @@ func splitPatterns(patterns []string, confs []*int, part string) []Matcher {
 	return out
 }
 
-func convertWappTech(name string, t wappTech) *Rule {
-	var matchers []Matcher
-
-	var headerRes, metaRes []string
-	var headerConfs, metaConfs []*int
+func convertWappHeaders(t wappTech) []Matcher {
+	var patterns []string
+	var confs []*int
 	for k, v := range t.Headers {
 		for _, p := range wappPatterns(v) {
 			clean, conf := splitWappMeta(p)
-			headerRes = append(headerRes, headerPattern(k, clean))
-			headerConfs = append(headerConfs, conf)
+			patterns = append(patterns, headerPattern(k, clean))
+			confs = append(confs, conf)
 		}
 	}
 	for k, v := range t.Cookies {
 		// cookie 在响应头里是 set-cookie: name=...（书签/爬取链路拿不到 set-cookie，尽力而为）
 		ps := wappPatterns(v)
 		if len(ps) == 0 {
-			headerRes = append(headerRes, headerPattern("set-cookie", regexp.QuoteMeta(k)+`=`))
-			headerConfs = append(headerConfs, nil)
+			patterns = append(patterns, headerPattern("set-cookie", regexp.QuoteMeta(k)+`=`))
+			confs = append(confs, nil)
 		}
 		for _, p := range ps {
 			clean, conf := splitWappMeta(p)
-			headerRes = append(headerRes, headerPattern("set-cookie", regexp.QuoteMeta(k)+`=`+clean))
-			headerConfs = append(headerConfs, conf)
+			patterns = append(patterns, headerPattern("set-cookie", regexp.QuoteMeta(k)+`=`+clean))
+			confs = append(confs, conf)
 		}
 	}
-	if headerRes, headerConfs = compilablePair(headerRes, headerConfs); len(headerRes) > 0 {
-		matchers = appendRegexMatchersByConf(matchers, "header", headerRes, headerConfs)
+	if patterns, confs = compilablePair(patterns, confs); len(patterns) > 0 {
+		return appendRegexMatchersByConf(nil, "header", patterns, confs)
 	}
+	return nil
+}
 
+func convertWappMeta(t wappTech) []Matcher {
+	var patterns []string
+	var confs []*int
 	for k, v := range t.Meta {
 		for _, p := range wappPatterns(v) {
 			clean, conf := splitWappMeta(p)
-			metaRes = append(metaRes, headerPattern(k, clean))
-			metaConfs = append(metaConfs, conf)
+			patterns = append(patterns, headerPattern(k, clean))
+			confs = append(confs, conf)
 		}
 	}
-	if metaRes, metaConfs = compilablePair(metaRes, metaConfs); len(metaRes) > 0 {
-		matchers = appendRegexMatchersByConf(matchers, "meta", metaRes, metaConfs)
+	if patterns, confs = compilablePair(patterns, confs); len(patterns) > 0 {
+		return appendRegexMatchersByConf(nil, "meta", patterns, confs)
 	}
+	return nil
+}
 
+func convertWappPatternParts(t wappTech) []Matcher {
+	var matchers []Matcher
 	for _, part := range []struct {
 		field any
 		part  string
@@ -381,7 +388,10 @@ func convertWappTech(name string, t wappTech) *Rule {
 			matchers = append(matchers, splitPatterns(ps, confs, part.part)...)
 		}
 	}
+	return matchers
+}
 
+func convertWappJS(t wappTech) []Matcher {
 	// js 全局变量：path 存在即命中，模式非空则值也要匹配
 	var probes []JsProbe
 	var probeConfs []*int
@@ -398,9 +408,12 @@ func convertWappTech(name string, t wappTech) *Rule {
 		probeConfs = append(probeConfs, conf)
 	}
 	if len(probes) > 0 {
-		matchers = appendJsMatchersByConf(matchers, probes, probeConfs)
+		return appendJsMatchersByConf(nil, probes, probeConfs)
 	}
+	return nil
+}
 
+func convertWappDOM(t wappTech) []Matcher {
 	// dom 选择器。
 	// 字符串/数组形态：裸"存在"语义，但要过信息量检查（*、div、body > * 这种在哪都中，丢）。
 	// 对象形态：{selector: {exists/text/attributes/properties}} —— 条件才是规则本体！
@@ -455,9 +468,18 @@ func convertWappTech(name string, t wappTech) *Rule {
 		}
 	}
 	if len(domProbes) > 0 {
-		matchers = appendDomMatchersByConf(matchers, domProbes, domConfs)
+		return appendDomMatchersByConf(nil, domProbes, domConfs)
 	}
+	return nil
+}
 
+func convertWappTech(name string, t wappTech) *Rule {
+	var matchers []Matcher
+	matchers = append(matchers, convertWappHeaders(t)...)
+	matchers = append(matchers, convertWappMeta(t)...)
+	matchers = append(matchers, convertWappPatternParts(t)...)
+	matchers = append(matchers, convertWappJS(t)...)
+	matchers = append(matchers, convertWappDOM(t)...)
 	if len(matchers) == 0 {
 		return nil
 	}
@@ -536,8 +558,7 @@ func convertEHole(jsonStr string) ([]Rule, error) {
 	return convertEHoleFingers(fingers), nil
 }
 
-func convertEHoleFingers(fingers []eholeFinger) []Rule {
-	// 按 cms 分组，一个系统一条规则
+func groupEHoleFingers(fingers []eholeFinger) (map[string][]eholeFinger, []string) {
 	byCms := make(map[string][]eholeFinger)
 	var order []string
 	for _, fp := range fingers {
@@ -549,56 +570,65 @@ func convertEHoleFingers(fingers []eholeFinger) []Rule {
 		}
 		byCms[fp.Cms] = append(byCms[fp.Cms], fp)
 	}
+	return byCms, order
+}
+
+func eholeStrings(value any) []string {
+	switch typed := value.(type) {
+	case string:
+		return []string{typed}
+	case []any:
+		var values []string
+		for _, item := range typed {
+			if value, ok := item.(string); ok {
+				values = append(values, value)
+			}
+		}
+		return values
+	default:
+		return nil
+	}
+}
+
+func eholeHashes(value any) []int32 {
+	var hashes []int32
+	for _, text := range eholeStrings(value) {
+		var hash int64
+		if _, err := fmt.Sscanf(text, "%d", &hash); err == nil && hash != 0 {
+			hashes = append(hashes, int32(hash))
+		}
+	}
+	return hashes
+}
+
+func convertEHoleFinger(fp eholeFinger) (Matcher, bool) {
+	switch fp.Method {
+	case "keyword":
+		switch fp.Location {
+		case "body", "title", "header", "url":
+		default:
+			return Matcher{}, false
+		}
+		words := eholeStrings(fp.Keyword)
+		return Matcher{Type: "word", Part: fp.Location, Words: words, Condition: "and"}, len(words) > 0
+	case "faviconhash":
+		hashes := eholeHashes(fp.Keyword)
+		return Matcher{Type: "icon_hash", Hash: hashes}, len(hashes) > 0
+	default:
+		return Matcher{}, false
+	}
+}
+
+func convertEHoleFingers(fingers []eholeFinger) []Rule {
+	// 按 cms 分组，一个系统一条规则。
+	byCms, order := groupEHoleFingers(fingers)
 
 	rules := make([]Rule, 0, len(byCms))
 	for _, cms := range order {
 		var matchers []Matcher
 		for _, fp := range byCms[cms] {
-			switch fp.Method {
-			case "keyword":
-				part := fp.Location
-				switch part {
-				case "body", "title", "header", "url":
-				default:
-					continue
-				}
-				var words []string
-				switch kw := fp.Keyword.(type) {
-				case string:
-					words = []string{kw}
-				case []any:
-					for _, w := range kw {
-						if s, ok := w.(string); ok {
-							words = append(words, s)
-						}
-					}
-				}
-				if len(words) > 0 {
-					matchers = append(matchers, Matcher{Type: "word", Part: part, Words: words, Condition: "and"})
-				}
-			case "faviconhash":
-				var hashes []int32
-				switch kw := fp.Keyword.(type) {
-				case string:
-					var h int64
-					if _, err := fmt.Sscanf(kw, "%d", &h); err == nil && h != 0 {
-						hashes = append(hashes, int32(h))
-					}
-				case []any:
-					for _, v := range kw {
-						s, ok := v.(string)
-						if !ok {
-							continue
-						}
-						var h int64
-						if _, err := fmt.Sscanf(s, "%d", &h); err == nil && h != 0 {
-							hashes = append(hashes, int32(h))
-						}
-					}
-				}
-				if len(hashes) > 0 {
-					matchers = append(matchers, Matcher{Type: "icon_hash", Hash: hashes})
-				}
+			if matcher, ok := convertEHoleFinger(fp); ok {
+				matchers = append(matchers, matcher)
 			}
 		}
 		if len(matchers) > 0 {

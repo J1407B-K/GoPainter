@@ -26,7 +26,7 @@
       ...tool,
       skillIds: Object.freeze([...tool.skillIds]),
       inputSchema: deepFreeze(tool.inputSchema),
-      annotations: deepFreeze({ ...(tool.annotations || {}) }),
+      annotations: deepFreeze({ ...tool.annotations }),
     }));
   }
 
