@@ -26,7 +26,7 @@ description: Research evidence for a web fingerprint rule using the current page
 - `evaluate_dsl`: Evaluate native DSL expressions against current-page features.
 - `validate_rule`: Normalize and execute the complete candidate rule with the production Go engine.
 - `web_search`: Search approved public sources after host permission.
-- `fetch_url`: Read bounded text from an approved public source after host permission.
+- `fetch_url`: Read bounded text from an approved HTTPS origin after origin-scoped host permission.
 
 ## Completion
 

@@ -118,6 +118,11 @@ test('background composition root loads every Host module and rejects duplicate 
   assert.doesNotMatch(background, /switch\s*\(msg\.type\)/);
 });
 
+test('Stable extension manifest does not require the Dev-only chrome.dns permission', () => {
+  const manifest = JSON.parse(read(path.join(root, 'extension', 'manifest.json')));
+  assert.equal(manifest.permissions.includes('dns'), false);
+});
+
 test('Go-backed skill tools reference exports registered by the WASM bridge', () => {
   const bridge = read(path.join(root, 'wasm', 'bridge.go'));
   for (const file of fs.readdirSync(toolsRoot).filter((name) => name.endsWith('.js'))) {
@@ -209,14 +214,13 @@ test('validate_rule rejects silently normalized or unsupported candidates', asyn
   assert.equal(JSON.stringify(result).includes('artifact'), false);
 });
 
-function loadFetchURLTool({ address = '93.184.216.34', fetchImpl }) {
+function loadFetchURLTool({ address = '93.184.216.34', fetchImpl, dns = true, dnsError = '' }) {
+  const chrome = { runtime: dnsError ? { lastError: { message: dnsError } } : {} };
+  if (dns) chrome.dns = { resolve: (_hostname, callback) => callback({ resultCode: 0, address }) };
   const context = {
     console, Object, Number, Set, Map, JSON, URL, AbortController, TextDecoder, Uint8Array, setTimeout, clearTimeout,
     fetch: fetchImpl,
-    chrome: {
-      runtime: {},
-      dns: { resolve: (_hostname, callback) => callback({ resultCode: 0, address }) },
-    },
+    chrome,
   };
   context.globalThis = context;
   for (const file of ['registry.js', 'page-context.js', 'fetch-url.js']) {
@@ -240,7 +244,11 @@ test('fetch_url blocks local targets and DNS answers before making a request', a
   let fetches = 0;
   const direct = loadFetchURLTool({ fetchImpl: async () => { fetches++; return response({}); } });
   const tool = direct.GoPainterAgentTools.getTool('fetch_url');
-  for (const url of ['http://localhost/', 'http://127.0.0.1/', 'http://[::1]/', 'http://[::ffff:7f00:1]/', 'http://10.0.0.8/']) {
+  assert.throws(() => tool.validate({ url: 'http://example.com/' }), /只允许 HTTPS/);
+  for (const url of [
+    'https://localhost/', 'https://localhost./', 'https://127.0.0.1/', 'https://2130706433/',
+    'https://[::1]/', 'https://[::ffff:7f00:1]/', 'https://10.0.0.8/',
+  ]) {
     assert.throws(() => tool.validate({ url }), /不允许/);
   }
   assert.equal(direct.GoPainterAgentFetchURL.addressBlocked('203.0.114.8'), false);
@@ -248,37 +256,65 @@ test('fetch_url blocks local targets and DNS answers before making a request', a
 
   const privateDNS = loadFetchURLTool({ address: '192.168.1.10', fetchImpl: async () => { fetches++; return response({}); } });
   await assert.rejects(privateDNS.GoPainterAgentTools.executeTool('fetch_url', { url: 'https://docs.example.test/' }, {
-    skillId: 'fingerprint-research', allowedTools: ['fetch_url'], grants: ['fetch_url'],
+    skillId: 'fingerprint-research', allowedTools: ['fetch_url'], grants: ['fetch_url:https://docs.example.test'],
   }), /DNS 结果/);
   assert.equal(fetches, 0);
 });
 
-test('fetch_url revalidates redirects and returns bounded readable text', async () => {
+test('fetch_url scopes grants by origin and reauthorizes cross-origin redirects', async () => {
   let fetches = 0;
   const redirected = loadFetchURLTool({
     fetchImpl: async () => {
       fetches++;
-      return response({ status: 302, headers: { location: 'http://127.0.0.1/private' } });
+      return response({ status: 302, headers: { location: 'https://cdn.example.test/private' } });
     },
   });
+  assert.equal(
+    redirected.GoPainterAgentTools.grantKey('fetch_url', { url: 'https://docs.example.test/start' }),
+    'fetch_url:https://docs.example.test'
+  );
   await assert.rejects(redirected.GoPainterAgentTools.executeTool('fetch_url', { url: 'https://docs.example.test/start' }, {
     skillId: 'fingerprint-research', allowedTools: ['fetch_url'], grants: ['fetch_url'],
-  }), /私有|本地|保留/);
+  }), /需要用户授权/);
+  await assert.rejects(redirected.GoPainterAgentTools.executeTool('fetch_url', { url: 'https://docs.example.test/start' }, {
+    skillId: 'fingerprint-research', allowedTools: ['fetch_url'], grants: ['fetch_url:https://docs.example.test'],
+  }), /跨来源重定向需要单独授权/);
   assert.equal(fetches, 1);
 
+  const downgrade = loadFetchURLTool({
+    fetchImpl: async () => response({ status: 302, headers: { location: 'http://docs.example.test/private' } }),
+  });
+  await assert.rejects(downgrade.GoPainterAgentTools.executeTool('fetch_url', { url: 'https://docs.example.test/start' }, {
+    skillId: 'fingerprint-research', allowedTools: ['fetch_url'], grants: ['fetch_url:https://docs.example.test'],
+  }), /只允许 HTTPS/);
+});
+
+test('fetch_url works without chrome.dns and returns bounded readable text', async () => {
   const publicPage = loadFetchURLTool({
+    dns: false,
     fetchImpl: async () => response({
       headers: { 'content-type': 'text/html; charset=utf-8' },
       body: '<html><title>Official React docs</title><style>ignore</style><main><h1>React</h1><p>React creates user interfaces.</p></main></html>',
     }),
   });
   const result = await publicPage.GoPainterAgentTools.executeTool('fetch_url', { url: 'https://docs.example.test/react' }, {
-    skillId: 'fingerprint-research', allowedTools: ['fetch_url'], grants: ['fetch_url'],
+    skillId: 'fingerprint-research', allowedTools: ['fetch_url'], grants: ['fetch_url:https://docs.example.test'],
   });
   assert.equal(result.title, 'Official React docs');
   assert.match(result.text, /React creates user interfaces/);
   assert.doesNotMatch(result.text, /ignore/);
+  assert.equal(result.dnsCheck, 'unavailable');
   assert.equal(result.untrusted, true);
+
+  const unusableDNS = loadFetchURLTool({
+    dnsError: 'The dns permission is unavailable',
+    fetchImpl: async () => response({ headers: { 'content-type': 'text/plain' }, body: 'ok' }),
+  });
+  const fallback = await unusableDNS.GoPainterAgentTools.executeTool('fetch_url', { url: 'https://docs.example.test/fallback' }, {
+    skillId: 'fingerprint-research', allowedTools: ['fetch_url'], grants: ['fetch_url:https://docs.example.test'],
+  });
+  assert.equal(fallback.text, 'ok');
+  assert.equal(fallback.dnsCheck, 'unavailable');
 
   for (const badResponse of [
     response({ headers: { 'content-type': 'application/octet-stream' }, body: 'binary' }),
@@ -286,7 +322,7 @@ test('fetch_url revalidates redirects and returns bounded readable text', async 
   ]) {
     const rejected = loadFetchURLTool({ fetchImpl: async () => badResponse });
     await assert.rejects(rejected.GoPainterAgentTools.executeTool('fetch_url', { url: 'https://docs.example.test/file' }, {
-      skillId: 'fingerprint-research', allowedTools: ['fetch_url'], grants: ['fetch_url'],
+      skillId: 'fingerprint-research', allowedTools: ['fetch_url'], grants: ['fetch_url:https://docs.example.test'],
     }), /内容类型|响应体/);
   }
 });

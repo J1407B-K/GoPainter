@@ -513,6 +513,10 @@ function permissionDescription(request) {
     const query = request.input?.query ? `\n搜索词：${request.input.query}` : '';
     return `Agent 请求联网搜索公开网页（DuckDuckGo）。搜索结果属于外部不可信内容，并会产生一次网络请求。${query}`;
   }
+  if (request.name === 'fetch_url') {
+    const url = request.input?.url || request.scope || '';
+    return `Agent 请求读取 HTTPS 页面：\n${url}\n\n只执行有界 GET；外部内容不可信。拒绝显式本地/私有地址，并尽力降低 SSRF 风险，但浏览器 fetch 无法提供 DNS pinning。会话记忆仅适用于 ${request.scope || '这个来源'}。`;
+  }
   return `Agent 请求调用工具「${request.name}」。该调用需要你的明确授权。`;
 }
 
@@ -561,6 +565,7 @@ function resetAgentRunUI() {
 
 function showAgentPermission(port, request) {
   agentPermissionDescription.textContent = permissionDescription(request);
+  agentPermissionSession.textContent = request.scope ? '本次会话允许此来源' : '本次会话始终允许';
   agentPermissionModal.style.display = 'flex';
   const respond = (granted, remember = false) => {
     agentPermissionModal.style.display = 'none';

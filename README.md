@@ -82,7 +82,7 @@ powershell -ExecutionPolicy Bypass -File scripts/build.ps1
 
 1. Click the GoPainter toolbar icon → "Rules" → import `rules/examples.yaml` (or any nuclei template)
 2. Visit a site — the icon turns colored on a match; click it to inspect details and evidence
-3. Click **Agent** to identify the current tab, research a fingerprint, or prepare an optimization suggestion. Automatic read-only tools may run concurrently up to five; permission-gated tools remain serialized and ask before use. The visible trace streams as work completes, and no rule is written automatically.
+3. Click **Agent** to identify the current tab, research a fingerprint, or prepare an optimization suggestion. Automatic read-only tools may run concurrently up to five; permission-gated tools remain serialized and ask before use. `fetch_url` accepts HTTPS only, and a remembered grant is scoped to the approved origin. The visible trace streams as work completes, and no rule is written automatically.
 
 ### 5. Crawl a site (Side Panel)
 

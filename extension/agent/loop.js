@@ -106,12 +106,24 @@
         continue;
       }
       permissionUsed = true;
+      let grantKey;
+      try {
+        grantKey = GoPainterAgentTools.grantKey(action.name, action.input);
+      } catch (error) {
+        storeResult(item, { error: error.message });
+        record(step, `工具失败：${action.name}（${error.message}）`);
+        continue;
+      }
+      const grantScope = grantKey === action.name ? '' : grantKey.slice(action.name.length + 1);
+      const grantLabel = grantScope ? `${action.name}（${grantScope}）` : action.name;
       let callGrants = [...sessionGrants];
-      if (!sessionGrants.has(action.name)) {
-        record(step, `等待授权：${action.name}`);
+      if (!sessionGrants.has(grantKey)) {
+        record(step, `等待授权：${grantLabel}`);
         let decision;
         try {
-          decision = await onPermissionRequest?.({ name: action.name, permission: tool.permission, input: action.input });
+          decision = await onPermissionRequest?.({
+            name: action.name, permission: tool.permission, input: action.input, scope: grantScope,
+          });
         } catch (error) {
           storeResult(item, { error: error.message });
           record(step, `工具失败：${action.name}（授权流程失败：${error.message}）`);
@@ -122,9 +134,13 @@
           record(step, `工具失败：${action.name}（用户拒绝授权）`);
           continue;
         }
-        if (decision?.remember) sessionGrants.add(action.name);
-        callGrants = [...sessionGrants, action.name];
-        record(step, decision?.remember ? `本次会话已始终允许：${action.name}` : `已授权本次调用：${action.name}`);
+        if (decision?.remember) {
+          sessionGrants.add(grantKey);
+          callGrants = [...sessionGrants];
+        } else {
+          callGrants = [...sessionGrants, grantKey];
+        }
+        record(step, decision?.remember ? `本次会话已始终允许：${grantLabel}` : `已授权本次调用：${grantLabel}`);
       }
       storeResult(item, await execute(item, callGrants));
     }

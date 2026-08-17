@@ -35,11 +35,11 @@
 
   function validateURL(raw) {
     let url;
-    try { url = new URL(raw); } catch { throw new Error('url 必须是完整的 HTTP(S) URL'); }
-    if (!['http:', 'https:'].includes(url.protocol)) throw new Error('只允许 http/https URL');
+    try { url = new URL(raw); } catch { throw new Error('url 必须是完整的 HTTPS URL'); }
+    if (url.protocol !== 'https:') throw new Error('fetch_url 只允许 HTTPS URL');
     if (url.username || url.password) throw new Error('URL 不允许包含账号凭据');
-    if (url.port && !['80', '443'].includes(url.port)) throw new Error('只允许标准 HTTP/HTTPS 端口');
-    const hostname = url.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+    if (url.port && url.port !== '443') throw new Error('只允许标准 HTTPS 端口');
+    const hostname = url.hostname.toLowerCase().replace(/^\[|\]$/g, '').replace(/\.+$/, '');
     if (!hostname || blockedNames.has(hostname) || hostname.endsWith('.localhost') || hostname.endsWith('.local')
       || hostname.endsWith('.internal') || hostname.endsWith('.home.arpa')) throw new Error('不允许访问本地或内部主机');
     const literal = ipv4Blocked(hostname);
@@ -51,18 +51,19 @@
     const literal = ipv4Blocked(hostname);
     if (literal !== null || hostname.includes(':')) {
       if (addressBlocked(hostname)) throw new Error('不允许访问私有、本地或保留地址');
-      return;
+      return true;
     }
-    if (!globalThis.chrome?.dns?.resolve) throw new Error('无法执行 DNS 安全检查');
-    const result = await new Promise((resolve, reject) => {
+    // chrome.dns 未向 Stable Chrome 普遍开放，只能作为可选的纵深防御，不能作为可用性前提。
+    if (!globalThis.chrome?.dns?.resolve) return false;
+    const result = await new Promise((resolve) => {
       chrome.dns.resolve(hostname, (answer) => {
         const error = chrome.runtime?.lastError;
-        if (error) reject(new Error(`DNS 解析失败：${error.message}`));
-        else resolve(answer || {});
+        resolve(error ? null : (answer || null));
       });
     });
-    if (result.resultCode !== 0 || !result.address) throw new Error('DNS 解析失败或无可用地址');
+    if (!result || result.resultCode !== 0 || !result.address) return false;
     if (addressBlocked(result.address)) throw new Error('DNS 结果指向私有、本地或保留地址');
+    return true;
   }
 
   async function readBounded(response, maxBytes) {
@@ -108,8 +109,14 @@
     return { title, text: body.slice(0, MAX_OUTPUT_CHARS) };
   }
 
-  async function fetchPublic(startURL, signal) {
+  function originGrant(origin) {
+    return `fetch_url:${origin}`;
+  }
+
+  async function fetchPublic(startURL, context = {}) {
+    const signal = context?.signal;
     let current = validateURL(startURL);
+    let dnsChecked = true;
     const controller = new AbortController();
     const abort = () => controller.abort();
     if (signal?.aborted) controller.abort();
@@ -117,7 +124,7 @@
     const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
     try {
       for (let redirects = 0; redirects <= MAX_REDIRECTS; redirects++) {
-        await resolvePublic(current.hostname.replace(/^\[|\]$/g, ''));
+        dnsChecked = (await resolvePublic(current.hostname.replace(/^\[|\]$/g, ''))) && dnsChecked;
         const response = await fetch(current.href, {
           method: 'GET', redirect: 'manual', signal: controller.signal,
           headers: { Accept: 'text/html,text/plain,application/json,application/xml,text/xml;q=0.9,*/*;q=0.1' },
@@ -126,7 +133,11 @@
           if (redirects === MAX_REDIRECTS) throw new Error(`重定向超过 ${MAX_REDIRECTS} 次上限`);
           const location = response.headers.get('location');
           if (!location) throw new Error('重定向响应缺少可验证的 Location');
-          current = validateURL(new URL(location, current).href);
+          const next = validateURL(new URL(location, current).href);
+          if (next.origin !== current.origin && !context.grants?.includes(originGrant(next.origin))) {
+            throw new Error(`跨来源重定向需要单独授权：${next.href}`);
+          }
+          current = next;
           continue;
         }
         if (!response.ok) throw new Error(`读取失败: HTTP ${response.status}`);
@@ -141,6 +152,7 @@
           url: current.href, status: response.status, contentType, bytes: bytes.byteLength,
           title: typeof content === 'string' ? '' : content.title,
           text: typeof content === 'string' ? content : content.text,
+          dnsCheck: dnsChecked ? 'performed' : 'unavailable',
           untrusted: true,
         };
       }
@@ -156,12 +168,13 @@
 
   GoPainterAgentTools.register({
     name: 'fetch_url',
-    description: '读取公开 HTTP(S) 页面的有界文本正文，用于核验 web_search 找到的官方资料。会拒绝本地/私有地址、非文本内容和超大响应。',
+    description: '读取公开 HTTPS 页面的有界文本正文，用于核验 web_search 找到的官方资料。拒绝显式本地/私有地址，并尽力降低 SSRF 风险；浏览器 fetch 不提供 DNS pinning。',
     inputSchema: {
       type: 'object', properties: { url: { type: 'string', minLength: 1, maxLength: 2048 } },
       required: ['url'], additionalProperties: false,
     },
     effect: 'network', permission: 'confirm',
+    grantScope: ({ url }) => new URL(url).origin,
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     skillIds: ['fingerprint-research', 'gopainter-word-matcher', 'gopainter-regex-matcher', 'gopainter-runtime-matcher'],
     validate(input) {
@@ -169,7 +182,7 @@
       if (!url || url.length > 2048) throw new Error('url 长度无效');
       return { url: validateURL(url).href };
     },
-    async execute({ url }, context) { return fetchPublic(url, context.signal); },
+    async execute({ url }, context) { return fetchPublic(url, context); },
   });
 
   globalThis.GoPainterAgentFetchURL = Object.freeze({ validateURL, addressBlocked, fetchPublic });
