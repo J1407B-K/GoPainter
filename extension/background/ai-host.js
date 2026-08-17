@@ -98,7 +98,10 @@
       aiCreateRule: createRule,
       aiOptimizeRule: optimizeRule,
       testAgentTools,
-      getDefaultPrompts: () => ({ ok: true, prompts: GoPainterLegacyAI.DEFAULT_PROMPTS }),
+      getDefaultPrompts: async () => {
+        const { uiLocale } = await chrome.storage.local.get('uiLocale');
+        return { ok: true, prompts: GoPainterLegacyAI.defaultPrompts(uiLocale) };
+      },
     }),
   });
 })();

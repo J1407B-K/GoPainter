@@ -324,6 +324,7 @@ html.gp-popup #ai-result:before {
   font-weight: 700;
   letter-spacing: .04em;
 }
+html:lang(en).gp-popup #ai-result:before { content: "AI technology candidates"; }
 html.gp-popup #ai-candidates { display: flex; flex-direction: column; gap: 0; max-height: 320px; overflow: auto; }
 html.gp-popup .candidate .head input[type="checkbox"] { width: 15px; height: 15px; flex: none; accent-color: var(--gp-accent); }
 html.gp-popup .candidate .actions { display: flex; align-items: center; gap: 7px; margin-top: 8px; flex-wrap: wrap; }

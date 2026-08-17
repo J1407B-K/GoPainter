@@ -38,11 +38,26 @@ test('extension surfaces share a persisted Chinese/English locale switch', () =>
   assert.match(i18n, /const LOCALE_KEY = 'uiLocale'/);
   assert.match(i18n, /'指纹规则': 'Fingerprint rules'/);
   assert.match(i18n, /gopainter:localechange/);
+  assert.match(i18n, /characterData: true/);
+  assert.match(i18n, /const patterns = \[/);
+  assert.match(i18n, /const fragments = \[/);
+  assert.match(i18n, /Agent step budget exhausted/);
+  assert.match(i18n, /'默认规则集': 'Default rule set'/);
+  assert.match(i18n, /'由 cdnjs 推导': 'Derived from cdnjs'/);
+  for (const chinese of ['支持 GoPainter 原生格式', '以下规则源由各自社区维护', '加载书签列表后勾选想整理的', '从起始 URL 递归抓取', '工具调用测试会发送两次']) {
+    assert.match(i18n, new RegExp(chinese));
+  }
   for (const file of ['popup.html', 'options.html', 'sidepanel.html']) {
     const html = fs.readFileSync(path.join(extension, file), 'utf8');
     assert.match(html, /data-locale-toggle/);
     assert.match(html, /<script src="i18n\.js"><\/script>/);
   }
+  const manifest = JSON.parse(fs.readFileSync(path.join(extension, 'manifest.json'), 'utf8'));
+  assert.equal(manifest.description, '__MSG_extensionDescription__');
+  assert.equal(manifest.default_locale, 'en');
+  assert.match(fs.readFileSync(path.join(extension, '_locales', 'en', 'messages.json'), 'utf8'), /Web asset fingerprinting/);
+  assert.match(fs.readFileSync(path.join(extension, '_locales', 'zh_CN', 'messages.json'), 'utf8'), /Web 资产测绘/);
+  assert.match(fs.readFileSync(path.join(extension, 'ui-rework.css'), 'utf8'), /AI technology candidates/);
 });
 
 test('page collection and large lists keep bounded performance paths', () => {

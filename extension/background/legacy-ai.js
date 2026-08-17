@@ -74,6 +74,57 @@
     bookmark: '根据用户给出的页面特征判断该站点使用的系统/框架/中间件，只回复一个名称（如 Nginx、WordPress、Vue），拿不准就回复「未知」，不要任何其他内容。',
   });
 
+  const DEFAULT_PROMPTS_EN = Object.freeze({
+    identify: [
+      'You are a web technology fingerprinting analyst. Identify the technologies used by the site from its page features (URL, title, status, response headers, meta, scripts, favicon hashes, body, JavaScript globals, and DOM selectors), including frameworks, CMSs, middleware, web servers, languages, front-end libraries, and analytics tools.',
+      'Return only one JSON array. Do not include explanations or Markdown fences.',
+      'Each item must be: {"name":"technology name","confidence":an integer from 0 to 100,"evidence":[{"type":"...","detail":"..."}]}.',
+      'evidence.type may only be: word / regex / header / meta / script / js / dom / status / icon_hash.',
+      'For header/meta/script, describe the matched location and value, such as "server: nginx", "generator: ZenTao", or "/media/system/js/core.js".',
+      'For js use paths such as "window.React.version"; for dom use a selector; for status use "status 200"; for icon_hash use "mmh3 <number>".',
+      'Higher confidence means more certainty. Do not list technologies you cannot support with evidence.',
+    ].join('\n'),
+    rule: [
+      'You are a web fingerprint-rule author. Based on the page features supplied by the user, write one GoPainter fingerprint rule for a web technology. Return YAML only, with no explanation.',
+      '',
+      'Supported schema (use these field names exactly):',
+      '- id: kebab-case English identifier (required)',
+      '- name: product/system name (required)',
+      '- matchers-condition: and or or (how multiple matchers are combined; default or)',
+      '- matchers: one or more matchers',
+      '    - type: word | regex | status | icon_hash',
+      '      part: body | title | url | header | raw | meta | script (default body)',
+      '      words: [strings]       # for type=word',
+      '      regex: [strings]       # for type=regex',
+      '      status: [integers]     # for type=status',
+      '      hash: [integers]       # for type=icon_hash; use only faviconHashes supplied by the user',
+      '      condition: and or or   # within-matcher combination; default or',
+      '      negative: true         # optional negation',
+      '      confidence: 0-100      # optional signal strength; omit when uncertain',
+      '',
+      'Requirements:',
+      '- Choose stable evidence such as generator meta tags, framework-specific paths/scripts, response headers, and favicon hashes; do not use volatile page copy.',
+      '- When faviconHashes is non-empty, it may be used in an icon_hash matcher with the supplied number.',
+      '- Write exactly one YAML document containing one rule, beginning with "- id:".',
+      '- Return YAML only: no ```yaml fence and no explanatory prose.',
+      '- Do not write JavaScript expressions or DSL; use only the fields above.',
+    ].join('\n'),
+    optimize: [
+      'You are a web fingerprint-rule optimization expert. The user message contains page features and the current rule YAML.',
+      'Optimize the rule from that evidence:',
+      '- Keep the id unchanged (the same id replaces the existing rule). You may adjust name, but retain all existing matchers; do not remove or replace them.',
+      '- Add one or two stable, unused signals from the current page where reliable: prefer generator meta, framework-specific script paths, headers, favicon hashes (using supplied faviconHashes values), JavaScript globals, or DOM selectors. Keep the rule unchanged when no reliable new signal exists.',
+      '- Return exactly one YAML document beginning with "- id:". Do not include a ```yaml fence or prose.',
+      '- Use only this schema: type(word|regex|status|icon_hash|js|dom) / part(body|title|url|header|raw|meta|script) / words / regex / status / hash / js([{path,pattern}]) / dom([{sel,text,attrs}]) / condition / negative / confidence(0-100).',
+      '- Do not write JavaScript expressions or DSL.',
+    ].join('\n'),
+    bookmark: 'Identify the site’s system, framework, or middleware from the supplied page features. Reply with one name only (for example Nginx, WordPress, or Vue). If uncertain, reply "unknown" and nothing else.',
+  });
+
+  function defaultPrompts(locale) {
+    return locale === 'en' ? DEFAULT_PROMPTS_EN : DEFAULT_PROMPTS;
+  }
+
   async function call(systemPrompt, features, extraUserText = '') {
     const cfg = await chrome.storage.local.get(['aiBaseURL', 'aiApiKey', 'aiModel']);
     if (!cfg.aiBaseURL || !cfg.aiApiKey || !cfg.aiModel) throw new Error('请先在设置页配置 AI（baseURL / API Key / 模型）');
@@ -104,12 +155,13 @@
       identify: 'aiPromptIdentify', rule: 'aiPromptRule', optimize: 'aiPromptOptimize', bookmark: 'aiPromptBookmark',
     }[key];
     if (!storageKey || !DEFAULT_PROMPTS[key]) throw new Error(`未知 AI prompt：${key}`);
-    const cfg = await chrome.storage.local.get(storageKey);
-    return cfg[storageKey] || DEFAULT_PROMPTS[key];
+    const cfg = await chrome.storage.local.get([storageKey, 'uiLocale']);
+    return cfg[storageKey] || defaultPrompts(cfg.uiLocale)[key];
   }
 
   globalThis.GoPainterLegacyAI = Object.freeze({
     DEFAULT_PROMPTS,
+    defaultPrompts,
     call,
     prompt,
     extractYaml: (text) => GoPainterUtils.extractYaml(text),

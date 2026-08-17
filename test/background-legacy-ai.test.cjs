@@ -9,7 +9,7 @@ test('legacy direct-AI module preserves bounded requests outside the Agent loop'
   const context = {
     console, Object, JSON,
     chrome: { storage: { local: { get: async (keys) => {
-      if (keys === 'aiPromptIdentify') return { aiPromptIdentify: 'custom identify' };
+      if (keys === 'aiPromptIdentify' || (Array.isArray(keys) && keys.includes('aiPromptIdentify'))) return { aiPromptIdentify: 'custom identify' };
       return { aiBaseURL: 'https://model.test/v1', aiApiKey: 'key', aiModel: 'model' };
     } } } },
     matchedDomSelectors: async () => Array.from({ length: 45 }, (_, index) => `.item-${index}`),
@@ -24,6 +24,7 @@ test('legacy direct-AI module preserves bounded requests outside the Agent loop'
   vm.runInNewContext(fs.readFileSync(file, 'utf8'), context, { filename: 'background/legacy-ai.js' });
 
   assert.deepEqual(Object.keys(context.GoPainterLegacyAI.DEFAULT_PROMPTS).sort(), ['bookmark', 'identify', 'optimize', 'rule']);
+  assert.match(context.GoPainterLegacyAI.defaultPrompts('en').identify, /^You are a web technology fingerprinting analyst/);
   assert.equal(await context.GoPainterLegacyAI.prompt('identify'), 'custom identify');
   const reply = await context.GoPainterLegacyAI.call('system', {
     url: 'https://example.test/', body: 'x'.repeat(9000),

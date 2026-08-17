@@ -957,6 +957,16 @@ document.getElementById('crawl-stop').addEventListener('click', async () => {
 const PROMPT_KEYS = ['identify', 'rule', 'optimize', 'bookmark'];
 let defaultPrompts = {};
 
+async function loadDefaultPrompts() {
+  const resp = await chrome.runtime.sendMessage({ type: 'getDefaultPrompts' });
+  if (!resp?.ok) return;
+  defaultPrompts = resp.prompts;
+  const prefix = GoPainterI18n.t('默认提示词：', 'Default prompt:');
+  for (const k of PROMPT_KEYS) {
+    document.getElementById(`prompt-${k}`).placeholder = `${prefix}\n${defaultPrompts[k]}`;
+  }
+}
+
 async function loadAiConfig() {
   const keys = ['aiBaseURL', 'aiApiKey', 'aiModel', 'agentProtocol', 'agentToolVerifiedAt', 'aiPromptIdentify', 'aiPromptRule', 'aiPromptOptimize', 'aiPromptBookmark'];
   const cfg = await chrome.storage.local.get(keys);
@@ -970,14 +980,10 @@ async function loadAiConfig() {
   document.getElementById('prompt-optimize').value = cfg.aiPromptOptimize || '';
   document.getElementById('prompt-bookmark').value = cfg.aiPromptBookmark || '';
 
-  const resp = await chrome.runtime.sendMessage({ type: 'getDefaultPrompts' });
-  if (resp?.ok) {
-    defaultPrompts = resp.prompts;
-    for (const k of PROMPT_KEYS) {
-      document.getElementById(`prompt-${k}`).placeholder = `默认提示词：\n${defaultPrompts[k]}`;
-    }
-  }
+  await loadDefaultPrompts();
 }
+
+window.addEventListener('gopainter:localechange', () => { loadDefaultPrompts().catch(() => {}); });
 
 document.getElementById('save-ai').addEventListener('click', async () => {
   await chrome.storage.local.set({
