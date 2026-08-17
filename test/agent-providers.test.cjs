@@ -4,6 +4,14 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
+const validateCandidateStub = (ruleJSON) => JSON.stringify({
+  valid: true,
+  rule: JSON.parse(ruleJSON),
+  currentPageHits: [],
+  runtimeCoverage: { complete: true, missingJsPaths: [], hasUnverifiedDomSelectors: false },
+  errors: [],
+});
+
 function loadAgent(fetch) {
   const context = { console, Date, Error, Object, JSON, fetch, URLSearchParams, AbortController, setTimeout, clearTimeout };
   context.globalThis = context;
@@ -160,6 +168,7 @@ test('rule workflow feeds invalid output back into the same agent session', asyn
     console, Date, Error, Object, JSON, URLSearchParams, AbortController, setTimeout, clearTimeout, chrome,
     ensureWasm: async () => {},
     goNormalizeRules: (docsJSON) => JSON.stringify({ rules: JSON.parse(docsJSON) }),
+    goValidateCandidate: validateCandidateStub,
     goMatch: () => JSON.stringify({ hits: [] }),
     goAgentRegexTest: () => JSON.stringify({ backend: 'go-re2', results: [] }),
     goDslEval: () => JSON.stringify({ results: [], errors: [] }),
@@ -228,6 +237,7 @@ test('session permission remembers a confirmed network tool for later rounds', a
     console, Date, Error, Object, JSON, URLSearchParams, AbortController, setTimeout, clearTimeout, chrome,
     ensureWasm: async () => {},
     goNormalizeRules: (docsJSON) => JSON.stringify({ rules: JSON.parse(docsJSON) }),
+    goValidateCandidate: validateCandidateStub,
     goMatch: () => JSON.stringify({ hits: [] }),
     goAgentRegexTest: (patternsJSON) => JSON.stringify({ backend: 'go-re2', results: JSON.parse(patternsJSON).map((pattern) => ({ pattern, valid: true, matches: [] })) }),
     goDslEval: () => JSON.stringify({ results: [], errors: [] }),

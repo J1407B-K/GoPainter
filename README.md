@@ -185,20 +185,25 @@ Returned items need at least `id` and `name`. An `id` that already exists is ski
 ## Architecture
 
 ```
-JS side (glue layer, all I/O)            Go WASM (pure functions, zero I/O)
-──────────────────────────               ───────────────────────────
+GoPainter Host / Runtime (JS)            GoPainter Core / Authority (Go WASM)
+all external I/O and lifecycle           deterministic product semantics, zero I/O
+──────────────────────────────           ────────────────────────────────────────
 content.js   collects DOM / raw HTML ─┐
 background   collects headers/status   │     goMatch            rule matching + evidence
   .js        favicon download        ─┼─→  goMmh3            favicon hash (fofa standard)
              AI / Agent API calls     │     goExtractFeatures HTML → title/meta/scripts
              icon state switching     │     goNormalizeRules  YAML docs → native rules
+             permission / lifecycle   │     goValidateCandidate strict Agent artifact validation
+                                      │     goPlanRequiredProbes Rule → JS/DOM feature plan
 options      YAML parsing (js-yaml)  ─┘    ←  everything in JSON, out JSON
 popup        results & evidence / Agent task runner
 sidepanel    crawl progress / start-stop (Side Panel, alongside the page)
 ```
 
 Core boundary: **the WASM does pure computation only** (JSON in, JSON out; no network, YAML, or DOM).
-Matching, mmh3, HTML feature extraction, and nuclei conversion all live in Go.
+Rule semantics—including strict Agent candidate validation and required-probe planning—live in Go; JS owns browser/model I/O, permissions, and lifecycle.
+
+> **Architecture invariant — do not blur this boundary.** Before adding logic, ask what it represents: deterministic GoPainter domain semantics belong in Go; interaction with browsers, models, users, storage, or networks belongs in JS. Never duplicate rule grammar, matcher semantics, normalization, probe planning, or probe-ID algorithms in the JS Host. Do not move the Agent loop, permissions, providers, Chrome APIs, DOM collection, or network I/O into WASM merely to increase the amount of Go code.
 
 ## Directory layout
 
@@ -209,6 +214,8 @@ Matching, mmh3, HTML feature extraction, and nuclei conversion all live in Go.
 │   ├── crawl_bridge.go       #   JSON in/out for crawler APIs
 │   └── engine/               #   pure Go logic package
 │       ├── matcher.go        #   matching engine (core)
+│       ├── candidate.go      #   strict Agent candidate validation + runtime coverage
+│       ├── probes.go         #   required JS/DOM probe planning and stable probe IDs
 │       ├── mmh3.go           #   favicon hashing
 │       ├── extract.go        #   HTML feature extraction (title/meta/scripts/favicons/links)
 │       ├── normalize.go      #   rule normalization (nuclei conversion)

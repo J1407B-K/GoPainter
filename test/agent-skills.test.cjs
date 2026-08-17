@@ -152,13 +152,17 @@ test('validate_rule rejects silently normalized or unsupported candidates', asyn
     console, Object, Number, Set, Map, JSON,
     chrome: { storage: { session: { get: async () => ({ 'result:7': { features } }) } } },
     ensureWasm: async () => {},
-    goAgentRegexTest: (patternsJSON) => JSON.stringify({
-      backend: 'go-re2',
-      results: JSON.parse(patternsJSON).map((pattern) => ({ pattern, valid: pattern !== '([broken', ...(pattern === '([broken' ? { error: 'missing ]' } : {}) })),
-    }),
-    goDslEval: (expressionsJSON) => JSON.stringify({ results: JSON.parse(expressionsJSON).map(() => true), errors: JSON.parse(expressionsJSON).map(() => '') }),
-    goNormalizeRules: (docsJSON) => JSON.stringify({ rules: JSON.parse(docsJSON) }),
-    goMatch: () => JSON.stringify({ hits: [] }),
+    goValidateCandidate: (ruleJSON) => {
+      const rule = JSON.parse(ruleJSON);
+      let error = '';
+      if (!['and', 'or'].includes(rule['matchers-condition'])) error = 'matchers-condition 只能是 and 或 or';
+      const matcher = rule.matchers?.find((item) => !['word', 'regex', 'status', 'icon_hash', 'dsl', 'js', 'dom'].includes(item.type));
+      if (matcher) error = `不支持的 matcher 类型 ${matcher.type}`;
+      if (rule.matchers?.some((item) => item.condition && !['and', 'or'].includes(item.condition))) error = 'condition 只能是 and 或 or';
+      if (rule.matchers?.some((item) => item.regex?.includes('([broken'))) error = '正则无法由 Go RE2 编译';
+      if (error) return JSON.stringify({ valid: false, errors: [{ path: '$', code: 'invalid', message: error }] });
+      return JSON.stringify({ valid: true, rule, currentPageHits: [], runtimeCoverage: { complete: true }, errors: [] });
+    },
   };
   context.globalThis = context;
   for (const file of ['registry.js', 'page-context.js', 'validate-rule.js']) {
@@ -169,9 +173,15 @@ test('validate_rule rejects silently normalized or unsupported candidates', asyn
     id: 'react', name: 'React', 'matchers-condition': 'or',
     matchers: [{ type: 'regex', regex: ['data-reactroot'] }],
   };
-  assert.throws(() => tool.validate({ rule: { ...base, matchers: [...base.matchers, { type: 'javascript', code: 'return true' }] } }), /matcher 类型无效/);
-  assert.throws(() => tool.validate({ rule: { ...base, 'matchers-condition': 'maybe' } }), /matchers-condition/);
-  assert.throws(() => tool.validate({ rule: { ...base, matchers: [{ type: 'js', condition: 'Object.keys(window)', js: [{ path: 'React' }] }] } }), /condition 无效/);
+  await assert.rejects(context.GoPainterAgentTools.executeTool('validate_rule', {
+    rule: { ...base, matchers: [...base.matchers, { type: 'javascript', code: 'return true' }] },
+  }, { tabId: 7, skillId: 'fingerprint-research', allowedTools: ['validate_rule'] }), /matcher 类型/);
+  await assert.rejects(context.GoPainterAgentTools.executeTool('validate_rule', {
+    rule: { ...base, 'matchers-condition': 'maybe' },
+  }, { tabId: 7, skillId: 'fingerprint-research', allowedTools: ['validate_rule'] }), /matchers-condition/);
+  await assert.rejects(context.GoPainterAgentTools.executeTool('validate_rule', {
+    rule: { ...base, matchers: [{ type: 'js', condition: 'Object.keys(window)', js: [{ path: 'React' }] }] },
+  }, { tabId: 7, skillId: 'fingerprint-research', allowedTools: ['validate_rule'] }), /condition/);
   await assert.rejects(context.GoPainterAgentTools.executeTool('validate_rule', {
     rule: { ...base, matchers: [{ type: 'regex', regex: ['([broken'] }] },
   }, { tabId: 7, skillId: 'fingerprint-research', allowedTools: ['validate_rule'] }), /Go RE2/);

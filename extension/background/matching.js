@@ -302,39 +302,14 @@ async function rescanAllTabs() {
 async function getProbeList() {
   if (!probeCache) {
     const { rules = [] } = await chrome.storage.local.get('rules');
-    const paths = new Set(), probeMap = new Map(); // probe id → probe（含 id）
-    const add = (p) => {
-      const id = probeId(p);
-      if (!probeMap.has(id)) probeMap.set(id, { id, ...p });
-    };
-    for (const r of rules) {
-      for (const m of r.matchers || []) {
-        if (m.type === 'js') for (const p of m.js || []) paths.add(p.path);
-        if (m.type === 'dom') {
-          for (const s of m.words || []) add({ sel: s });
-          for (const p of m.dom || []) add(p);
-        }
-      }
-    }
-    const probes = [...probeMap.values()];
-    probeCache = { paths: [...paths], probes, byId: new Map(probes.map((p) => [p.id, p.sel])) };
+    await ensureWasm();
+    const planned = JSON.parse(globalThis.goPlanRequiredProbes(JSON.stringify(rules)));
+    if (planned.error) throw new Error(planned.error);
+    const paths = Array.isArray(planned.paths) ? planned.paths : [];
+    const probes = Array.isArray(planned.probes) ? planned.probes : [];
+    probeCache = { paths, probes, byId: new Map(probes.map((p) => [p.id, p.sel])) };
   }
   return probeCache;
-}
-
-// dom probe → 稳定 id。与 wasm 侧 probeID 用同一套字节序列 + FNV-1a，
-// 两边算出的 id 必须一致，content.js 才认。attrs 键排序后拼，顺序不影响 id。
-function probeId(p) {
-  const keys = Object.keys(p.attrs || {}).sort();
-  const s = p.sel + '\u0000' + (p.text || '') + '\u0000' +
-    keys.map((k) => `${k}=${p.attrs[k]}`).join('\u0001');
-  const bytes = new TextEncoder().encode(s);
-  let h = 0x811c9dc5;
-  for (let i = 0; i < bytes.length; i++) {
-    h ^= bytes[i];
-    h = Math.imul(h, 0x01000193) >>> 0;
-  }
-  return 'dom:' + h.toString(16).padStart(8, '0');
 }
 
 // 命中的 probe id 反查回选择器，给 AI 用（id 是黑盒，AI 看不懂）

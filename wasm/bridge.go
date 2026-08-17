@@ -75,6 +75,32 @@ func jsNormalize(_ js.Value, args []js.Value) any {
 	return string(out)
 }
 
+// goValidateCandidate(ruleJSON, featuresJSON) -> 严格候选校验、生产 matcher 命中与运行时覆盖。
+func jsValidateCandidate(_ js.Value, args []js.Value) any {
+	if len(args) < 2 {
+		return jsError("validateCandidate(ruleJSON, featuresJSON) 需要两个参数")
+	}
+	var features engine.Features
+	if err := json.Unmarshal([]byte(args[1].String()), &features); err != nil {
+		return jsError("特征 JSON 解析失败: %s", err)
+	}
+	out, _ := json.Marshal(engine.ValidateCandidate([]byte(args[0].String()), features))
+	return string(out)
+}
+
+// goPlanRequiredProbes(rulesJSON) -> Host 需要采集的 JS path 和 DOM probes。
+func jsPlanRequiredProbes(_ js.Value, args []js.Value) any {
+	if len(args) < 1 {
+		return jsError("planRequiredProbes(rulesJSON) 需要一个参数")
+	}
+	var rules []engine.Rule
+	if err := json.Unmarshal([]byte(args[0].String()), &rules); err != nil {
+		return jsError("规则 JSON 解析失败: %s", err)
+	}
+	out, _ := json.Marshal(engine.PlanRequiredProbes(rules))
+	return string(out)
+}
+
 // goHashLookup(hash, customJSON) -> {"name":"..."} 或 {}，自定义（{"hash":"name"}）覆盖内置
 func jsHashLookup(_ js.Value, args []js.Value) any {
 	if len(args) < 2 {
@@ -176,6 +202,8 @@ func registerJSExports() {
 	g.Set("goMmh3", js.FuncOf(jsMmh3))
 	g.Set("goExtractFeatures", js.FuncOf(jsExtract))
 	g.Set("goNormalizeRules", js.FuncOf(jsNormalize))
+	g.Set("goValidateCandidate", js.FuncOf(jsValidateCandidate))
+	g.Set("goPlanRequiredProbes", js.FuncOf(jsPlanRequiredProbes))
 	g.Set("goHashLookup", js.FuncOf(jsHashLookup))
 	g.Set("goConvertWappalyzer", js.FuncOf(jsConvertWappalyzer))
 	g.Set("goConvertEHole", js.FuncOf(jsConvertEHole))

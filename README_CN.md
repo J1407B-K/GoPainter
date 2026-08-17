@@ -187,20 +187,25 @@ if (features.body.includes('hello-world-cta')) {
 ## 架构
 
 ```
-JS 侧（胶水层，一切 I/O）            Go WASM（纯函数，零 I/O）
-─────────────────────────          ─────────────────────────
+GoPainter Host / Runtime（JS）       GoPainter Core / Authority（Go WASM）
+负责一切外部 I/O 与生命周期            持有确定性产品语义，零 I/O
+──────────────────────────────      ─────────────────────────────────
 content.js   采集 DOM/原始 HTML ─┐
 background   采集响应头/状态码    │     goMatch            规则匹配 + 证据
   .js        favicon 下载       ─┼─→  goMmh3             favicon 哈希（fofa 标准）
-             AI API 调用        │     goExtractFeatures  HTML → title/meta/scripts
+             AI / Agent API 调用 │     goExtractFeatures  HTML → title/meta/scripts
              图标状态切换        │     goNormalizeRules   YAML 文档 → 原生规则
+             权限 / 生命周期     │     goValidateCandidate 严格校验 Agent 产物
+                                 │     goPlanRequiredProbes 规则 → JS/DOM 特征计划
 options      YAML 解析(js-yaml) ─┘    ←  全部进 JSON 出 JSON
-popup        结果与证据展示 / AI 按钮
+popup        结果与证据展示 / Agent 任务运行器
 sidepanel    爬取进度实时展示 / 启停（Side Panel，与页面并存）
 ```
 
 核心边界：**WASM 只做纯计算**（进 JSON 出 JSON，不碰网络/YAML/DOM）。
-匹配、mmh3、HTML 特征提取、nuclei 模板转换全部在 Go 里。
+规则语义——包括严格的 Agent 候选规则校验与 required-probe planning——统一放在 Go；JS 负责浏览器/模型 I/O、权限与生命周期。
+
+> **架构红线——不要模糊这条边界。** 新增逻辑前先问：它描述的是 GoPainter 的确定性领域语义，还是在接触外部环境？规则是否合法、matcher 如何执行、规则如何规范化、需要采集哪些 probe、probe ID 如何生成，属于 Go Core；浏览器、模型、用户、存储、网络、权限和生命周期，属于 JS Host。禁止在 JS 中重复实现规则语法、matcher 语义、normalize、probe planning 或 probe-ID 算法；也不要为了增加 Go 代码量，把 Agent loop、Provider、权限、Chrome API、DOM 采集或网络 I/O 搬进 WASM。
 
 ## 目录
 
@@ -211,6 +216,8 @@ sidepanel    爬取进度实时展示 / 启停（Side Panel，与页面并存）
 │   ├── crawl_bridge.go       #   爬虫 API 的 JSON 进出
 │   └── engine/               #   纯 Go 逻辑包
 │       ├── matcher.go        #   匹配引擎（核心）
+│       ├── candidate.go      #   严格 Agent 候选校验 + 运行时覆盖判断
+│       ├── probes.go         #   JS/DOM 探针规划与稳定 probe ID
 │       ├── mmh3.go           #   favicon 哈希
 │       ├── extract.go        #   HTML 特征提取（title/meta/scripts/favicon/links）
 │       ├── normalize.go      #   规则规范化（nuclei 转换）

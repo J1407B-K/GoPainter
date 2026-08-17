@@ -119,6 +119,32 @@ pass &&= norm.rules?.length === 2
   && norm.rules[0].matchers[1].type === 'dsl'
   && norm.rules[1].id === 'native-nginx';
 
+// Agent 候选必须由 Go Core 严格校验；未知字段不能被 json.Unmarshal 静默吞掉。
+const candidate = {
+  id: 'react', name: 'React', 'matchers-condition': 'or',
+  matchers: [{ type: 'regex', regex: ['data-reactroot'] }],
+};
+const checked = JSON.parse(globalThis.goValidateCandidate(JSON.stringify(candidate), JSON.stringify({
+  ...features, body: '<div data-reactroot></div>',
+})));
+const rejected = JSON.parse(globalThis.goValidateCandidate(JSON.stringify({ ...candidate, surprise: true }), '{}'));
+console.log('candidate valid =', checked.valid, 'unknown rejected =', !rejected.valid);
+pass &&= checked.valid && checked.rule?.id === 'react'
+  && checked.currentPageHits?.some((h) => h.id === 'react')
+  && !rejected.valid && rejected.errors?.[0]?.code === 'invalid_json';
+
+// Rule → probes 与 DOM probe ID 都由 Core 规划，Host 不再复制哈希协议。
+const planned = JSON.parse(globalThis.goPlanRequiredProbes(JSON.stringify([{
+  id: 'runtime', name: 'Runtime', matchers: [
+    { type: 'js', js: [{ path: 'React.version' }, { path: 'React.version' }] },
+    { type: 'dom', words: ['#root'], dom: [{ sel: '#app', attrs: { 'data-v': '.+' } }] },
+  ],
+}])));
+console.log('required probes =', JSON.stringify(planned));
+pass &&= planned.paths?.length === 1 && planned.paths[0] === 'React.version'
+  && planned.probes?.length === 2
+  && planned.probes.every((probe) => /^dom:[0-9a-f]{8}$/.test(probe.id));
+
 // goHashLookup：内置库命中 + 自定义覆盖
 const builtin = JSON.parse(globalThis.goHashLookup(-1010568750, '{}'));
 const custom = JSON.parse(globalThis.goHashLookup(-1010568750, JSON.stringify({ '-1010568750': '公司内部 PMA' })));
