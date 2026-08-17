@@ -44,6 +44,10 @@ test('extension surfaces share a persisted Chinese/English locale switch', () =>
   assert.match(i18n, /Agent step budget exhausted/);
   assert.match(i18n, /'默认规则集': 'Default rule set'/);
   assert.match(i18n, /'由 cdnjs 推导': 'Derived from cdnjs'/);
+  const entries = i18n.slice(i18n.indexOf('const en = {'), i18n.indexOf('// Dynamic messages'));
+  for (const key of ['设置', '规则（或单条 matcher）可以标', '当前 AI 无合理优化建议']) {
+    assert.equal((entries.match(new RegExp(`'${key}':`, 'g')) || []).length, 1, `${key} must have one translation entry`);
+  }
   for (const chinese of ['支持 GoPainter 原生格式', '以下规则源由各自社区维护', '加载书签列表后勾选想整理的', '从起始 URL 递归抓取', '工具调用测试会发送两次']) {
     assert.match(i18n, new RegExp(chinese));
   }
@@ -72,8 +76,10 @@ test('page collection and large lists keep bounded performance paths', () => {
   assert.match(options, /RULE_RENDER_LIMIT = 300/);
   assert.match(options, /crawlRenderSignature/);
   const popup = fs.readFileSync(path.join(extension, 'popup.js'), 'utf8');
+  const sidepanel = fs.readFileSync(path.join(extension, 'sidepanel.js'), 'utf8');
   assert.match(popup, /activeAgentPort\.disconnect\(\)/);
   assert.match(popup, /addRuleWithResolution/);
+  assert.doesNotMatch(sidepanel, /if \(GoPainterI18n\?\.locale !== 'en'\)/);
   assert.doesNotMatch(popup, /previewRuleChange/);
   assert.doesNotMatch(popup, /appendAgentRuleDiff/);
   assert.doesNotMatch(popup, /renderPopupRuleComparison/);

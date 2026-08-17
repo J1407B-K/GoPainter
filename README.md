@@ -44,9 +44,9 @@ While you browse, GoPainter fingerprints the current site automatically and surf
 - **Agent-assisted fingerprint research** — a bounded, streaming tool loop researches the current tab or a rule, shows its auditable tool trace, and returns an evidence-based task report
 - **Scan history & reports** — choose a 50–5,000 entry rolling window and export it as JSON/CSV
 
-## Current release: v0.6.6
+## Current release: v0.6.7
 
-v0.6.6 completes the persisted Chinese/English interface: bundled static copy, dynamic statuses, Agent feedback, accessibility labels, extension metadata, and default AI prompts follow the selected language. It also retains the v0.6.5 hardening for page probing, favicon hashing, rule-state consistency, and cache invalidation. See the current measurements and previous versions in the [performance record](BENCHMARK.md).
+v0.6.7 removes duplicate localization entries and simplifies live crawl-status rendering while retaining the completed persisted Chinese/English interface and the v0.6.5 security hardening. See the current measurements and previous versions in the [performance record](BENCHMARK.md).
 
 ## Quick start
 

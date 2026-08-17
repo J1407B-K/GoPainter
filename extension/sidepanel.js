@@ -53,12 +53,10 @@ async function pollCrawl() {
 
   if (resp.running) {
     statusEl.innerHTML =
-      t(`已扫 ${resp.visited} 页，队列 ${resp.queued}，失败 ${resp.failed?.length || 0}…`,
+      t(`已扫 <span class="highlight">${resp.visited}</span> 页，` +
+        `队列 <span class="highlight">${resp.queued}</span>，` +
+        `失败 <span class="highlight">${resp.failed?.length || 0}</span>…`,
         `Scanned <span class="highlight">${resp.visited}</span> pages, queued <span class="highlight">${resp.queued}</span>, failed <span class="highlight">${resp.failed?.length || 0}</span>…`);
-    if (GoPainterI18n?.locale !== 'en') statusEl.innerHTML =
-      `已扫 <span class="highlight">${resp.visited}</span> 页，` +
-      `队列 <span class="highlight">${resp.queued}</span>，` +
-      `失败 <span class="highlight">${resp.failed?.length || 0}</span>…`;
   } else if (resp.interrupted) {
     statusEl.textContent = t(`任务被系统中断（service worker 被回收），已保留 ${resp.results.length} 页结果`, `Interrupted by service-worker shutdown; retained ${resp.results.length} page results`);
   } else if (resp.results.length) {
