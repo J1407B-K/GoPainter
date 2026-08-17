@@ -1,16 +1,31 @@
 # GoPainter 🎨
 
+[![CI](https://img.shields.io/github/actions/workflow/status/J1407B-K/GoPainter/ci.yml?branch=master&style=flat-square&label=CI)](https://github.com/J1407B-K/GoPainter/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/J1407B-K/GoPainter?style=flat-square)](https://github.com/J1407B-K/GoPainter/releases/latest)
+[![License](https://img.shields.io/github/license/J1407B-K/GoPainter?style=flat-square)](./LICENSE)
+![Go WASM](https://img.shields.io/badge/Go-WASM-00ADD8?style=flat-square&logo=go&logoColor=white)
+![Chrome Extension](https://img.shields.io/badge/Chrome-Extension-4285F4?style=flat-square&logo=googlechrome&logoColor=white)
+
 [English](./README.md) | **简体中文** · [示例规则](./rules/examples.yaml)
 
-基于 YAML 指纹规则的 Web 资产测绘工具：**Go WASM + Google RE2** 匹配引擎 + AI 辅助识别。
+**浏览器原生的 Web 技术指纹识别，提供实时且可解释的证据。**
 
-GoPainter 提供检测与爬取引擎。规则可以来自你自己的 YAML、运行时转换的社区规则源、示例文件或内置的精选入门规则；仓库不会打包第三方完整规则库。
+GoPainter 直接从浏览器中的 HTTP、HTML、DOM、JavaScript 运行时和 favicon
+特征识别技术栈。它结合确定性的 **Go/WASM + Google RE2** 引擎、Wappalyzer/EHole/nuclei
+规则源、站点爬取，以及能够研究、测试和验证新指纹规则的 AI Agent。
+
+GoPainter 强调可审计结果：每个命中都附带实际匹配的证据，Agent 可以提出规则，
+但最终规则始终由 Go Core 验证。
 
 浏览网页时自动对当前站点做指纹识别，命中结果实时展示——工具栏图标**灰色 = 未命中，彩色 + 数字角标 = 命中 N 个指纹**。
 
-## 当前版本：v0.6.3
+## 为什么是 GoPainter？
 
-本版把 Agent 研究链路重构为单会话原生工具循环：模型自主决定继续收集证据或交付最终产物，宿主只保留最大轮数与产物结构校验。可执行 Skill 包现在会读取标准 `SKILL.md`，双向校验工具权限，并提供 Go/WASM 原生 word、RE2、DSL 与完整规则验证。自动只读工具最多并发 5 个，联网工具仍须用户明确授权。最近一次已发布的性能测量可见[性能记录](BENCHMARK_CN.md)。
+- ⚡ **确定性匹配**：Go/WASM + Google RE2，性能边界清晰且适合浏览器
+- 🌐 **浏览器原生证据**：HTTP、HTML、DOM、JavaScript 运行时和 favicon
+- 🧩 **兼容现有生态**：可导入并转换 Wappalyzer、EHole 和 nuclei 规则源
+- 🔍 **可解释结果**：每个命中都展示实际匹配的关键词、正则、状态码或哈希
+- 🤖 **Agent 辅助研究**：检查 → 搜索 → 测试 → 验证，全程保留可审计记录
 
 ## 特性
 
@@ -23,6 +38,10 @@ GoPainter 提供检测与爬取引擎。规则可以来自你自己的 YAML、�
 - 🎨 **图标状态感知**：灰色 = 未命中，彩色 + 角标数字 = 命中数
 - 🤖 **Agent 指纹研究**：受限的流式工具循环可识别当前标签页、研究指纹或给出规则优化建议；执行记录可审计，最终交付基于证据的任务报告
 - 🕘 **扫描历史与报告**：自定义 50–5,000 条滚动窗口，可导出 JSON/CSV 报告
+
+## 当前版本：v0.6.3
+
+本版把 Agent 研究链路重构为单会话原生工具循环：模型自主决定继续收集证据或交付最终产物，宿主只保留最大轮数与产物结构校验。可执行 Skill 包现在会读取标准 `SKILL.md`，双向校验工具权限，并提供 Go/WASM 原生 word、RE2、DSL 与完整规则验证。自动只读工具最多并发 5 个，联网工具仍须用户明确授权。最近一次已发布的性能测量可见[性能记录](BENCHMARK_CN.md)。
 
 ## 快速开始
 

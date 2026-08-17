@@ -1,16 +1,32 @@
 # GoPainter
 
+[![CI](https://img.shields.io/github/actions/workflow/status/J1407B-K/GoPainter/ci.yml?branch=master&style=flat-square&label=CI)](https://github.com/J1407B-K/GoPainter/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/J1407B-K/GoPainter?style=flat-square)](https://github.com/J1407B-K/GoPainter/releases/latest)
+[![License](https://img.shields.io/github/license/J1407B-K/GoPainter?style=flat-square)](./LICENSE)
+![Go WASM](https://img.shields.io/badge/Go-WASM-00ADD8?style=flat-square&logo=go&logoColor=white)
+![Chrome Extension](https://img.shields.io/badge/Chrome-Extension-4285F4?style=flat-square&logo=googlechrome&logoColor=white)
+
 **English** | [简体中文](./README_CN.md) · [Example rules](./rules/examples.yaml)
 
-Web asset fingerprinting for the browser. A **Go WASM + Google RE2** matching engine with optional LLM-assisted identification.
+**Browser-native web technology fingerprinting with live, explainable evidence.**
 
-GoPainter provides the detection and crawling engine. Rules can come from your own YAML, live community-source conversion, the example file, or the curated built-in starter set. Third-party rule libraries are not vendored into the repository.
+GoPainter detects technologies directly from the browser using HTTP, HTML, DOM,
+JavaScript runtime, and favicon signals. It combines a deterministic **Go/WASM + Google RE2**
+engine with Wappalyzer, EHole, and nuclei rule sources, site crawling, and an AI Agent
+that can research, test, and validate new fingerprints.
+
+GoPainter is built for inspectable results: every hit carries the concrete evidence that
+matched, and the Agent proposes rules while the Go Core remains the final validator.
 
 While you browse, GoPainter fingerprints the current site automatically and surfaces hits in real time: the toolbar icon stays gray when nothing matches, and turns colored with a badge showing the hit count when it does.
 
-## Current release: v0.6.3
+## Why GoPainter?
 
-This release rebuilds Agent research around a single-session native tool loop: the model decides whether to continue gathering evidence or return its final artifact, bounded only by the configured turn limit. Executable Skill packages now load canonical `SKILL.md` instructions, enforce bidirectional tool permissions, and expose Go/WASM-backed word, RE2, DSL, and complete-rule validation. Read-only tools run concurrently with a limit of five, while network access remains explicitly permission-gated. The latest published performance measurements remain available in the [performance record](BENCHMARK.md).
+- **Deterministic matching** — Go/WASM + Google RE2 with bounded, browser-friendly performance
+- **Browser-native evidence** — HTTP, HTML, DOM, live JavaScript runtime, and favicon signals
+- **Existing rule ecosystems** — import and convert Wappalyzer, EHole, and nuclei sources
+- **Explainable results** — each hit includes the keyword, regex, status, or hash that matched
+- **Agent-assisted research** — inspect → search → test → validate, with auditable tool traces
 
 ## Features
 
@@ -23,6 +39,10 @@ This release rebuilds Agent research around a single-session native tool loop: t
 - **Icon state indicator** — gray = no match, colored + badge = N matches
 - **Agent-assisted fingerprint research** — a bounded, streaming tool loop researches the current tab or a rule, shows its auditable tool trace, and returns an evidence-based task report
 - **Scan history & reports** — choose a 50–5,000 entry rolling window and export it as JSON/CSV
+
+## Current release: v0.6.3
+
+This release rebuilds Agent research around a single-session native tool loop: the model decides whether to continue gathering evidence or return its final artifact, bounded only by the configured turn limit. Executable Skill packages now load canonical `SKILL.md` instructions, enforce bidirectional tool permissions, and expose Go/WASM-backed word, RE2, DSL, and complete-rule validation. Read-only tools run concurrently with a limit of five, while network access remains explicitly permission-gated. The latest published performance measurements remain available in the [performance record](BENCHMARK.md).
 
 ## Quick start
 
