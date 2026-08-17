@@ -549,8 +549,19 @@ html.gp-options .ruleset-enable-actions { display: flex; gap: 6px; }
 html.gp-options .ruleset-enable-actions button { min-height: 28px; margin: 0; padding: 4px 9px; }
 html.gp-options .ruleset-enabled-list { display: grid; gap: 6px; margin-top: 7px; padding: 9px 10px; background: var(--gp-surface-2); border: 1px solid var(--gp-line); border-radius: 6px; }
 html.gp-options .ruleset-enabled-item { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px; margin: 0; }
-html.gp-options .ruleset-enabled-item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+html.gp-options .ruleset-enabled-name { display: flex; min-width: 0; align-items: center; gap: 6px; }
+html.gp-options .ruleset-enabled-name > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 html.gp-options .ruleset-enabled-item small { color: var(--gp-text-3); font: 11px var(--gp-mono); }
+html.gp-options .ruleset-enabled-name em { flex: none; padding: 1px 5px; border: 1px solid; border-radius: 999px; font: 600 10px var(--gp-font); font-style: normal; }
+html.gp-options .ruleset-override-win { color: #12633b; background: #eaf8f0; border-color: #bde4cd; }
+html.gp-options .ruleset-override-loss { color: #8f5c1c; background: #fff7e8; border-color: #ecd5a8; }
+html.gp-options .ruleset-overrides { margin-top: 7px; padding: 8px 10px; background: #fffaf0; border: 1px solid #ead6ad; border-radius: 6px; }
+html.gp-options .ruleset-overrides summary { color: #7a501a; font-size: 11px; font-weight: 650; cursor: pointer; }
+html.gp-options .ruleset-overrides > input { min-height: 30px; margin-top: 8px; padding: 5px 8px; font-size: 11px; }
+html.gp-options .ruleset-overrides-list { display: grid; gap: 4px; max-height: 220px; margin-top: 8px; overflow: auto; }
+html.gp-options .ruleset-override-item { display: grid; grid-template-columns: minmax(90px, .7fr) minmax(0, 1.3fr); align-items: baseline; gap: 8px; font-size: 11px; }
+html.gp-options .ruleset-override-item code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+html.gp-options .ruleset-override-item select { min-height: 28px; padding: 4px 7px; font-size: 11px; }
 html.gp-options .rule-data-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 html.gp-options .rule-data-actions button { margin-top: 10px; }
 html.gp-options .rule-conflict-dialog { width: min(820px, 94vw); }

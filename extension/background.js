@@ -467,8 +467,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         break;
       }
       case 'getRuleSetOverview': {
-        const stored = await chrome.storage.local.get(['rules', 'ruleSets', 'activeRuleSetId', 'enabledRuleSetIds']);
-        const state = GoPainterUtils.normalizeRuleSets(stored.ruleSets, stored.activeRuleSetId, stored.rules, stored.enabledRuleSetIds);
+        const stored = await chrome.storage.local.get(['rules', 'ruleSets', 'activeRuleSetId', 'enabledRuleSetIds', 'ruleSetOverrides']);
+        const state = GoPainterUtils.normalizeRuleSets(stored.ruleSets, stored.activeRuleSetId, stored.rules, stored.enabledRuleSetIds, stored.ruleSetOverrides);
         sendResponse({
           activeRuleSetId: state.activeRuleSetId,
           enabledRuleSetIds: state.enabledRuleSetIds,
@@ -479,15 +479,15 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         break;
       }
       case 'getActiveRuleSummaries': {
-        const stored = await chrome.storage.local.get(['rules', 'ruleSets', 'activeRuleSetId', 'enabledRuleSetIds']);
-        const state = GoPainterUtils.normalizeRuleSets(stored.ruleSets, stored.activeRuleSetId, stored.rules, stored.enabledRuleSetIds);
+        const stored = await chrome.storage.local.get(['rules', 'ruleSets', 'activeRuleSetId', 'enabledRuleSetIds', 'ruleSetOverrides']);
+        const state = GoPainterUtils.normalizeRuleSets(stored.ruleSets, stored.activeRuleSetId, stored.rules, stored.enabledRuleSetIds, stored.ruleSetOverrides);
         const active = state.ruleSets.find((set) => set.id === state.activeRuleSetId);
         sendResponse({ rules: (active?.rules || []).map((rule) => ({ id: rule.id, name: rule.name })) });
         break;
       }
       case 'setActiveRuleSet': {
-        const stored = await chrome.storage.local.get(['rules', 'ruleSets', 'activeRuleSetId', 'enabledRuleSetIds']);
-        const state = GoPainterUtils.normalizeRuleSets(stored.ruleSets, stored.activeRuleSetId, stored.rules, stored.enabledRuleSetIds);
+        const stored = await chrome.storage.local.get(['rules', 'ruleSets', 'activeRuleSetId', 'enabledRuleSetIds', 'ruleSetOverrides']);
+        const state = GoPainterUtils.normalizeRuleSets(stored.ruleSets, stored.activeRuleSetId, stored.rules, stored.enabledRuleSetIds, stored.ruleSetOverrides);
         const next = state.ruleSets.find((set) => set.id === msg.ruleSetId);
         if (!next) throw new Error('规则集不存在');
         await chrome.storage.local.set({ activeRuleSetId: next.id });
@@ -495,12 +495,31 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         break;
       }
       case 'setEnabledRuleSets': {
-        const stored = await chrome.storage.local.get(['rules', 'ruleSets', 'activeRuleSetId', 'enabledRuleSetIds']);
+        const stored = await chrome.storage.local.get(['rules', 'ruleSets', 'activeRuleSetId', 'enabledRuleSetIds', 'ruleSetOverrides']);
         const state = GoPainterUtils.normalizeRuleSets(
-          stored.ruleSets, stored.activeRuleSetId, stored.rules, msg.enabledRuleSetIds
+          stored.ruleSets, stored.activeRuleSetId, stored.rules, msg.enabledRuleSetIds, stored.ruleSetOverrides
         );
-        await chrome.storage.local.set({ enabledRuleSetIds: state.enabledRuleSetIds, rules: state.rules });
+        await chrome.storage.local.set({ enabledRuleSetIds: state.enabledRuleSetIds, ruleSetOverrides: state.ruleSetOverrides, rules: state.rules });
         sendResponse({ ok: true, enabledRuleSetIds: state.enabledRuleSetIds, ruleCount: state.rules.length });
+        break;
+      }
+      case 'setRuleSetOverride': {
+        const ruleId = String(msg.ruleId || '');
+        const ruleSetId = String(msg.ruleSetId || '');
+        const stored = await chrome.storage.local.get(['rules', 'ruleSets', 'activeRuleSetId', 'enabledRuleSetIds', 'ruleSetOverrides']);
+        const current = GoPainterUtils.normalizeRuleSets(
+          stored.ruleSets, stored.activeRuleSetId, stored.rules, stored.enabledRuleSetIds, stored.ruleSetOverrides
+        );
+        const info = GoPainterUtils.ruleSetOverrideInfo(current.ruleSets, current.enabledRuleSetIds, current.ruleSetOverrides);
+        const conflict = info.conflicts.find((item) => item.id === ruleId);
+        const source = conflict?.sources.find((item) => item.id === ruleSetId);
+        if (!source) throw new Error('该规则版本不存在或对应规则集未启用');
+        const ruleSetOverrides = { ...current.ruleSetOverrides, [ruleId]: ruleSetId };
+        const state = GoPainterUtils.normalizeRuleSets(
+          current.ruleSets, current.activeRuleSetId, [], current.enabledRuleSetIds, ruleSetOverrides
+        );
+        await chrome.storage.local.set({ ruleSetOverrides: state.ruleSetOverrides, rules: state.rules });
+        sendResponse({ ok: true, ruleSetOverrides: state.ruleSetOverrides, ruleSetName: source.name });
         break;
       }
       case 'aiIdentify': {
@@ -538,9 +557,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const data = await chrome.storage.session.get(`result:${msg.tabId}`);
         const features = data[`result:${msg.tabId}`]?.features;
         if (!features) throw new Error('没有当前页面的特征，请先刷新页面');
-        const stored = await chrome.storage.local.get(['rules', 'ruleSets', 'activeRuleSetId', 'enabledRuleSetIds']);
+        const stored = await chrome.storage.local.get(['rules', 'ruleSets', 'activeRuleSetId', 'enabledRuleSetIds', 'ruleSetOverrides']);
         const state = GoPainterUtils.normalizeRuleSets(
-          stored.ruleSets, stored.activeRuleSetId, stored.rules, stored.enabledRuleSetIds
+          stored.ruleSets, stored.activeRuleSetId, stored.rules, stored.enabledRuleSetIds, stored.ruleSetOverrides
         );
         const activeRules = state.ruleSets.find((set) => set.id === state.activeRuleSetId)?.rules || [];
         const rule = activeRules.find((r) => r.id === msg.ruleId);
@@ -569,9 +588,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         if (expectedId && incoming.some((rule) => rule.id !== expectedId)) {
           throw new Error(`优化规则必须保留原 id：${expectedId}`);
         }
-        const storedRules = await chrome.storage.local.get(['rules', 'ruleSets', 'activeRuleSetId', 'enabledRuleSetIds']);
+        const storedRules = await chrome.storage.local.get(['rules', 'ruleSets', 'activeRuleSetId', 'enabledRuleSetIds', 'ruleSetOverrides']);
         const state = GoPainterUtils.normalizeRuleSets(
-          storedRules.ruleSets, storedRules.activeRuleSetId, storedRules.rules, storedRules.enabledRuleSetIds
+          storedRules.ruleSets, storedRules.activeRuleSetId, storedRules.rules, storedRules.enabledRuleSetIds, storedRules.ruleSetOverrides
         );
         const existing = state.ruleSets.find((set) => set.id === state.activeRuleSetId)?.rules || [];
         const merge = GoPainterUtils.planRuleMerge(existing, incoming, msg.resolutions || {});

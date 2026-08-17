@@ -24,8 +24,11 @@ test('shared UI CSS uses static page scopes instead of dynamic :has selectors', 
     assert.match(html, new RegExp(`<html[^>]*class="[^"]*${className}`));
   }
   const optionsHtml = fs.readFileSync(path.join(extension, 'options.html'), 'utf8');
+  const optionsJs = fs.readFileSync(path.join(extension, 'options.js'), 'utf8');
   const popupHtml = fs.readFileSync(path.join(extension, 'popup.html'), 'utf8');
   assert.match(optionsHtml, /id="rule-conflict-modal"/);
+  assert.match(optionsHtml, /id="ruleset-overrides-list"/);
+  assert.match(optionsJs, /setRuleSetOverride/);
   assert.match(popupHtml, /id="rule-conflict-modal"/);
   assert.doesNotMatch(popupHtml, /rule-conflict-debug/);
 });

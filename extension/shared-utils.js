@@ -203,19 +203,59 @@
     return diff;
   }
 
-  function enabledRulesForSets(ruleSets, enabledRuleSetIds) {
+  function enabledRulesForSets(ruleSets, enabledRuleSetIds, ruleSetOverrides = {}) {
     const enabled = new Set(enabledRuleSetIds);
     const byId = new Map();
+    const selected = new Map();
     for (const set of ruleSets) {
       if (!enabled.has(set.id)) continue;
-      for (const rule of set.rules) byId.set(rule.id, rule);
+      for (const rule of set.rules) {
+        byId.set(rule.id, rule);
+        if (ruleSetOverrides?.[rule.id] === set.id) selected.set(rule.id, rule);
+      }
     }
+    for (const [id, rule] of selected) byId.set(id, rule);
     return [...byId.values()];
+  }
+
+  function ruleSetOverrideInfo(ruleSets = [], enabledRuleSetIds = [], ruleSetOverrides = {}) {
+    const enabled = new Set(enabledRuleSetIds);
+    const ownerByRule = new Map();
+    const conflictingSources = new Map();
+    const perSet = {};
+    for (const set of Array.isArray(ruleSets) ? ruleSets : []) {
+      if (!enabled.has(set?.id)) continue;
+      perSet[set.id] = { wins: 0, overridden: 0 };
+      const seen = new Set();
+      for (const rule of Array.isArray(set.rules) ? set.rules : []) {
+        if (!rule?.id || seen.has(rule.id)) continue;
+        seen.add(rule.id);
+        const source = { id: set.id, name: set.name || set.id };
+        const owner = ownerByRule.get(rule.id);
+        if (owner) {
+          const sources = conflictingSources.get(rule.id) || [owner];
+          sources.push(source);
+          conflictingSources.set(rule.id, sources);
+        }
+        ownerByRule.set(rule.id, source);
+      }
+    }
+    const conflicts = [];
+    for (const [id, sources] of conflictingSources) {
+      const selectedId = ruleSetOverrides?.[id];
+      const winner = sources.find((source) => source.id === selectedId) || sources[sources.length - 1];
+      perSet[winner.id].wins++;
+      for (const source of sources) {
+        if (source.id !== winner.id) perSet[source.id].overridden++;
+      }
+      conflicts.push({ id, sources, winnerId: winner.id, winnerName: winner.name, explicit: winner.id === selectedId });
+    }
+    return { conflicts, perSet };
   }
 
   // ruleSets 保存独立规则集，activeRuleSetId 是编辑目标；rules 是所有启用集的兼容合并镜像。
   // 首次升级时把旧 rules 无损迁入默认规则集，并默认只启用原激活集。
-  function normalizeRuleSets(ruleSets, activeRuleSetId, legacyRules = [], enabledRuleSetIds) {
+  function normalizeRuleSets(ruleSets, activeRuleSetId, legacyRules = [], enabledRuleSetIds, ruleSetOverrides = {}) {
     const sets = Array.isArray(ruleSets)
       ? ruleSets.filter((set) => set && typeof set.id === 'string' && set.id && Array.isArray(set.rules))
         .map((set) => ({ id: set.id, name: String(set.name || set.id), rules: set.rules }))
@@ -226,19 +266,25 @@
     const enabledIds = Array.isArray(enabledRuleSetIds)
       ? [...new Set(enabledRuleSetIds.filter((id) => validIds.has(id)))]
       : [active.id];
+    const validOverrides = {};
+    for (const [ruleId, setId] of Object.entries(ruleSetOverrides || {})) {
+      const set = sets.find((item) => item.id === setId);
+      if (set?.rules.some((rule) => rule?.id === ruleId)) validOverrides[ruleId] = setId;
+    }
     return {
       ruleSets: sets,
       activeRuleSetId: active.id,
       enabledRuleSetIds: enabledIds,
-      rules: enabledRulesForSets(sets, enabledIds),
+      ruleSetOverrides: validOverrides,
+      rules: enabledRulesForSets(sets, enabledIds, validOverrides),
     };
   }
 
   function replaceActiveRuleSetRules(state, rules) {
-    const normalized = normalizeRuleSets(state?.ruleSets, state?.activeRuleSetId, state?.rules, state?.enabledRuleSetIds);
+    const normalized = normalizeRuleSets(state?.ruleSets, state?.activeRuleSetId, state?.rules, state?.enabledRuleSetIds, state?.ruleSetOverrides);
     const nextRules = Array.isArray(rules) ? rules : [];
     const ruleSets = normalized.ruleSets.map((set) => set.id === normalized.activeRuleSetId ? { ...set, rules: nextRules } : set);
-    return normalizeRuleSets(ruleSets, normalized.activeRuleSetId, [], normalized.enabledRuleSetIds);
+    return normalizeRuleSets(ruleSets, normalized.activeRuleSetId, [], normalized.enabledRuleSetIds, normalized.ruleSetOverrides);
   }
 
   function mergeConvertedRules(rules = []) {
@@ -604,7 +650,7 @@
 
   const api = {
     confidenceValue, filterAndSortHits, filterRules, crawlRenderSignature, popupResultSnapshot, agentPageSnapshot, faviconHashValues, bytesToBinaryString, mergeRules, planRuleMerge, diffTextLines, mergeConvertedRules,
-    normalizeRuleSets, replaceActiveRuleSetRules, extractYaml,
+    normalizeRuleSets, replaceActiveRuleSetRules, ruleSetOverrideInfo, extractYaml,
     extractJson, normalizeAiEvidence, normalizeAiTech, techsFromAiReply, ruleByTechName,
     sanitizeRuleDocs, sanitizeImportedRuleDocs, sanitizeRule, sanitizeMatcher,
     scanHistoryEntry, mergeScanHistory, normalizeHistoryLimit, scanHistoryReport, scanHistoryCsv,

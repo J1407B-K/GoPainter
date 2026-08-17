@@ -33,8 +33,8 @@ async function loadActiveIndex() {
   if (activeLoadPromise) return activeLoadPromise;
   const version = cacheVersion;
   activeLoadPromise = (async () => {
-    const stored = await chrome.storage.local.get(['rules', 'ruleSets', 'activeRuleSetId', 'enabledRuleSetIds']);
-    const state = GoPainterUtils.normalizeRuleSets(stored.ruleSets, stored.activeRuleSetId, stored.rules, stored.enabledRuleSetIds);
+    const stored = await chrome.storage.local.get(['rules', 'ruleSets', 'activeRuleSetId', 'enabledRuleSetIds', 'ruleSetOverrides']);
+    const state = GoPainterUtils.normalizeRuleSets(stored.ruleSets, stored.activeRuleSetId, stored.rules, stored.enabledRuleSetIds, stored.ruleSetOverrides);
     const set = state.ruleSets.find((item) => item.id === state.activeRuleSetId) || state.ruleSets[0];
     const built = await buildEntries([set]);
     if (version === cacheVersion) activeCache = built;
@@ -48,8 +48,8 @@ async function loadAllIndex() {
   if (allLoadPromise) return allLoadPromise;
   const version = cacheVersion;
   allLoadPromise = (async () => {
-    const stored = await chrome.storage.local.get(['rules', 'ruleSets', 'activeRuleSetId', 'enabledRuleSetIds']);
-    const state = GoPainterUtils.normalizeRuleSets(stored.ruleSets, stored.activeRuleSetId, stored.rules, stored.enabledRuleSetIds);
+    const stored = await chrome.storage.local.get(['rules', 'ruleSets', 'activeRuleSetId', 'enabledRuleSetIds', 'ruleSetOverrides']);
+    const state = GoPainterUtils.normalizeRuleSets(stored.ruleSets, stored.activeRuleSetId, stored.rules, stored.enabledRuleSetIds, stored.ruleSetOverrides);
     const built = await buildEntries(state.ruleSets);
     if (version === cacheVersion) allCache = built;
     return version === cacheVersion ? built : loadAllIndex();
@@ -58,7 +58,7 @@ async function loadAllIndex() {
 }
 
 chrome.storage.onChanged?.addListener((changes, area) => {
-  if (area !== 'local' || (!changes.rules && !changes.ruleSets && !changes.activeRuleSetId && !changes.enabledRuleSetIds)) return;
+  if (area !== 'local' || (!changes.rules && !changes.ruleSets && !changes.activeRuleSetId && !changes.enabledRuleSetIds && !changes.ruleSetOverrides)) return;
   cacheVersion++;
   activeCache = null;
   activeLoadPromise = null;

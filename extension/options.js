@@ -21,10 +21,10 @@ function scheduleIdle(task) {
 
 async function loadRuleSetState(force = false) {
   if (!force && ruleSetState) return ruleSetState;
-  const raw = await chrome.storage.local.get(['rules', 'ruleSets', 'activeRuleSetId', 'enabledRuleSetIds']);
-  const state = GoPainterUtils.normalizeRuleSets(raw.ruleSets, raw.activeRuleSetId, raw.rules, raw.enabledRuleSetIds);
+  const raw = await chrome.storage.local.get(['rules', 'ruleSets', 'activeRuleSetId', 'enabledRuleSetIds', 'ruleSetOverrides']);
+  const state = GoPainterUtils.normalizeRuleSets(raw.ruleSets, raw.activeRuleSetId, raw.rules, raw.enabledRuleSetIds, raw.ruleSetOverrides);
   // 只在结构缺失/激活集失效时修复，避免每次操作 stringify 整个大型规则库。
-  if (!Array.isArray(raw.ruleSets) || raw.activeRuleSetId !== state.activeRuleSetId || !Array.isArray(raw.enabledRuleSetIds) || !Array.isArray(raw.rules)) {
+  if (!Array.isArray(raw.ruleSets) || raw.activeRuleSetId !== state.activeRuleSetId || !Array.isArray(raw.enabledRuleSetIds) || !Array.isArray(raw.rules) || !raw.ruleSetOverrides) {
     await chrome.storage.local.set(state);
   }
   ruleSetState = state;
@@ -42,6 +42,25 @@ async function saveActiveRules(rules) {
   await chrome.storage.local.set(ruleSetState);
 }
 
+let visibleRuleSetConflicts = [];
+
+function renderRuleSetOverrideList(query = '') {
+  const needle = String(query).trim().toLowerCase();
+  const filtered = needle
+    ? visibleRuleSetConflicts.filter((conflict) => conflict.id.toLowerCase().includes(needle))
+    : visibleRuleSetConflicts;
+  const visible = filtered.slice(0, 200);
+  document.getElementById('ruleset-overrides-list').innerHTML = visible.map((conflict) => `
+    <div class="ruleset-override-item">
+      <code title="${escapeHtml(conflict.id)}">${escapeHtml(conflict.id)}</code>
+      <select data-rule-override-id="${escapeHtml(conflict.id)}" aria-label="选择 ${escapeHtml(conflict.id)} 的生效版本">
+        ${conflict.sources.map((source) => `<option value="${escapeHtml(source.id)}" ${source.id === conflict.winnerId ? 'selected' : ''}>${escapeHtml(source.name)}${source.id === conflict.winnerId ? '（当前生效）' : ''}</option>`).join('')}
+      </select>
+    </div>`).join('') + (filtered.length > visible.length
+      ? `<div class="muted">还有 ${filtered.length - visible.length} 项，请输入规则 ID 继续筛选</div>`
+      : '');
+}
+
 function renderRuleSetControls(state) {
   const select = document.getElementById('ruleset-select');
   select.innerHTML = state.ruleSets.map((set) =>
@@ -52,12 +71,53 @@ function renderRuleSetControls(state) {
   const active = state.ruleSets.find((set) => set.id === state.activeRuleSetId);
   document.getElementById('ruleset-export').disabled = !active?.rules.length;
   const enabled = new Set(state.enabledRuleSetIds);
+  const overrideInfo = GoPainterUtils.ruleSetOverrideInfo(state.ruleSets, state.enabledRuleSetIds, state.ruleSetOverrides);
   document.getElementById('ruleset-enabled-list').innerHTML = state.ruleSets.map((set) => `
     <label class="ruleset-enabled-item">
       <input type="checkbox" data-ruleset-id="${escapeHtml(set.id)}" ${enabled.has(set.id) ? 'checked' : ''}>
-      <span>${escapeHtml(set.name)}</span><small>${set.rules.length} 条</small>
+      <span class="ruleset-enabled-name">
+        <span>${escapeHtml(set.name)}</span>
+        ${overrideInfo.perSet[set.id]?.wins ? `<em class="ruleset-override-win">最终生效 ${overrideInfo.perSet[set.id].wins}</em>` : ''}
+        ${overrideInfo.perSet[set.id]?.overridden ? `<em class="ruleset-override-loss">被覆盖 ${overrideInfo.perSet[set.id].overridden}</em>` : ''}
+      </span>
+      <small>${set.rules.length} 条</small>
     </label>`).join('');
+  const overrides = document.getElementById('ruleset-overrides');
+  const conflicts = overrideInfo.conflicts;
+  visibleRuleSetConflicts = conflicts;
+  overrides.hidden = !conflicts.length;
+  document.getElementById('ruleset-overrides-summary').textContent = conflicts.length
+    ? `${conflicts.length} 个重复规则 ID · 请选择生效版本（默认靠后优先）`
+    : '';
+  renderRuleSetOverrideList(document.getElementById('ruleset-overrides-filter').value);
 }
+
+document.getElementById('ruleset-overrides-filter').addEventListener('input', (event) => {
+  renderRuleSetOverrideList(event.target.value);
+});
+
+document.getElementById('ruleset-overrides-list').addEventListener('change', async (event) => {
+  const select = event.target.closest('select[data-rule-override-id]');
+  if (!select) return;
+  select.disabled = true;
+  try {
+    const state = await loadRuleSetState();
+    const response = await chrome.runtime.sendMessage({
+      type: 'setRuleSetOverride', ruleId: select.dataset.ruleOverrideId, ruleSetId: select.value,
+    });
+    if (!response?.ok) throw new Error(response?.error || '更新规则版本失败');
+    ruleSetState = GoPainterUtils.normalizeRuleSets(
+      state.ruleSets, state.activeRuleSetId, [], state.enabledRuleSetIds, response.ruleSetOverrides
+    );
+    renderRuleSetControls(ruleSetState);
+    showMsg(`规则 ${select.dataset.ruleOverrideId} 已改用「${response.ruleSetName}」版本`);
+  } catch (error) {
+    showMsg(error.message, true);
+    await refreshRuleList();
+  } finally {
+    select.disabled = false;
+  }
+});
 
 async function refreshRuleList() {
   const state = await loadRuleSetState();
@@ -452,7 +512,9 @@ async function saveEnabledRuleSets(enabledRuleSetIds, message) {
   const state = await loadRuleSetState();
   const response = await chrome.runtime.sendMessage({ type: 'setEnabledRuleSets', enabledRuleSetIds });
   if (!response?.ok) throw new Error(response?.error || '更新启用规则集失败');
-  ruleSetState = { ...state, enabledRuleSetIds: response.enabledRuleSetIds };
+  ruleSetState = GoPainterUtils.normalizeRuleSets(
+    state.ruleSets, state.activeRuleSetId, [], response.enabledRuleSetIds, state.ruleSetOverrides
+  );
   renderRuleSetControls(ruleSetState);
   showMsg(message || `已启用 ${response.enabledRuleSetIds.length} 个规则集，共 ${response.ruleCount} 条匹配规则`);
 }
@@ -532,7 +594,7 @@ document.getElementById('ruleset-delete').addEventListener('click', async () => 
   const ruleSets = state.ruleSets.filter((set) => set.id !== active.id);
   const next = ruleSets[0];
   const enabledRuleSetIds = state.enabledRuleSetIds.filter((id) => id !== active.id);
-  ruleSetState = GoPainterUtils.normalizeRuleSets(ruleSets, next.id, [], enabledRuleSetIds);
+  ruleSetState = GoPainterUtils.normalizeRuleSets(ruleSets, next.id, [], enabledRuleSetIds, state.ruleSetOverrides);
   await chrome.storage.local.set(ruleSetState);
   await refreshRuleList();
   showMsg(`已删除「${active.name}」，切换到「${next.name}」`);
@@ -1091,5 +1153,5 @@ scheduleIdle(loadConfConfig);
 
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== 'local') return;
-  if (changes.rules || changes.ruleSets || changes.activeRuleSetId || changes.enabledRuleSetIds) ruleSetState = null;
+  if (changes.rules || changes.ruleSets || changes.activeRuleSetId || changes.enabledRuleSetIds || changes.ruleSetOverrides) ruleSetState = null;
 });

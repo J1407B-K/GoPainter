@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
   confidenceValue, filterAndSortHits, filterRules, crawlRenderSignature, popupResultSnapshot, agentPageSnapshot, faviconHashValues, bytesToBinaryString, mergeRules, planRuleMerge, diffTextLines, mergeConvertedRules,
-  normalizeRuleSets, replaceActiveRuleSetRules, extractYaml, sanitizeImportedRuleDocs,
+  normalizeRuleSets, replaceActiveRuleSetRules, ruleSetOverrideInfo, extractYaml, sanitizeImportedRuleDocs,
   extractJson, normalizeAiEvidence, normalizeAiTech, techsFromAiReply, ruleByTechName, sanitizeRuleDocs,
   scanHistoryEntry, mergeScanHistory, normalizeHistoryLimit, scanHistoryReport, scanHistoryCsv,
 } = require('../extension/shared-utils.js');
@@ -100,7 +100,7 @@ test('rule sets migrate legacy rules and keep the active rules mirror in sync', 
   const initial = normalizeRuleSets(undefined, undefined, [{ id: 'legacy' }]);
   assert.deepEqual(initial, {
     ruleSets: [{ id: 'default', name: '默认规则集', rules: [{ id: 'legacy' }] }],
-    activeRuleSetId: 'default', enabledRuleSetIds: ['default'], rules: [{ id: 'legacy' }],
+    activeRuleSetId: 'default', enabledRuleSetIds: ['default'], ruleSetOverrides: {}, rules: [{ id: 'legacy' }],
   });
   const next = replaceActiveRuleSetRules(initial, [{ id: 'new' }]);
   assert.deepEqual(next.rules, [{ id: 'new' }]);
@@ -122,6 +122,41 @@ test('rule sets merge every enabled set while edits stay scoped to the active se
   assert.deepEqual(next.ruleSets[0].rules, [{ id: 'replacement' }]);
   assert.deepEqual(next.ruleSets[1].rules, sets[1].rules);
   assert.deepEqual(next.rules, [{ id: 'replacement' }, ...sets[1].rules]);
+});
+
+test('rule set override info exposes duplicate sources and the effective winner', () => {
+  const sets = [
+    { id: 'base', name: 'Base', rules: [{ id: 'shared' }, { id: 'base-only' }] },
+    { id: 'off', name: 'Disabled', rules: [{ id: 'shared' }] },
+    { id: 'extra', name: 'Extra', rules: [{ id: 'shared' }, { id: 'extra-only' }] },
+  ];
+  const info = ruleSetOverrideInfo(sets, ['base', 'extra']);
+  assert.deepEqual(info.conflicts, [{
+    id: 'shared',
+    sources: [{ id: 'base', name: 'Base' }, { id: 'extra', name: 'Extra' }],
+    winnerId: 'extra', winnerName: 'Extra', explicit: false,
+  }]);
+  assert.deepEqual(info.perSet, {
+    base: { wins: 0, overridden: 1 },
+    extra: { wins: 1, overridden: 0 },
+  });
+});
+
+test('a per-rule set override selects that enabled version without changing set order', () => {
+  const sets = [
+    { id: 'base', name: 'Base', rules: [{ id: 'shared', name: 'Base version' }] },
+    { id: 'extra', name: 'Extra', rules: [{ id: 'shared', name: 'Extra version' }] },
+  ];
+  const state = normalizeRuleSets(sets, 'base', [], ['base', 'extra'], { shared: 'base', stale: 'missing' });
+  assert.deepEqual(state.ruleSetOverrides, { shared: 'base' });
+  assert.deepEqual(state.rules, [{ id: 'shared', name: 'Base version' }]);
+  const info = ruleSetOverrideInfo(sets, state.enabledRuleSetIds, state.ruleSetOverrides);
+  assert.equal(info.conflicts[0].winnerId, 'base');
+  assert.equal(info.conflicts[0].explicit, true);
+  assert.deepEqual(info.perSet, {
+    base: { wins: 1, overridden: 0 },
+    extra: { wins: 0, overridden: 1 },
+  });
 });
 
 test('rule sets may all be disabled without falling back to the active set', () => {
