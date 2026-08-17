@@ -308,15 +308,7 @@
     return (match ? match[1] : source).trim();
   }
 
-  // 从 AI 回复里抠 JSON：剥 ```json 围栏，跳到首个 {/[，按括号配平截断尾随散文
-  function extractJson(text) {
-    const source = String(text || '').trim();
-    if (!source) return { ok: false };
-    let candidate = source;
-    const fence = source.match(/```(?:json)?[^\S\r\n]*\r?\n([\s\S]*?)```/i);
-    if (fence) candidate = fence[1].trim();
-    const start = candidate.search(/[[{]/);
-    if (start === -1) return { ok: false };
+  function balancedJsonEnd(candidate, start) {
     let depth = 0;
     let inStr = false;
     let esc = false;
@@ -332,12 +324,27 @@
       if (ch === '{' || ch === '[') depth++;
       else if (ch === '}' || ch === ']') {
         depth--;
-        if (depth === 0) {
-          try { return { ok: true, value: JSON.parse(candidate.slice(start, i + 1)) }; } catch { return { ok: false }; }
-        }
+        if (depth === 0) return i + 1;
       }
     }
-    return { ok: false };
+    return -1;
+  }
+
+  // 从 AI 回复里抠 JSON：剥 ```json 围栏，跳到首个 {/[，按括号配平截断尾随散文
+  function extractJson(text) {
+    const source = String(text || '').trim();
+    if (!source) return { ok: false };
+    const fence = source.match(/```(?:json)?[^\S\r\n]*\r?\n([\s\S]*?)```/i);
+    const candidate = fence ? fence[1].trim() : source;
+    const start = candidate.search(/[[{]/);
+    if (start === -1) return { ok: false };
+    const end = balancedJsonEnd(candidate, start);
+    if (end === -1) return { ok: false };
+    try {
+      return { ok: true, value: JSON.parse(candidate.slice(start, end)) };
+    } catch {
+      return { ok: false };
+    }
   }
 
   // AI evidence 规范化 → 引擎兼容 {type, part, detail, pattern}
@@ -425,72 +432,60 @@
     return (c >= 0 && c <= 100) ? c : null;
   }
 
+  const matcherPayloads = Object.freeze({
+    word: ['words', toStrArray],
+    regex: ['regex', toStrArray],
+    status: ['status', toIntArray],
+    icon_hash: ['hash', toIntArray],
+    dsl: ['dsl', toStrArray],
+  });
+
+  function sanitizeJsProbes(value) {
+    const list = Array.isArray(value) ? value : (value && typeof value === 'object' ? [value] : []);
+    return list
+      .filter((probe) => probe && typeof probe === 'object' && String(probe.path || '').trim())
+      .map((probe) => {
+        const out = { path: String(probe.path) };
+        if (probe.pattern) out.pattern = String(probe.pattern);
+        return out;
+      });
+  }
+
+  function sanitizeDomProbes(value) {
+    const list = Array.isArray(value) ? value : (value && typeof value === 'object' ? [value] : []);
+    return list
+      .filter((probe) => probe && typeof probe === 'object' && String(probe.sel || '').trim())
+      .map((probe) => {
+        const out = { sel: String(probe.sel) };
+        if (probe.text) out.text = String(probe.text);
+        if (probe.attrs && typeof probe.attrs === 'object') {
+          out.attrs = Object.fromEntries(Object.entries(probe.attrs).map(([key, val]) => [key, String(val)]));
+        }
+        return out;
+      });
+  }
+
+  function matcherPayload(m, type) {
+    const simple = matcherPayloads[type];
+    if (simple) return { field: simple[0], value: simple[1](m[simple[0]]) };
+    if (type === 'js') return { field: 'js', value: sanitizeJsProbes(m.js) };
+    if (type === 'dom') return { field: 'dom', value: sanitizeDomProbes(m.dom) };
+    return null;
+  }
+
   function sanitizeMatcher(m) {
     if (!m || typeof m !== 'object') return null;
     const type = String(m.type || '').trim();
     if (!type) return null;
+    const payload = matcherPayload(m, type);
+    if (!payload?.value.length) return null;
     const out = { type };
     if (m.part) out.part = String(m.part);
     if (m.condition) out.condition = String(m.condition);
     if (m.negative) out.negative = !!m.negative;
     const conf = normalizeConfidence(m.confidence);
     if (conf != null) out.confidence = conf;
-    switch (type) {
-      case 'word': {
-        out.words = toStrArray(m.words);
-        if (!out.words.length) return null;
-        break;
-      }
-      case 'regex': {
-        out.regex = toStrArray(m.regex);
-        if (!out.regex.length) return null;
-        break;
-      }
-      case 'status': {
-        out.status = toIntArray(m.status);
-        if (!out.status.length) return null;
-        break;
-      }
-      case 'icon_hash': {
-        out.hash = toIntArray(m.hash);
-        if (!out.hash.length) return null;
-        break;
-      }
-      case 'dsl': {
-        out.dsl = toStrArray(m.dsl);
-        if (!out.dsl.length) return null;
-        break;
-      }
-      case 'js': {
-        const list = Array.isArray(m.js) ? m.js : (m.js && typeof m.js === 'object' ? [m.js] : []);
-        out.js = list
-          .filter((p) => p && typeof p === 'object' && String(p.path || '').trim())
-          .map((p) => {
-            const probe = { path: String(p.path) };
-            if (p.pattern) probe.pattern = String(p.pattern);
-            return probe;
-          });
-        if (!out.js.length) return null;
-        break;
-      }
-      case 'dom': {
-        const list = Array.isArray(m.dom) ? m.dom : (m.dom && typeof m.dom === 'object' ? [m.dom] : []);
-        out.dom = list
-          .filter((p) => p && typeof p === 'object' && String(p.sel || '').trim())
-          .map((p) => {
-            const probe = { sel: String(p.sel) };
-            if (p.text) probe.text = String(p.text);
-            if (p.attrs && typeof p.attrs === 'object') {
-              probe.attrs = Object.fromEntries(Object.entries(p.attrs).map(([k, v]) => [k, String(v)]));
-            }
-            return probe;
-          });
-        if (!out.dom.length) return null;
-        break;
-      }
-      default:
-        return null; // 不支持的 matcher 类型直接丢
-    }
+    out[payload.field] = payload.value;
     return out;
   }
 

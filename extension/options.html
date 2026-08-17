@@ -197,6 +197,49 @@
     .history-item .title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
     .history-item .url { color: var(--muted); font-family: var(--mono); overflow-wrap: anywhere; }
     .history-item .hits { color: var(--accent); font-weight: 600; }
+
+    /* 规则体检 */
+    #health-list { margin-top: 12px; display: grid; gap: 12px; }
+    .health-card { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+    .health-card .hc-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+    .health-card .hc-name { font-weight: 700; font-size: 13px; }
+    .health-card .hc-meta { color: var(--muted); font-size: 12px; }
+    .health-card .hc-enabled { font-size: 11px; color: var(--accent); font-weight: 600; }
+    .health-card .hc-grade { margin-left: auto; border-radius: 999px; padding: 2px 8px; font-size: 11px; font-weight: 700; }
+    .health-card .hc-grade.good { color: #166534; background: #dcfce7; }
+    .health-card .hc-grade.warn { color: #92400e; background: #fef3c7; }
+    .health-card .hc-grade.bad { color: #991b1b; background: #fee2e2; }
+    .health-card .hc-grade.neutral { color: var(--muted); background: #eef0f3; }
+    .health-card .hc-bar {
+      display: flex; height: 10px; border-radius: 6px; overflow: hidden;
+      margin: 10px 0 6px; background: #eceef2; min-width: 0;
+    }
+    .health-card .hc-bar i { display: block; min-width: 0; height: 100%; }
+    .hc-bar .seg-skip { background: #16a34a; }
+    .hc-bar .seg-nascii { background: #f59e0b; }
+    .hc-bar .seg-broad { background: #dc2626; }
+    .hc-bar .seg-invalid { background: #9ca3af; }
+    .health-card .hc-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 6px 12px; font-size: 12px; }
+    .health-card .hc-stat { display: flex; flex-direction: column; gap: 1px; }
+    .health-card .hc-stat .v { font-weight: 700; font-family: var(--mono); }
+    .health-card .hc-stat .v.skip { color: #16a34a; }
+    .health-card .hc-stat .v.nascii { color: #d97706; }
+    .health-card .hc-stat .v.broad { color: #dc2626; }
+    .health-card .hc-stat .v.invalid { color: #6b7280; }
+    .health-card .hc-sum { margin-top: 8px; font-size: 12px; color: var(--muted); }
+    .health-card .hc-sum b { color: var(--text); }
+    .health-card details { margin-top: 8px; }
+    .health-card details summary { cursor: pointer; font-size: 12px; color: var(--muted); user-select: none; }
+    .health-card .hc-broad-list {
+      margin: 6px 0 0; padding: 6px 10px; max-height: 180px; overflow: auto;
+      border: 1px solid var(--border); border-radius: 8px; font-family: var(--mono); font-size: 11px;
+      display: grid; gap: 4px;
+    }
+    .health-card .hc-broad-item { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px; align-items: baseline; }
+    .health-card .hc-broad-item .r { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .health-card .hc-broad-item .p { overflow-wrap: anywhere; color: var(--text); }
+    .health-card .hc-anchor { color: var(--accent); font-weight: 700; }
+    .health-card .hc-empty { color: var(--muted); font-size: 12px; padding: 8px 0; }
   </style>
   <link rel="stylesheet" href="ui-rework.css">
 </head>
@@ -210,6 +253,7 @@
     <nav class="settings-nav" aria-label="设置分区">
       <div class="settings-nav-title">设置</div>
       <a href="#rules-section">指纹规则</a>
+      <a href="#health-section">规则体检</a>
       <a href="#confidence-section">置信度</a>
       <a href="#sources-section">第三方规则源</a>
       <a href="#hashes-section">favicon 哈希库</a>
@@ -259,6 +303,24 @@
       <div id="rule-stats" class="muted"></div>
       <input id="rule-filter" type="search" placeholder="筛选规则 ID 或名称" autocomplete="off">
       <div id="rule-list"></div>
+    </div>
+
+    <div class="card" id="health-section">
+      <h2>规则体检</h2>
+      <p class="muted">
+        不改动任何规则，只评估 regex 的<b>有效性与扫描成本</b>，不把性能指标冒充识别准确率。
+        每个规则集的 regex pattern 会按 AST 结构分类：
+        <b>具备 ASCII 预筛条件</b>（含必需 ASCII 字面量；仅表示页面缺少该字面量时可以安全跳过）、
+        <b>非 ASCII 护栏</b>（必需字面量含非 ASCII，SimpleFold 护栏下字面量预筛不参与）、
+        <b>无预筛锚点</b>（无必需字面量，如纯字符类、锚点或全可选结构，字面量预筛无法证明不匹配）。
+        无预筛锚点的正则需要人工复核：它可能是有意设计，也可能过宽。
+        这些是结构能力，不是某个页面的实际跳过率；实际执行情况取决于页面内容。
+        长/短锚点榜按“最弱分支代表锚点的字母/数字有效字符数”粗排，只用于发现可能高频的短锚点，不代表实测热度。
+        “无效”表示生产引擎无法解析，应优先修复；技术指纹是否真实、稳定仍需结合命中证据判断。
+      </p>
+      <button id="health-run" class="primary">开始体检全部规则集</button>
+      <div id="health-status" class="muted" style="margin-top: 8px;"></div>
+      <div id="health-list"></div>
     </div>
 
     <div id="rule-modal" class="rule-modal-mask">

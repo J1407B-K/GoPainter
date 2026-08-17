@@ -4,6 +4,36 @@ This is the project's living performance record. Every material performance chan
 its measured workload, trade-offs, and reproduction command belongs here. The goal
 is not to collect micro-benchmarks; it is to make future design decisions auditable.
 
+## v0.6.4 - bounded Host runtime and rule-health inspection
+
+v0.6.4 keeps browser I/O orchestration in JavaScript while removing the monolithic
+service-worker control path. `background.js` is now a thin composition root; page,
+rule, history, crawl, bookmark, AI, and Agent lifecycles have independent Host modules
+and a duplicate-safe message registry. Popup, options, content collection, Markdown,
+and Agent trace paths update bounded DOM/data sets instead of rebuilding large views.
+
+Rule health is computed by the Go Core from parsed regex ASTs. It reports validity,
+structural prefilter potential, unavoidable execution, and representative short/long
+anchors. These are rule scanning-cost signals, not claims about fingerprint accuracy
+or measured per-page heat.
+
+| JavaScript benchmark | v0.6.4 result |
+|---|---:|
+| Filter 10,000 / 50,000 rules | 0.58 / 5.81 ms |
+| Filter and sort 10,000 / 50,000 hits | 1.06 / 7.08 ms |
+| Compact 2,000 hits x 40 evidence rows | 0.31 ms |
+| Compile 100 user scripts / run cached scripts | 0.06 / 0.01 ms |
+| Stringify 10,000 custom hashes / cached read | 0.73 / <0.01 ms |
+| Three rule searches across 50,000 rules, legacy / indexed | 44.08 / 1.15 ms |
+
+Reproduce with `make bench-js`; use `make test` for Go, JavaScript, WASM, strict
+candidate-validation, rule-health, Host-router, and smoke coverage.
+
+## Version history
+
+<details>
+<summary><strong>v0.6.1 - remove JavaScript and DOM long tasks</strong></summary>
+
 ## v0.6.1 - remove JavaScript and DOM long tasks
 
 v0.6.1 targets the UI-side stalls that remained after the matcher became fast. The
@@ -46,7 +76,7 @@ node scripts/bench-scan.mjs 8000 200 # continuous 200-page distribution
 make test                             # Go, JS, and WASM smoke coverage
 ```
 
-## Version history
+</details>
 
 <details>
 <summary><strong>v0.5.1 - migrate from Go regexp to embedded Google RE2</strong></summary>

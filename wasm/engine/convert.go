@@ -99,7 +99,7 @@ func tamePattern(p string) string {
 const maxNestDepth = 32
 
 func nestDepth(p string) int {
-	depth, max := 0, 0
+	depth, maxDepth := 0, 0
 	inClass := false
 	for i := 0; i < len(p); i++ {
 		c := p[i]
@@ -114,15 +114,15 @@ func nestDepth(p string) int {
 		} else if !inClass {
 			if c == '(' {
 				depth++
-				if depth > max {
-					max = depth
+				if depth > maxDepth {
+					maxDepth = depth
 				}
 			} else if c == ')' && depth > 0 {
 				depth--
 			}
 		}
 	}
-	return max
+	return maxDepth
 }
 
 // 编译包一层 recover，个别妖孽模式 panic 也不至于炸掉整个 wasm。

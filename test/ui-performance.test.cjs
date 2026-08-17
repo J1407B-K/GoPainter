@@ -57,3 +57,17 @@ test('page collection and large lists keep bounded performance paths', () => {
   assert.match(searchRules, /activeCache/);
   assert.match(searchRules, /processed % 250/);
 });
+
+test('rule health explains its scope and exposes actionable invalid regex details', () => {
+  const html = fs.readFileSync(path.join(extension, 'options.html'), 'utf8');
+  const js = fs.readFileSync(path.join(extension, 'options.js'), 'utf8');
+  assert.match(html, /不把性能指标冒充识别准确率/);
+  assert.match(html, /技术指纹是否真实、稳定仍需结合命中证据判断/);
+  assert.match(js, /invalidPatterns/);
+  assert.match(js, /无效正则明细/);
+  assert.match(js, /具备潜在跳过条件/);
+  assert.match(js, /短锚点榜/);
+  assert.match(js, /长锚点榜/);
+  assert.match(html, /不代表实测热度/);
+  assert.doesNotMatch(js, /每页预计真跑/);
+});

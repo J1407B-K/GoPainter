@@ -104,6 +104,20 @@ test('background loads every skill and tool package file', () => {
   assert.ok(matchingAt >= 0 && legacyAt > matchingAt, 'legacy AI must load after its matching helpers');
 });
 
+test('background composition root loads every Host module and rejects duplicate message types', () => {
+  const background = read(path.join(root, 'extension', 'background.js'));
+  const imports = new Set([...background.matchAll(/'([^']+\.js)'/g)].map((match) => match[1]));
+  const hostModules = [
+    'history.js', 'page-fetch.js', 'browser-state.js', 'bookmarks.js', 'crawl.js',
+    'page-host.js', 'rules-host.js', 'ai-host.js', 'agent-host.js',
+  ];
+  for (const file of hostModules) {
+    assert.ok(imports.has(`background/${file}`), `background omits Host module ${file}`);
+  }
+  assert.match(background, /duplicate background message handler/);
+  assert.doesNotMatch(background, /switch\s*\(msg\.type\)/);
+});
+
 test('Go-backed skill tools reference exports registered by the WASM bridge', () => {
   const bridge = read(path.join(root, 'wasm', 'bridge.go'));
   for (const file of fs.readdirSync(toolsRoot).filter((name) => name.endsWith('.js'))) {

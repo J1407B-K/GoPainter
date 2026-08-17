@@ -195,6 +195,20 @@ func jsAgentWordTest(_ js.Value, args []js.Value) any {
 	return string(out)
 }
 
+// goClassifyRules(rulesJSON) -> RegexHealth JSON：规则集体检，按正则 AST 结构
+// 分类「预筛可跳过 / 非ascii / 泛化」，让 options 页直接展示。
+func jsClassifyRules(_ js.Value, args []js.Value) any {
+	if len(args) < 1 {
+		return jsError("classifyRules(rulesJSON) 需要一个参数")
+	}
+	var rules []engine.Rule
+	if err := json.Unmarshal([]byte(args[0].String()), &rules); err != nil {
+		return jsError("规则 JSON 解析失败: %s", err)
+	}
+	out, _ := json.Marshal(engine.ClassifyRegexes(rules))
+	return string(out)
+}
+
 func registerJSExports() {
 	g := js.Global()
 	g.Set("goRegexBackend", js.FuncOf(func(this js.Value, args []js.Value) any { return engine.RegexBackendName() }))
@@ -210,6 +224,7 @@ func registerJSExports() {
 	g.Set("goDslEval", js.FuncOf(jsDslEval))
 	g.Set("goAgentRegexTest", js.FuncOf(jsAgentRegexTest))
 	g.Set("goAgentWordTest", js.FuncOf(jsAgentWordTest))
+	g.Set("goClassifyRules", js.FuncOf(jsClassifyRules))
 	g.Set("goCrawlStart", js.FuncOf(jsCrawlStart))
 	g.Set("goCrawlBatch", js.FuncOf(jsCrawlBatch))
 	g.Set("goCrawlFeed", js.FuncOf(jsCrawlFeed))

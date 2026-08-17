@@ -2,6 +2,34 @@
 
 这是项目的长期性能档案。每一次重要性能改动、所用负载、取舍和复现命令都应记录在这里。它不是收集微基准的地方，而是让后续设计决策可以被复核的依据。
 
+## v0.6.4 —— 受限的 Host 运行时与规则体检
+
+v0.6.4 继续让 JavaScript 负责浏览器 I/O 编排，但移除了单体 service worker 控制路径。
+`background.js` 现在只是精简的装配入口；页面、规则、历史、爬虫、书签、AI 与 Agent
+生命周期分别由独立 Host 模块持有，消息注册会拒绝重复类型。popup、设置页、content
+采集、Markdown 和 Agent trace 路径均只更新受限的数据与 DOM，不再反复重建大型视图。
+
+规则体检由 Go Core 根据解析后的 regex AST 计算，展示有效性、结构上的预筛潜力、
+必定执行项及长短代表锚点。这些数据描述规则扫描成本，不代表指纹识别准确率，也不是
+特定页面上的实测热度。
+
+| JavaScript 基准 | v0.6.4 结果 |
+|---|---:|
+| 筛选 10,000 / 50,000 条规则 | 0.58 / 5.81 ms |
+| 筛选排序 10,000 / 50,000 个命中 | 1.06 / 7.08 ms |
+| 压缩 2,000 个命中、每项 40 条证据 | 0.31 ms |
+| 编译 100 个用户脚本 / 执行缓存脚本 | 0.06 / 0.01 ms |
+| 序列化 10,000 条自定义哈希 / 缓存读取 | 0.73 / <0.01 ms |
+| 在 50,000 条规则中执行 3 次搜索，旧实现 / 索引后 | 44.08 / 1.15 ms |
+
+使用 `make bench-js` 复现；使用 `make test` 验证 Go、JavaScript、WASM、严格候选校验、
+规则体检、Host 路由与冒烟链路。
+
+## 历史版本
+
+<details>
+<summary><strong>v0.6.1 —— 消除 JavaScript 与 DOM 长任务</strong></summary>
+
 ## v0.6.1 —— 消除 JavaScript 与 DOM 长任务
 
 v0.6.1 处理匹配引擎变快后仍残留的 UI 卡顿。content script 不再先生成完整页面
@@ -40,7 +68,7 @@ node scripts/bench-scan.mjs 8000 200 # 连续 200 页分布
 make test                             # Go、JS 与 WASM 冒烟测试
 ```
 
-## 历史版本
+</details>
 
 <details>
 <summary><strong>v0.5.1 —— 从 Go regexp 迁移到内嵌 Google RE2</strong></summary>

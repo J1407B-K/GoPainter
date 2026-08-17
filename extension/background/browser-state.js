@@ -172,6 +172,6 @@ async function flushIcons(tabId) {
     ...popupResultEntry(tabId, stored.features, result, stored.at),
     ...agentPageEntry(tabId, stored.features, stored.at),
   });
-  await recordScanHistory(stored.features, result, 'page');
+  await GoPainterHistoryHost.record(stored.features, result, 'page');
   await updateIcon(tabId, result.hits?.length || 0);
 }

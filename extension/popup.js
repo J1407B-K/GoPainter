@@ -259,23 +259,19 @@ function displayHits() {
   return [...base, ...merged];
 }
 
-function render({ features, result }) {
-  // 页面信息卡
+function renderPageSummary(features, result) {
   pageInfo.style.display = 'block';
   document.getElementById('page-title').textContent = features.title || '（无标题）';
   document.getElementById('page-url').textContent = features.url;
-
-  // favicon：命中时加绿圈
   const faviconEl = document.getElementById('page-favicon');
+  faviconEl.style.display = features.favicon ? 'block' : 'none';
   if (features.favicon) {
     faviconEl.src = features.favicon;
-    faviconEl.style.display = 'block';
     faviconEl.onerror = () => { faviconEl.style.display = 'none'; };
     faviconEl.classList.toggle('matched', !!result.hits?.length);
   }
-
   const metaRow = document.getElementById('meta-row');
-  metaRow.innerHTML = '';
+  metaRow.replaceChildren();
   if (features.status) {
     const ok = features.status >= 200 && features.status < 400;
     metaRow.appendChild(makeChip(`HTTP ${features.status}`, ok));
@@ -287,32 +283,29 @@ function render({ features, result }) {
     const extra = iconHashes.length - 1;
     metaRow.appendChild(makeChip(`icon_hash: ${iconHashes[0]}` + (extra > 0 ? ` +${extra}` : '')));
   }
+}
 
-  // 命中结果
-  statusEl.style.display = 'none';
-  hitsEl.innerHTML = '';
+function showHitStatus(html) {
+  statusEl.style.display = 'block';
+  statusEl.innerHTML = html;
+}
 
+function renderHitList(result) {
+  const allHits = displayHits();
   if (result.note === 'no_rules') {
-    statusEl.style.display = 'block';
-    statusEl.innerHTML = '<span class="icon">📭</span>尚未导入任何规则<br>点击右下角「⚙️ 规则」导入 YAML';
+    showHitStatus('<span class="icon">📭</span>尚未导入任何规则<br>点击右下角「⚙️ 规则」导入 YAML');
     return;
   }
-  if (!displayHits().length) {
-    statusEl.style.display = 'block';
-    statusEl.innerHTML = '<span class="icon">🔍</span>未命中任何规则<br>可点击下方 AI 辅助识别';
+  if (!allHits.length) {
+    showHitStatus('<span class="icon">🔍</span>未命中任何规则<br>可点击下方 AI 辅助识别');
     return;
   }
 
-  // 置信度启用时：低置信度的隐藏，剩下的按置信度从高到低排
-  // displayHits() = 规则命中 + 用户勾选合并的 AI 命中（去重）
-  const filtered = GoPainterUtils.filterAndSortHits(displayHits(), confCfg);
-  const { hits, hidden, annotated } = filtered;
-
+  const { hits, hidden } = GoPainterUtils.filterAndSortHits(allHits, confCfg);
   if (!hits.length) {
-    statusEl.style.display = 'block';
-    statusEl.innerHTML = hidden > 0
+    showHitStatus(hidden > 0
       ? `<span class="icon">🔍</span>${hidden} 个命中都低于置信度阈值<br>可在设置里调低阈值`
-      : '<span class="icon">🔍</span>未命中任何规则<br>可点击下方 AI 辅助识别';
+      : '<span class="icon">🔍</span>未命中任何规则<br>可点击下方 AI 辅助识别');
     return;
   }
 
@@ -321,10 +314,15 @@ function render({ features, result }) {
   const totalHits = Math.max(hits.length, Number(result.totalHits) || 0);
   const limited = totalHits > hits.length ? `，展示前 ${hits.length} 个` : '';
   label.textContent = `命中 ${totalHits} 个指纹${limited}` + (hidden > 0 ? `（隐藏 ${hidden} 个低置信度）` : '');
-  hitsEl.appendChild(label);
-  for (const h of hits) {
-    hitsEl.appendChild(renderHit(h));
-  }
+  hitsEl.append(label, ...hits.map(renderHit));
+}
+
+function render({ features, result }) {
+  renderPageSummary(features, result);
+
+  statusEl.style.display = 'none';
+  hitsEl.replaceChildren();
+  renderHitList(result);
 }
 
 function renderHit(hit) {
@@ -549,6 +547,86 @@ function appendAgentTrace(item, count) {
   details.appendChild(row);
 }
 
+function resetAgentRunUI() {
+  const liveTrace = [];
+  renderAgentTrace(liveTrace);
+  agentResult.style.display = 'none';
+  agentResult.replaceChildren();
+  agentOutcome.style.display = 'none';
+  agentApplyRule.style.display = 'none';
+  pendingAgentRuleYaml = '';
+  pendingAgentRuleId = '';
+  return liveTrace;
+}
+
+function showAgentPermission(port, request) {
+  agentPermissionDescription.textContent = permissionDescription(request);
+  agentPermissionModal.style.display = 'flex';
+  const respond = (granted, remember = false) => {
+    agentPermissionModal.style.display = 'none';
+    port.postMessage({ type: 'permissionResponse', granted, remember });
+  };
+  agentPermissionAllow.onclick = () => respond(true);
+  agentPermissionSession.onclick = () => respond(true, true);
+  agentPermissionDeny.onclick = () => respond(false);
+}
+
+function runAgentRequest(goalId, input, liveTrace) {
+  return new Promise((resolve, reject) => {
+    const port = chrome.runtime.connect({ name: 'gopainter-agent' });
+    activeAgentPort = port;
+    let settled = false;
+    const finish = (callback, value) => {
+      if (settled) return;
+      settled = true;
+      clearInterval(keepalive);
+      if (activeAgentPort === port) activeAgentPort = null;
+      callback(value);
+    };
+    const keepalive = setInterval(() => {
+      if (settled) return;
+      try { port.postMessage({ type: 'keepalive' }); }
+      catch (error) { finish(reject, new Error(`Agent 后台连接中断：${error.message}`)); }
+    }, 15_000);
+    port.onMessage.addListener((message) => {
+      if (message.type === 'trace') {
+        liveTrace.push(message.item);
+        appendAgentTrace(message.item, liveTrace.length);
+      } else if (message.type === 'permission') {
+        showAgentPermission(port, message.request);
+      } else if (message.type === 'complete') {
+        finish(resolve, message.result);
+        port.disconnect();
+      } else if (message.type === 'error') {
+        finish(reject, new Error(message.error));
+        port.disconnect();
+      }
+    });
+    port.onDisconnect.addListener(() => {
+      const lastError = chrome.runtime.lastError;
+      finish(reject, new Error(lastError?.message || 'Agent 后台连接意外中断，请重试'));
+    });
+    port.postMessage({ type: 'runAgent', goalId, tabId: currentTabId, input });
+  });
+}
+
+function presentAgentResult(result, goalId, input) {
+  showAgentOutcome(result.status, result.steps);
+  const citations = result.citations?.length ? `\n来源：${result.citations.join('、')}` : '';
+  const summary = `${result.summary || result.text || ''}${citations}`;
+  showAgentMessage(summary);
+  if (result.status !== 'complete' || goalId === 'identify-site') return;
+  const yaml = extractAgentRuleYaml(summary);
+  if (!yaml) {
+    showAgentOutcome('incomplete', result.steps);
+    return;
+  }
+  pendingAgentRuleYaml = yaml;
+  pendingAgentRuleId = goalId === 'optimize-rule' ? input : '';
+  agentApplyRule.textContent = goalId === 'optimize-rule' ? '覆盖当前规则' : '导入规则';
+  agentApplyRule.style.display = 'block';
+}
+
 agentRun.addEventListener('click', async () => {
   const runSerial = ++agentRunSerial;
   const goalId = agentGoal.value;
@@ -558,78 +636,12 @@ agentRun.addEventListener('click', async () => {
     return;
   }
   setBusy(agentRun, true, '执行中…');
-  const liveTrace = [];
-  renderAgentTrace(liveTrace);
-  agentResult.style.display = 'none';
-  agentResult.replaceChildren();
-  agentOutcome.style.display = 'none';
-  agentApplyRule.style.display = 'none';
-  pendingAgentRuleYaml = '';
-  pendingAgentRuleId = '';
+  const liveTrace = resetAgentRunUI();
   try {
-    const result = await new Promise((resolve, reject) => {
-      const port = chrome.runtime.connect({ name: 'gopainter-agent' });
-      activeAgentPort = port;
-      let settled = false;
-      const keepalive = setInterval(() => {
-        if (settled) return;
-        try { port.postMessage({ type: 'keepalive' }); }
-        catch (error) { finish(reject, new Error(`Agent 后台连接中断：${error.message}`)); }
-      }, 15_000);
-      const finish = (callback, value) => {
-        if (settled) return;
-        settled = true;
-        clearInterval(keepalive);
-        if (activeAgentPort === port) activeAgentPort = null;
-        callback(value);
-      };
-      port.onMessage.addListener((message) => {
-        if (message.type === 'trace') {
-          liveTrace.push(message.item);
-          appendAgentTrace(message.item, liveTrace.length);
-        } else if (message.type === 'permission') {
-          agentPermissionDescription.textContent = permissionDescription(message.request);
-          agentPermissionModal.style.display = 'flex';
-          const respond = (granted, remember = false) => {
-            agentPermissionModal.style.display = 'none';
-            port.postMessage({ type: 'permissionResponse', granted, remember });
-          };
-          agentPermissionAllow.onclick = () => respond(true);
-          agentPermissionSession.onclick = () => respond(true, true);
-          agentPermissionDeny.onclick = () => respond(false);
-        } else if (message.type === 'complete') {
-          finish(resolve, message.result);
-          port.disconnect();
-        } else if (message.type === 'error') {
-          finish(reject, new Error(message.error));
-          port.disconnect();
-        }
-      });
-      port.onDisconnect.addListener(() => {
-        const lastError = chrome.runtime.lastError;
-        finish(reject, new Error(lastError?.message || 'Agent 后台连接意外中断，请重试'));
-      });
-      port.postMessage({
-        type: 'runAgent', goalId, tabId: currentTabId, input,
-      });
-    });
+    const result = await runAgentRequest(goalId, input, liveTrace);
     if (runSerial !== agentRunSerial) return;
     // trace 已通过 port 按序增量渲染；完成时不再销毁重建，避免最后一帧卡顿。
-    showAgentOutcome(result.status, result.steps);
-    const citations = result.citations?.length ? `\n来源：${result.citations.join('、')}` : '';
-    const summary = `${result.summary || result.text || ''}${citations}`;
-    showAgentMessage(summary);
-    if (result.status === 'complete' && goalId !== 'identify-site') {
-      const yaml = extractAgentRuleYaml(summary);
-      if (yaml) {
-        pendingAgentRuleYaml = yaml;
-        pendingAgentRuleId = goalId === 'optimize-rule' ? input : '';
-        agentApplyRule.textContent = goalId === 'optimize-rule' ? '覆盖当前规则' : '导入规则';
-        agentApplyRule.style.display = 'block';
-      } else {
-        showAgentOutcome('incomplete', result.steps);
-      }
-    }
+    presentAgentResult(result, goalId, input);
   } catch (error) {
     if (runSerial !== agentRunSerial) return;
     showAgentOutcome('incomplete');
@@ -968,60 +980,96 @@ function appendMarkdownInline(parent, text) {
   parent.append(document.createTextNode(text.slice(cursor)));
 }
 
+function markdownTableCells(line) {
+  return line.trim().replace(/^\||\|$/g, '').split('|').map((cell) => cell.trim());
+}
+
+function isMarkdownTableSeparator(line) {
+  return /^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(line);
+}
+
+function appendMarkdownRow(section, tag, cells) {
+  const row = document.createElement('tr');
+  for (const cell of cells) {
+    const element = document.createElement(tag);
+    appendMarkdownInline(element, cell);
+    row.append(element);
+  }
+  section.append(row);
+}
+
+function appendMarkdownTable(target, lines, headerIndex) {
+  const headers = markdownTableCells(lines[headerIndex]);
+  const wrap = document.createElement('div');
+  wrap.className = 'md-table-wrap';
+  const table = document.createElement('table');
+  table.className = 'md-table';
+  const thead = document.createElement('thead');
+  const tbody = document.createElement('tbody');
+  appendMarkdownRow(thead, 'th', headers);
+  let index = headerIndex + 2;
+  while (index < lines.length && lines[index].includes('|') && lines[index].trim()) {
+    const cells = markdownTableCells(lines[index]);
+    if (cells.length !== headers.length) break;
+    appendMarkdownRow(tbody, 'td', cells);
+    index++;
+  }
+  table.append(thead, tbody);
+  wrap.append(table);
+  target.append(wrap);
+  return index - 1;
+}
+
+function appendMarkdownTextElement(target, tag, text) {
+  const element = document.createElement(tag);
+  appendMarkdownInline(element, text);
+  target.append(element);
+}
+
+function appendMarkdownCode(target, lines) {
+  const pre = document.createElement('pre');
+  pre.textContent = lines.join('\n');
+  target.append(pre);
+}
+
 // 轻量、安全的 Markdown：所有模型文本均以 DOM 节点写入，绝不使用 innerHTML。
 function renderMarkdown(target, markdown) {
   target.replaceChildren();
   const lines = String(markdown || '').replace(/\r/g, '').split('\n');
-  let list = null, listType = '', codeLines = null;
-  const closeList = () => { list = null; listType = ''; };
-  const paragraph = (text) => { const el = document.createElement('p'); appendMarkdownInline(el, text); target.append(el); };
-  const tableCells = (line) => line.trim().replace(/^\||\|$/g, '').split('|').map((cell) => cell.trim());
-  const tableSeparator = (line) => /^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(line);
+  const state = { list: null, listType: '', codeLines: null };
+  const closeList = () => { state.list = null; state.listType = ''; };
   for (let index = 0; index < lines.length; index++) {
     const line = lines[index];
     if (line.startsWith('```')) {
-      if (codeLines === null) { closeList(); codeLines = []; } else { const pre = document.createElement('pre'); pre.textContent = codeLines.join('\n'); target.append(pre); codeLines = null; }
+      if (state.codeLines === null) { closeList(); state.codeLines = []; }
+      else { appendMarkdownCode(target, state.codeLines); state.codeLines = null; }
       continue;
     }
-    if (codeLines !== null) { codeLines.push(line); continue; }
-    if (line.includes('|') && tableSeparator(lines[index + 1] || '')) {
+    if (state.codeLines !== null) { state.codeLines.push(line); continue; }
+    if (line.includes('|') && isMarkdownTableSeparator(lines[index + 1] || '')) {
       closeList();
-      const headers = tableCells(line);
-      const wrap = document.createElement('div');
-      wrap.className = 'md-table-wrap';
-      const table = document.createElement('table');
-      table.className = 'md-table';
-      const thead = document.createElement('thead');
-      const headerRow = document.createElement('tr');
-      for (const header of headers) { const th = document.createElement('th'); appendMarkdownInline(th, header); headerRow.append(th); }
-      thead.append(headerRow); table.append(thead);
-      const tbody = document.createElement('tbody');
-      index += 2;
-      while (index < lines.length && lines[index].includes('|') && lines[index].trim()) {
-        const cells = tableCells(lines[index]);
-        if (cells.length !== headers.length) break;
-        const row = document.createElement('tr');
-        for (const cell of cells) { const td = document.createElement('td'); appendMarkdownInline(td, cell); row.append(td); }
-        tbody.append(row);
-        index++;
-      }
-      index--;
-      table.append(tbody); wrap.append(table); target.append(wrap);
+      index = appendMarkdownTable(target, lines, index);
       continue;
     }
     const heading = line.match(/^#{1,3}\s+(.+)/);
     const bullet = line.match(/^[-*]\s+(.+)/);
     const ordered = line.match(/^\d+\.\s+(.+)/);
-    if (heading) { closeList(); const el = document.createElement('h3'); appendMarkdownInline(el, heading[1]); target.append(el); continue; }
+    if (heading) { closeList(); appendMarkdownTextElement(target, 'h3', heading[1]); continue; }
     if (bullet || ordered) {
       const type = ordered ? 'ol' : 'ul';
-      if (!list || listType !== type) { closeList(); list = document.createElement(type); listType = type; target.append(list); }
-      const item = document.createElement('li'); appendMarkdownInline(item, (bullet || ordered)[1]); list.append(item); continue;
+      if (!state.list || state.listType !== type) {
+        closeList();
+        state.list = document.createElement(type);
+        state.listType = type;
+        target.append(state.list);
+      }
+      appendMarkdownTextElement(state.list, 'li', (bullet || ordered)[1]);
+      continue;
     }
     closeList();
-    if (line.trim()) paragraph(line);
+    if (line.trim()) appendMarkdownTextElement(target, 'p', line);
   }
-  if (codeLines !== null) { const pre = document.createElement('pre'); pre.textContent = codeLines.join('\n'); target.append(pre); }
+  if (state.codeLines !== null) appendMarkdownCode(target, state.codeLines);
 }
 
 // 把 AI 相关/错误/成功消息统一显示在 #ai-raw（避免覆盖候选列表）

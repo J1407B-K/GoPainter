@@ -83,41 +83,39 @@
     });
   }
 
+  function domAttributesMatch(element, patterns) {
+    return patterns.every(([name, pattern]) => {
+      const value = element.getAttribute(name);
+      return value != null && pattern.test(value);
+    });
+  }
+
+  function domProbeMatches(probe) {
+    let selector = probe.sel;
+    // 有属性条件但选择器是 * 或裸标签时，把属性名拼成预筛选择器，
+    // 不然 querySelector('*') 只会检查第一个元素的属性，语义错了。
+    if (probe.attrs && !selector.includes('[')) {
+      selector += Object.keys(probe.attrs).map((name) => `[${CSS.escape(name)}]`).join('');
+    }
+    if (!probe.text && !probe.attrs) return Boolean(document.querySelector(selector));
+    const elements = document.querySelectorAll(selector);
+    const textPattern = probe.text ? new RegExp(probe.text, 'i') : null;
+    const attrPatterns = Object.entries(probe.attrs || {}).map(([name, pattern]) => [name, new RegExp(pattern, 'i')]);
+    const count = Math.min(elements.length, 50);
+    for (let index = 0; index < count; index++) {
+      const element = elements[index];
+      if (textPattern && !textPattern.test(element.textContent || '')) continue;
+      if (!domAttributesMatch(element, attrPatterns)) continue;
+      return true;
+    }
+    return false;
+  }
+
   function probeDom(probes) {
     const hit = [];
-    for (const p of probes) {
+    for (const probe of probes) {
       try {
-        let sel = p.sel;
-        // 有属性条件但选择器是 * 或裸标签时，把属性名拼成预筛选择器，
-        // 不然 querySelector('*') 只会检查第一个元素的属性，语义错了
-        if (p.attrs && !sel.includes('[')) {
-          sel += Object.keys(p.attrs).map((k) => `[${CSS.escape(k)}]`).join('');
-        }
-        if (!p.text && !p.attrs) {
-          if (document.querySelector(sel)) hit.push(p.id);
-          continue;
-        }
-        const els = document.querySelectorAll(sel);
-        // 任一元素满足条件就算中（第一个匹配元素不一定是对的那个，
-        // 比如 link[type*='application'] 第一个可能是 oembed 而不是 RSS）
-        let ok = false;
-        const count = Math.min(els.length, 50);
-        for (let i = 0; i < count; i++) {
-          const el = els[i];
-          if (p.text && !(new RegExp(p.text, 'i')).test(el.textContent || '')) continue;
-          if (p.attrs) {
-            let attrOk = true;
-            for (const [k, re] of Object.entries(p.attrs)) {
-              const v = el.getAttribute(k);
-              if (v == null || !(new RegExp(re, 'i')).test(v)) { attrOk = false; break; }
-            }
-            if (!attrOk) continue;
-          }
-          ok = true;
-          break;
-        }
-        if (!ok) continue;
-        hit.push(p.id); // 推 probe id，背景那边按 id 对
+        if (domProbeMatches(probe)) hit.push(probe.id); // 背景按 Core 生成的 id 对应
       } catch { /* 坏选择器/坏正则跳过 */ }
     }
     return hit;

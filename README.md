@@ -31,6 +31,7 @@ While you browse, GoPainter fingerprints the current site automatically and surf
 ## Features
 
 - **YAML fingerprint rules** — word / regex / status / icon_hash / dsl / js / dom matchers, with `and`/`or` combinations and `negative` inversion
+- **Rule health inspection** — checks regex validity and structural prefilter opportunities, with short/long anchor rankings and actionable invalid/no-anchor details
 - **Composable rule sets** — keep imports separated, enable any combination for matching, and review a YAML diff before replacing a conflicting rule
 - **nuclei template compatibility** — imports automatically extract the HTTP matchers subset, so the large community template library is directly usable
 - **Third-party rule sources** — Wappalyzer / EHole / nuclei-templates can be pulled and converted in one click; whether to download is your choice, and their complete libraries are not vendored into the repository
@@ -40,9 +41,9 @@ While you browse, GoPainter fingerprints the current site automatically and surf
 - **Agent-assisted fingerprint research** — a bounded, streaming tool loop researches the current tab or a rule, shows its auditable tool trace, and returns an evidence-based task report
 - **Scan history & reports** — choose a 50–5,000 entry rolling window and export it as JSON/CSV
 
-## Current release: v0.6.3
+## Current release: v0.6.4
 
-This release rebuilds Agent research around a single-session native tool loop: the model decides whether to continue gathering evidence or return its final artifact, bounded only by the configured turn limit. Executable Skill packages now load canonical `SKILL.md` instructions, enforce bidirectional tool permissions, and expose Go/WASM-backed word, RE2, DSL, and complete-rule validation. Read-only tools run concurrently with a limit of five, while network access remains explicitly permission-gated. The latest published performance measurements remain available in the [performance record](BENCHMARK.md).
+v0.6.4 makes the rule-delivery path strict end to end: an Agent's final YAML must resolve to the same canonical artifact as a candidate successfully validated by the production Go/WASM Core. Rule health inspection now reports invalid regexes, structural prefilter potential, unavoidable scans, and short/long representative anchors without presenting structural metrics as detection accuracy. The extension Host was also split into focused page, rule, history, crawl, bookmark, AI, and Agent lifecycle modules; bounded UI rendering and concurrent read-only tools keep long work away from interactive paths. See the current measurements and previous versions in the [performance record](BENCHMARK.md).
 
 ## Quick start
 
@@ -241,13 +242,14 @@ Rule semantics—including strict Agent candidate validation and required-probe 
 │       ├── normalize.go      #   rule normalization (nuclei conversion)
 │       ├── dsl.go            #   dsl expression evaluator
 │       ├── convert.go        #   Wappalyzer/EHole fingerprint conversion
+│       ├── health.go         #   regex validity, prefilter potential and anchor quality
 │       ├── crawl.go          #   crawler scheduling (BFS/dedup/same-site/max pages)
 │       └── hashdb.go         #   favicon hash database (generated)
 ├── extension/                # Chrome extension (MV3)
 │   ├── manifest.json
-│   ├── background.js         # service worker: AI/bookmarks/crawl/message routing
+│   ├── background.js         # thin service-worker composition root and message router
 │   ├── agent/                # bounded agent loop, tools and skills
-│   ├── background/           # service worker layers: wasm, browser state, matching
+│   ├── background/           # Host modules: page/rules/history/crawl/bookmarks/AI/Agent
 │   ├── content.js            # page feature collection
 │   ├── popup.*               # results & evidence / AI identification / AI rule generation
 │   ├── options.*             # rule import / AI config / prompts / bookmark organization

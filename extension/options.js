@@ -936,47 +936,53 @@ scheduleIdle(refreshScriptList);
 let crawlTimer = null;
 let crawlRenderSignature = '';
 
+function crawlStatusText(resp) {
+  const failed = resp.failed?.length || 0;
+  if (resp.running) return `爬取中：已扫 ${resp.visited} 页，队列 ${resp.queued}，失败 ${failed}，发现链接去重中…`;
+  if (resp.interrupted) return `任务被系统中断（service worker 被回收）：已保留 ${resp.results.length} 页结果，失败 ${failed} 页`;
+  if (resp.results.length) return `结束：成功 ${resp.results.length} 页，失败 ${failed} 页`;
+  if (failed) return `结束：没有成功页面，失败 ${failed} 页`;
+  return '';
+}
+
+function crawlResultRow(result) {
+  const row = document.createElement('div');
+  row.className = 'crawl-item';
+  row.innerHTML = `<div class="t"></div><div class="u"></div><div class="hits"></div>`;
+  row.querySelector('.t').textContent = result.title;
+  row.querySelector('.u').textContent = `${result.url}（HTTP ${result.status}）`;
+  const names = (result.hits || []).map((hit) => hit.name).join('、');
+  row.querySelector('.hits').textContent = names ? `🎯 ${names}` : '— 未识别';
+  return row;
+}
+
+function crawlFailureRow(result) {
+  const row = document.createElement('div');
+  row.className = 'crawl-item failed';
+  row.innerHTML = `<div class="t">抓取失败</div><div class="u"></div><div class="hits"></div>`;
+  row.querySelector('.u').textContent = result.url;
+  row.querySelector('.hits').textContent = result.error || '未知错误';
+  return row;
+}
+
+function renderCrawlResults(resp) {
+  const signature = GoPainterUtils.crawlRenderSignature(resp);
+  if (signature === crawlRenderSignature) return;
+  crawlRenderSignature = signature;
+  const list = document.getElementById('crawl-results');
+  list.replaceChildren(
+    ...resp.results.slice(-LIST_RENDER_LIMIT).map(crawlResultRow),
+    ...(resp.failed || []).slice(-20).map(crawlFailureRow),
+  );
+}
+
 async function pollCrawl() {
   const resp = await chrome.runtime.sendMessage({ type: 'crawlStatus' });
   if (!resp?.ok) return;
   // 爬取中禁用「开始爬取」，防止开第二个任务（后台也只会报错）
   document.getElementById('crawl-start').disabled = !!resp.running;
-  const statusEl = document.getElementById('crawl-status');
-  if (resp.running) {
-    statusEl.textContent = `爬取中：已扫 ${resp.visited} 页，队列 ${resp.queued}，失败 ${resp.failed?.length || 0}，发现链接去重中…`;
-  } else if (resp.interrupted) {
-    statusEl.textContent = `任务被系统中断（service worker 被回收）：已保留 ${resp.results.length} 页结果，失败 ${resp.failed?.length || 0} 页`;
-  } else if (resp.results.length) {
-    statusEl.textContent = `结束：成功 ${resp.results.length} 页，失败 ${resp.failed?.length || 0} 页`;
-  } else if (resp.failed?.length) {
-    statusEl.textContent = `结束：没有成功页面，失败 ${resp.failed.length} 页`;
-  } else {
-    statusEl.textContent = '';
-  }
-  const signature = GoPainterUtils.crawlRenderSignature(resp);
-  if (signature !== crawlRenderSignature) {
-    crawlRenderSignature = signature;
-    const list = document.getElementById('crawl-results');
-    list.innerHTML = '';
-    for (const r of resp.results.slice(-LIST_RENDER_LIMIT)) {
-      const row = document.createElement('div');
-      row.className = 'crawl-item';
-      const names = (r.hits || []).map((h) => h.name).join('、');
-      row.innerHTML = `<div class="t"></div><div class="u"></div><div class="hits"></div>`;
-      row.querySelector('.t').textContent = r.title;
-      row.querySelector('.u').textContent = `${r.url}（HTTP ${r.status}）`;
-      row.querySelector('.hits').textContent = names ? `🎯 ${names}` : '— 未识别';
-      list.appendChild(row);
-    }
-    for (const r of (resp.failed || []).slice(-20)) {
-      const row = document.createElement('div');
-      row.className = 'crawl-item failed';
-      row.innerHTML = `<div class="t">抓取失败</div><div class="u"></div><div class="hits"></div>`;
-      row.querySelector('.u').textContent = r.url;
-      row.querySelector('.hits').textContent = r.error || '未知错误';
-      list.appendChild(row);
-    }
-  }
+  document.getElementById('crawl-status').textContent = crawlStatusText(resp);
+  renderCrawlResults(resp);
   if (!resp.running && crawlTimer) {
     clearInterval(crawlTimer);
     crawlTimer = null;
@@ -1114,6 +1120,107 @@ document.getElementById('conf-save').addEventListener('click', async () => {
     confThreshold: threshold,
   });
   showMsg('置信度设置已保存');
+});
+
+// --- 规则体检 ---
+
+const healthRun = document.getElementById('health-run');
+const healthStatus = document.getElementById('health-status');
+const healthList = document.getElementById('health-list');
+
+function healthPct(part, total) {
+  return total ? ((part / total) * 100).toFixed(1) : '0';
+}
+
+function healthAssessment(health) {
+  const total = health.totalPatterns || 0;
+  if (!total) return { label: '无 regex', className: 'neutral' };
+  if (health.invalid) return { label: `${health.invalid} 条无效`, className: 'bad' };
+  if (health.broad) return { label: `${health.broad} 条无锚点待复核`, className: 'warn' };
+  return { label: '结构正常', className: 'good' };
+}
+
+function healthPatternDetails(title, entries, total, itemExtra = () => '') {
+  if (!entries.length) return '';
+  const count = entries.length < total ? `显示前 ${entries.length} 条 / 共 ${total} 条` : `共 ${total} 条`;
+  return `
+    <details>
+      <summary>${title}（${count}）</summary>
+      <div class="hc-broad-list">
+        ${entries.map((entry) => `
+          <div class="hc-broad-item" title="${escapeHtml(entry.pattern)}">
+            <span class="r">${escapeHtml(entry.ruleName || entry.ruleId)}</span>
+            <span class="p">${escapeHtml(entry.pattern)}${itemExtra(entry)}</span>
+          </div>`).join('')}
+      </div>
+    </details>`;
+}
+
+function renderHealthCard(set, health) {
+  const total = health.totalPatterns || 0;
+  const noLiteralPrefilter = (health.nonAscii || 0) + (health.broad || 0);
+  const seg = (v) => (total ? ((v || 0) / total) * 100 : 0);
+  const broad = health.broadPatterns || [];
+  const invalid = health.invalidPatterns || [];
+  const shortAnchors = health.shortAnchors || [];
+  const longAnchors = health.longAnchors || [];
+  const assessment = healthAssessment(health);
+  const anchorExtra = (entry) => `<br><small>最弱分支代表锚点：<span class="hc-anchor">${escapeHtml(entry.anchor)}</span> · ${entry.length} 个字母/数字</small>`;
+  const card = document.createElement('div');
+  card.className = 'health-card';
+  card.innerHTML = `
+    <div class="hc-head">
+      <span class="hc-name">${escapeHtml(set.name)}</span>
+      ${set.enabled ? '<span class="hc-enabled">参与匹配</span>' : ''}
+      <span class="hc-meta">${set.count} 条规则</span>
+      <span class="hc-grade ${assessment.className}">${assessment.label}</span>
+    </div>
+    ${total ? `
+      <div class="hc-bar" aria-hidden="true">
+        <i class="seg-skip" style="width:${seg(health.skippable)}%"></i>
+        <i class="seg-nascii" style="width:${seg(health.nonAscii)}%"></i>
+        <i class="seg-broad" style="width:${seg(health.broad)}%"></i>
+        <i class="seg-invalid" style="width:${seg(health.invalid)}%"></i>
+      </div>
+      <div class="hc-stats">
+        <span class="hc-stat"><span class="v skip">${health.skippable} <small>(${healthPct(health.skippable, total)}%)</small></span>具备 ASCII 预筛条件</span>
+        <span class="hc-stat"><span class="v nascii">${health.nonAscii} <small>(${healthPct(health.nonAscii, total)}%)</small></span>非 ASCII 护栏</span>
+        <span class="hc-stat"><span class="v broad">${health.broad} <small>(${healthPct(health.broad, total)}%)</small></span>无预筛锚点</span>
+        <span class="hc-stat"><span class="v invalid">${health.invalid} <small>(${healthPct(health.invalid, total)}%)</small></span>生产引擎无法解析</span>
+      </div>
+      <div class="hc-sum">共 ${total} 条 regex pattern；有效率 <b>${healthPct(total - health.invalid, total)}%</b>。其中 <b>${healthPct(health.skippable, total)}%</b> 具备潜在跳过条件，<b>${noLiteralPrefilter}</b> 条无法由字面量预筛跳过；实际跳过数取决于页面内容。</div>
+    ` : '<div class="hc-empty">该规则集没有 regex 匹配器。</div>'}
+    ${healthPatternDetails('短锚点榜（更可能高频，仅结构启发）', shortAnchors, health.skippable || 0, anchorExtra)}
+    ${healthPatternDetails('长锚点榜（更具区分度，仅结构启发）', longAnchors, health.skippable || 0, anchorExtra)}
+    ${healthPatternDetails('无效正则明细', invalid, health.invalid || 0, (entry) => `<br><small>${escapeHtml(entry.reason || '无法解析')}</small>`)}
+    ${healthPatternDetails('无预筛锚点明细', broad, health.broad || 0)}
+  `;
+  return card;
+}
+
+healthRun.addEventListener('click', async () => {
+  healthRun.disabled = true;
+  healthStatus.textContent = '正在体检全部规则集…';
+  healthList.innerHTML = '';
+  try {
+    const resp = await chrome.runtime.sendMessage({ type: 'classifyRuleSets' });
+    if (!resp?.ok) throw new Error(resp?.error || '体检失败');
+    healthList.replaceChildren(...(resp.ruleSets || []).map((set) => {
+      const health = resp.results?.[set.id];
+      if (!health || health.error) {
+        const el = document.createElement('div');
+        el.className = 'health-card';
+        el.innerHTML = `<div class="hc-head"><span class="hc-name">${escapeHtml(set.name)}</span></div><div class="hc-empty">${escapeHtml(health?.error || '无数据')}</div>`;
+        return el;
+      }
+      return renderHealthCard(set, health);
+    }));
+    healthStatus.textContent = resp.ruleSets?.length ? '' : '当前没有规则集';
+  } catch (error) {
+    healthStatus.textContent = `体检失败：${error.message}`;
+  } finally {
+    healthRun.disabled = false;
+  }
 });
 
 // --- 工具 ---

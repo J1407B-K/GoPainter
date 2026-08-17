@@ -449,5 +449,20 @@ pass &&= weak && weak.matchers.some((m) => m.confidence === 30)
   && noWappConf.rules[0].matchers.every((m) => !('confidence' in m))
   && noWappConfHit.hits[0]?.confidence === null;
 
+// goClassifyRules：规则集体检三分（可跳过/非ascii/泛化）
+const health = JSON.parse(globalThis.goClassifyRules(JSON.stringify([
+  { id: 'a', name: 'A', matchers: [{ type: 'regex', regex: ['Powered by <a href="[^>]+phpfusion'] }] },
+  { id: 'b', name: 'B', matchers: [{ type: 'regex', regex: ['中文|한국어'] }] },
+  { id: 'c', name: 'C', matchers: [{ type: 'regex', regex: ['[0-9]+'] }] },
+  { id: 'd', name: 'D', matchers: [{ type: 'regex', regex: ['('] }] },
+])));
+console.log('classify =', JSON.stringify(health));
+pass &&= health.totalPatterns === 4
+  && health.skippable === 1
+  && health.nonAscii === 1
+  && health.broad === 1
+  && health.invalid === 1
+  && health.broadPatterns[0]?.pattern === '[0-9]+';
+
 console.log(pass ? '✅ 冒烟测试通过' : '❌ 结果不符合预期');
 process.exit(pass ? 0 : 1);

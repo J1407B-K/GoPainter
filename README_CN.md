@@ -30,6 +30,7 @@ GoPainter 强调可审计结果：每个命中都附带实际匹配的证据，A
 ## 特性
 
 - 🧩 **YAML 指纹规则**：word / regex / status / icon_hash / dsl / js / dom 七种 matcher，支持 and/or 组合与 negative 取反
+- 🩺 **规则体检**：检查 regex 有效性和结构上的预筛机会，提供长/短锚点榜及可定位的无效/无锚点明细
 - 🗂️ **规则集组合启用**：不同来源分集管理，可批量启用任意多个规则集；同 ID 规则覆盖前展示 YAML diff 并由用户选择
 - 🔁 **兼容 nuclei 模板**：导入时自动提取 http matchers 子集，社区海量规则可直接使用
 - 🌐 **第三方规则源**：Wappalyzer / EHole / nuclei-templates 一键拉取转换，是否下载由你决定，仓库不会打包这些第三方完整规则库
@@ -39,9 +40,9 @@ GoPainter 强调可审计结果：每个命中都附带实际匹配的证据，A
 - 🤖 **Agent 指纹研究**：受限的流式工具循环可识别当前标签页、研究指纹或给出规则优化建议；执行记录可审计，最终交付基于证据的任务报告
 - 🕘 **扫描历史与报告**：自定义 50–5,000 条滚动窗口，可导出 JSON/CSV 报告
 
-## 当前版本：v0.6.3
+## 当前版本：v0.6.4
 
-本版把 Agent 研究链路重构为单会话原生工具循环：模型自主决定继续收集证据或交付最终产物，宿主只保留最大轮数与产物结构校验。可执行 Skill 包现在会读取标准 `SKILL.md`，双向校验工具权限，并提供 Go/WASM 原生 word、RE2、DSL 与完整规则验证。自动只读工具最多并发 5 个，联网工具仍须用户明确授权。最近一次已发布的性能测量可见[性能记录](BENCHMARK_CN.md)。
+v0.6.4 把规则交付链路彻底收紧：Agent 最终 YAML 的规范产物必须与本会话中经生产 Go/WASM Core 成功验证的候选完全一致。新增规则体检，可定位无效 regex、结构上的预筛潜力、必定执行项及长短代表锚点，同时明确不把结构性能指标冒充识别准确率。扩展 Host 也按页面、规则、历史、爬虫、书签、AI 与 Agent 生命周期拆分；配合受限 UI 渲染和自动只读工具并发，避免长任务侵入交互路径。当前测量及各历史版本见[性能记录](BENCHMARK_CN.md)。
 
 ## 快速开始
 
@@ -242,12 +243,13 @@ sidepanel    爬取进度实时展示 / 启停（Side Panel，与页面并存）
 │       ├── normalize.go      #   规则规范化（nuclei 转换）
 │       ├── dsl.go            #   dsl 表达式求值器
 │       ├── convert.go        #   Wappalyzer/EHole 指纹转换
+│       ├── health.go         #   regex 有效性、预筛潜力与锚点质量体检
 │       ├── crawl.go          #   爬虫调度（BFS/去重/同站过滤/上限）
 │       └── hashdb.go         #   favicon 哈希库（生成）
 ├── extension/                # Chrome 扩展（MV3）
 │   ├── manifest.json
-│   ├── background.js         # service worker：AI/书签/爬虫/消息路由
-│   ├── background/           # service worker 分层：wasm、浏览器状态、匹配
+│   ├── background.js         # 精简的 service worker 装配入口与消息路由
+│   ├── background/           # Host 模块：页面/规则/历史/爬虫/书签/AI/Agent
 │   ├── content.js            # 页面特征采集
 │   ├── popup.*               # 结果与证据展示 / AI 识别 / AI 生成规则
 │   ├── options.*             # 规则导入 / AI 配置 / 提示词 / 书签整理

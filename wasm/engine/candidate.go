@@ -150,8 +150,8 @@ func validateRawCandidateShape(raw []byte) []ValidationIssue {
 	return errors
 }
 
-func validNonEmptyString(value string, max int) bool {
-	return strings.TrimSpace(value) != "" && len(value) <= max
+func validNonEmptyString(value string, maxLength int) bool {
+	return strings.TrimSpace(value) != "" && len(value) <= maxLength
 }
 
 func validateStringList(path string, values []string, maxItems, maxLength int) []ValidationIssue {
