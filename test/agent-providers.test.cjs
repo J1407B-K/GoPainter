@@ -4,13 +4,19 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
-const validateCandidateStub = (ruleJSON) => JSON.stringify({
-  valid: true,
-  rule: JSON.parse(ruleJSON),
-  currentPageHits: [],
-  runtimeCoverage: { complete: true, missingJsPaths: [], hasUnverifiedDomSelectors: false },
-  errors: [],
-});
+const validateCandidateStub = (ruleJSON) => {
+  const rule = JSON.parse(ruleJSON);
+  const allowed = new Set(['id', 'name', 'matchers-condition', 'matchers', 'confidence', 'implies', 'excludes']);
+  const unknown = Object.keys(rule).find((key) => !allowed.has(key));
+  if (unknown) return JSON.stringify({ valid: false, errors: [{ path: unknown, code: 'unsupported_field', message: `不支持字段 ${unknown}` }] });
+  return JSON.stringify({
+    valid: true,
+    rule,
+    currentPageHits: [],
+    runtimeCoverage: { complete: true, missingJsPaths: [], hasUnverifiedDomSelectors: false },
+    errors: [],
+  });
+};
 
 function loadAgent(fetch) {
   const context = { console, Date, Error, Object, JSON, fetch, URLSearchParams, AbortController, setTimeout, clearTimeout };
@@ -123,8 +129,12 @@ test('goal validation accepts valid artifacts and explicit insufficient-evidence
   assert.equal(context.GoPainterAgentGoals.get('optimize-rule').isOutputComplete(valid, 'react'), true);
   assert.equal(context.GoPainterAgentGoals.get('optimize-rule').isOutputComplete(valid, 'react-router'), false);
   assert.equal(context.GoPainterAgentGoals.get('optimize-rule').isOutputComplete('## 结论\n当前 AI 无合理优化建议', 'react'), true);
+  const rawWithUnknown = valid.replace('matchers-condition: or\n', 'matchers-condition: or\nsurprise: must-not-be-sanitized\n');
+  assert.equal(context.GoPainterAgentGoals.get('research-rule').extractRule(rawWithUnknown).surprise, 'must-not-be-sanitized');
   const partlyInvalid = '```yaml\nid: react\nname: React\nmatchers-condition: or\nmatchers:\n  - type: js\n    condition: "Object.keys(window)"\n  - type: regex\n    regex: [data-reactroot]\n```';
-  assert.equal(context.GoPainterAgentGoals.get('research-rule').isOutputComplete(partlyInvalid), false);
+  // Goal parsing only establishes that an artifact is present; strict matcher semantics
+  // are owned by goValidateCandidate in the final-artifact binding path.
+  assert.equal(context.GoPainterAgentGoals.get('research-rule').isOutputComplete(partlyInvalid), true);
 });
 
 test('exact rule search returns the complete selected rule while fuzzy search stays compact', async () => {
@@ -198,7 +208,7 @@ test('rule workflow feeds invalid output back into the same agent session', asyn
       }
       const content = aiRequests === 2
         ? '## 结论\n可以编写 React 规则。'
-        : `## 结论\n完成\n## 证据依据\n公开资料\n## 可导入规则\n\`\`\`yaml\nid: react\nname: React\nmatchers-condition: or\nmatchers:\n  - type: word\n    words: [${aiRequests === 4 ? 'reactjs' : 'react'}]\n\`\`\`\n## 风险与限制\n需复核`;
+        : `## 结论\n完成\n## 证据依据\n公开资料\n## 可导入规则\n\`\`\`yaml\nid: react\nname: React\nmatchers-condition: or\n${aiRequests === 4 ? 'surprise: must-not-be-sanitized\n' : ''}matchers:\n  - type: word\n    words: [react]\n\`\`\`\n## 风险与限制\n需复核`;
       return { ok: true, json: async () => ({ choices: [{ message: { role: 'assistant', content } }] }) };
     },
     GoPainterUtils: { normalizeRuleSets: (_sets, _active, rules) => ({ ruleSets: [{ id: 'default', name: '默认', rules }], activeRuleSetId: 'default', rules }) },

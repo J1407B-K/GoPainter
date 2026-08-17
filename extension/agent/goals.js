@@ -8,21 +8,23 @@
   };
   const ruleOutput = (text, expectedId = '') => {
     const yaml = fencedYaml(text);
-    if (!yaml || !globalThis.jsyaml || !globalThis.GoPainterUtils) return null;
+    if (!yaml || !globalThis.jsyaml) return null;
     try {
       const docs = [];
       globalThis.jsyaml.loadAll(yaml, (doc) => docs.push(doc));
       const rawRules = docs.flatMap((doc) => Array.isArray(doc) ? doc : [doc]).filter((rule) => rule && typeof rule === 'object');
-      const rules = globalThis.GoPainterUtils.sanitizeRuleDocs(docs);
-      if (rawRules.length !== 1 || rules.length !== 1) return null;
+      // Agent final artifacts deliberately bypass sanitizeRuleDocs. That helper is for
+      // third-party imports and compatibility; silently dropping fields here would make
+      // the displayed YAML differ from the rule that was actually validated.
+      if (rawRules.length !== 1) return null;
       const rawRule = rawRules[0];
       if (!String(rawRule.id || '').trim() || !String(rawRule.name || '').trim()
         || !['and', 'or'].includes(rawRule['matchers-condition'])) return null;
       const rawMatchers = Array.isArray(rawRules[0].matchers) ? rawRules[0].matchers : [];
       // Agent 产物不允许依靠导入清洗静默丢 matcher；否则预览和实际入库规则会不一致。
-      if (!rawMatchers.length || rawMatchers.length !== rules[0].matchers.length) return null;
-      if (expectedId && rules[0].id !== expectedId) return null;
-      return rules[0];
+      if (!rawMatchers.length) return null;
+      if (expectedId && rawRule.id !== expectedId) return null;
+      return rawRule;
     } catch { return null; }
   };
   const goals = Object.freeze({
