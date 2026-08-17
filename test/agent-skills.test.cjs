@@ -99,6 +99,9 @@ test('background loads every skill and tool package file', () => {
   for (const file of fs.readdirSync(toolsRoot).filter((name) => name.endsWith('.js'))) {
     assert.ok(imports.has(`agent/tools/${file}`), `background omits tool module ${file}`);
   }
+  const matchingAt = background.indexOf("'background/matching.js'");
+  const legacyAt = background.indexOf("'background/legacy-ai.js'");
+  assert.ok(matchingAt >= 0 && legacyAt > matchingAt, 'legacy AI must load after its matching helpers');
 });
 
 test('Go-backed skill tools reference exports registered by the WASM bridge', () => {
@@ -178,4 +181,88 @@ test('validate_rule rejects silently normalized or unsupported candidates', asyn
   assert.equal(result.valid, true);
   assert.equal(result.rule.id, 'react');
   assert.equal(result.runtimeCoverage.complete, true);
+  assert.equal(typeof result.artifact, 'string');
+  assert.equal(JSON.stringify(result).includes('artifact'), false);
+});
+
+function loadFetchURLTool({ address = '93.184.216.34', fetchImpl }) {
+  const context = {
+    console, Object, Number, Set, Map, JSON, URL, AbortController, TextDecoder, Uint8Array, setTimeout, clearTimeout,
+    fetch: fetchImpl,
+    chrome: {
+      runtime: {},
+      dns: { resolve: (_hostname, callback) => callback({ resultCode: 0, address }) },
+    },
+  };
+  context.globalThis = context;
+  for (const file of ['registry.js', 'page-context.js', 'fetch-url.js']) {
+    vm.runInNewContext(read(path.join(toolsRoot, file)), context, { filename: `tools/${file}` });
+  }
+  return context;
+}
+
+function response({ status = 200, headers = {}, body = '' }) {
+  const normalized = Object.fromEntries(Object.entries(headers).map(([key, value]) => [key.toLowerCase(), String(value)]));
+  const bytes = new TextEncoder().encode(body);
+  return {
+    status, ok: status >= 200 && status < 300,
+    headers: { get: (name) => normalized[String(name).toLowerCase()] || null },
+    body: null,
+    arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+  };
+}
+
+test('fetch_url blocks local targets and DNS answers before making a request', async () => {
+  let fetches = 0;
+  const direct = loadFetchURLTool({ fetchImpl: async () => { fetches++; return response({}); } });
+  const tool = direct.GoPainterAgentTools.getTool('fetch_url');
+  for (const url of ['http://localhost/', 'http://127.0.0.1/', 'http://[::1]/', 'http://[::ffff:7f00:1]/', 'http://10.0.0.8/']) {
+    assert.throws(() => tool.validate({ url }), /不允许/);
+  }
+  assert.equal(direct.GoPainterAgentFetchURL.addressBlocked('203.0.114.8'), false);
+  assert.equal(direct.GoPainterAgentFetchURL.addressBlocked('203.0.113.8'), true);
+
+  const privateDNS = loadFetchURLTool({ address: '192.168.1.10', fetchImpl: async () => { fetches++; return response({}); } });
+  await assert.rejects(privateDNS.GoPainterAgentTools.executeTool('fetch_url', { url: 'https://docs.example.test/' }, {
+    skillId: 'fingerprint-research', allowedTools: ['fetch_url'], grants: ['fetch_url'],
+  }), /DNS 结果/);
+  assert.equal(fetches, 0);
+});
+
+test('fetch_url revalidates redirects and returns bounded readable text', async () => {
+  let fetches = 0;
+  const redirected = loadFetchURLTool({
+    fetchImpl: async () => {
+      fetches++;
+      return response({ status: 302, headers: { location: 'http://127.0.0.1/private' } });
+    },
+  });
+  await assert.rejects(redirected.GoPainterAgentTools.executeTool('fetch_url', { url: 'https://docs.example.test/start' }, {
+    skillId: 'fingerprint-research', allowedTools: ['fetch_url'], grants: ['fetch_url'],
+  }), /私有|本地|保留/);
+  assert.equal(fetches, 1);
+
+  const publicPage = loadFetchURLTool({
+    fetchImpl: async () => response({
+      headers: { 'content-type': 'text/html; charset=utf-8' },
+      body: '<html><title>Official React docs</title><style>ignore</style><main><h1>React</h1><p>React creates user interfaces.</p></main></html>',
+    }),
+  });
+  const result = await publicPage.GoPainterAgentTools.executeTool('fetch_url', { url: 'https://docs.example.test/react' }, {
+    skillId: 'fingerprint-research', allowedTools: ['fetch_url'], grants: ['fetch_url'],
+  });
+  assert.equal(result.title, 'Official React docs');
+  assert.match(result.text, /React creates user interfaces/);
+  assert.doesNotMatch(result.text, /ignore/);
+  assert.equal(result.untrusted, true);
+
+  for (const badResponse of [
+    response({ headers: { 'content-type': 'application/octet-stream' }, body: 'binary' }),
+    response({ headers: { 'content-type': 'text/plain', 'content-length': '200001' }, body: 'small' }),
+  ]) {
+    const rejected = loadFetchURLTool({ fetchImpl: async () => badResponse });
+    await assert.rejects(rejected.GoPainterAgentTools.executeTool('fetch_url', { url: 'https://docs.example.test/file' }, {
+      skillId: 'fingerprint-research', allowedTools: ['fetch_url'], grants: ['fetch_url'],
+    }), /内容类型|响应体/);
+  }
 });

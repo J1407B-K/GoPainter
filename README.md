@@ -84,7 +84,7 @@ See [`rules/examples.yaml`](rules/examples.yaml). Supported matcher types:
 | `icon_hash` | favicon mmh3 hash (fofa standard) | `hash` |
 | `dsl` | expression evaluation (nuclei dsl subset) | `dsl` |
 | `js` | page runtime globals (MAIN world probe) | `js: [{path, pattern?}]` |
-| `dom` | CSS selector presence | `words` holding selectors |
+| `dom` | CSS selector with optional text/attribute constraints | `dom: [{sel, text?, attrs?}]` |
 
 Rules also support `implies: ["other technology"]` — on a hit, the listed technologies are derived automatically (e.g. Next.js → React), each derived hit carrying a "derived from X" evidence.
 

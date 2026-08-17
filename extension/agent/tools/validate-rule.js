@@ -80,6 +80,22 @@
     return patterns;
   }
 
+  function stableJSON(value) {
+    if (Array.isArray(value)) return `[${value.map(stableJSON).join(',')}]`;
+    if (value && typeof value === 'object') {
+      return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableJSON(value[key])}`).join(',')}}`;
+    }
+    return JSON.stringify(value);
+  }
+
+  function canonicalize(rule) {
+    const normalized = JSON.parse(globalThis.goNormalizeRules(JSON.stringify([rule])));
+    if (normalized.error || !Array.isArray(normalized.rules) || normalized.rules.length !== 1) return '';
+    return stableJSON(normalized.rules[0]);
+  }
+
+  globalThis.GoPainterAgentRuleArtifacts = Object.freeze({ canonicalize, stableJSON });
+
   GoPainterAgentTools.register({
     name: 'validate_rule',
     description: '严格校验完整 GoPainter 原生规则，用 Go RE2/DSL 检查表达式，再用生产 matcher 在当前页面执行。提交规则型最终答案前使用。',
@@ -123,7 +139,7 @@
       const missingJsPaths = jsPaths.filter((path) => !Object.prototype.hasOwnProperty.call(features.js || {}, path));
       const hasDomMatcher = rule.matchers.some((matcher) => matcher.type === 'dom');
       const runtimeCoverageComplete = !missingJsPaths.length && !hasDomMatcher;
-      return {
+      const result = {
         valid: true,
         rule: normalized.rules[0],
         currentPageHits: matched.hits || [],
@@ -136,6 +152,9 @@
             : 'js/dom 候选可能尚未被当前页面采集器探测；无命中不能单独证明规则不匹配。',
         },
       };
+      // 仅供 host 绑定最终产物；不枚举，避免把整条规则重复回填给模型。
+      Object.defineProperty(result, 'artifact', { value: stableJSON(normalized.rules[0]), enumerable: false });
+      return result;
     },
   });
 })();

@@ -65,7 +65,7 @@ test('fingerprint research reads SKILL.md and composes guidance without inheriti
   assert.match(skill.instructions, /Prefer `word`/i);
   assert.match(skill.instructions, /RE2/);
   assert.match(skill.instructions, /runtime property path/i);
-  assert.deepEqual([...skill.tools], ['inspect_page', 'search_rules', 'search_page_body', 'search_page_js', 'test_word_matcher', 'test_regex', 'evaluate_dsl', 'validate_rule', 'web_search']);
+  assert.deepEqual([...skill.tools], ['inspect_page', 'search_rules', 'search_page_body', 'search_page_js', 'test_word_matcher', 'test_regex', 'evaluate_dsl', 'validate_rule', 'web_search', 'fetch_url']);
 });
 
 test('native matcher skills expose only their declared host-enforced tools', () => {
@@ -111,6 +111,7 @@ test('goal validation accepts valid artifacts and explicit insufficient-evidence
   assert.equal(context.GoPainterAgentGoals.get('research-rule').isOutputComplete(valid), true);
   assert.equal(context.GoPainterAgentGoals.get('research-rule').isOutputComplete('## 结论\n现有证据不足，无法生成可靠规则'), true);
   assert.equal(context.GoPainterAgentGoals.get('research-rule').isOutputComplete('只有研究结论'), false);
+  assert.equal(context.GoPainterAgentGoals.get('research-rule').isOutputComplete(valid.replace('name: React\n', '')), false);
   assert.equal(context.GoPainterAgentGoals.get('optimize-rule').isOutputComplete(valid, 'react'), true);
   assert.equal(context.GoPainterAgentGoals.get('optimize-rule').isOutputComplete(valid, 'react-router'), false);
   assert.equal(context.GoPainterAgentGoals.get('optimize-rule').isOutputComplete('## 结论\n当前 AI 无合理优化建议', 'react'), true);
@@ -157,6 +158,11 @@ test('rule workflow feeds invalid output back into the same agent session', asyn
   runtime: { getURL: (resource) => resource } };
   const context = {
     console, Date, Error, Object, JSON, URLSearchParams, AbortController, setTimeout, clearTimeout, chrome,
+    ensureWasm: async () => {},
+    goNormalizeRules: (docsJSON) => JSON.stringify({ rules: JSON.parse(docsJSON) }),
+    goMatch: () => JSON.stringify({ hits: [] }),
+    goAgentRegexTest: () => JSON.stringify({ backend: 'go-re2', results: [] }),
+    goDslEval: () => JSON.stringify({ results: [], errors: [] }),
     fetch: async (url, init) => {
       if (String(url).startsWith('agent/skills/')) return {
         ok: true, status: 200,
@@ -177,18 +183,24 @@ test('rule workflow feeds invalid output back into the same agent session', asyn
         ];
         return { ok: true, json: async () => ({ choices: [{ message: { role: 'assistant', tool_calls: calls } }] }) };
       }
+      if (aiRequests === 3) {
+        const call = { id: 'validate', type: 'function', function: { name: 'validate_rule', arguments: '{"rule":{"id":"react","name":"React","matchers-condition":"or","matchers":[{"type":"word","words":["react"]}]}}' } };
+        return { ok: true, json: async () => ({ choices: [{ message: { role: 'assistant', tool_calls: [call] } }] }) };
+      }
       const content = aiRequests === 2
         ? '## 结论\n可以编写 React 规则。'
-        : '## 结论\n完成\n## 证据依据\n公开资料\n## 可导入规则\n```yaml\nid: react\nname: React\nmatchers-condition: or\nmatchers:\n  - type: word\n    words: [react]\n```\n## 风险与限制\n需复核';
+        : `## 结论\n完成\n## 证据依据\n公开资料\n## 可导入规则\n\`\`\`yaml\nid: react\nname: React\nmatchers-condition: or\nmatchers:\n  - type: word\n    words: [${aiRequests === 4 ? 'reactjs' : 'react'}]\n\`\`\`\n## 风险与限制\n需复核`;
       return { ok: true, json: async () => ({ choices: [{ message: { role: 'assistant', content } }] }) };
     },
     GoPainterUtils: { normalizeRuleSets: (_sets, _active, rules) => ({ ruleSets: [{ id: 'default', name: '默认', rules }], activeRuleSetId: 'default', rules }) },
   };
   context.globalThis = context;
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '..', 'extension', 'lib', 'js-yaml.min.js'), 'utf8'), context, { filename: 'js-yaml.min.js' });
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '..', 'extension', 'shared-utils.js'), 'utf8'), context, { filename: 'shared-utils.js' });
   for (const file of [
     'tools/registry.js', 'tools/page-context.js', 'tools/inspect-page.js', 'tools/ping.js',
     'tools/search-page-body.js', 'tools/search-page-js.js', 'tools/search-rules.js',
-    'tools/test-word-matcher.js', 'tools/test-regex.js', 'tools/evaluate-dsl.js', 'tools/validate-rule.js', 'tools/web-search.js',
+    'tools/test-word-matcher.js', 'tools/test-regex.js', 'tools/evaluate-dsl.js', 'tools/validate-rule.js', 'tools/web-search.js', 'tools/fetch-url.js',
     'skills/registry.js', 'skills/agent-setup/index.js',
     'skills/gopainter-word-matcher/index.js', 'skills/gopainter-regex-matcher/index.js', 'skills/gopainter-runtime-matcher/index.js',
     'skills/fingerprint-research/index.js',
@@ -196,10 +208,12 @@ test('rule workflow feeds invalid output back into the same agent session', asyn
   ]) vm.runInNewContext(fs.readFileSync(path.join(__dirname, '..', 'extension', 'agent', file), 'utf8'), context, { filename: file });
   const result = await context.GoPainterAgentLoop.run({ goalId: 'research-rule', tabId: 7, input: 'React', grants: ['web_search'] });
   assert.equal(result.status, 'complete');
-  assert.equal(aiRequests, 3);
+  assert.equal(aiRequests, 5);
   assert.ok(modelSystems.every((system) => system.includes('GoPainter regex matcher')));
   assert.equal(repairHadInvalidAssistant, true);
   assert.match(result.summary, /```yaml/);
+  assert.ok(result.trace.some((item) => item.message.includes('工具完成：validate_rule')));
+  assert.ok(result.trace.some((item) => item.message.includes('未与本会话成功验证的候选匹配')));
   assert.ok(result.trace.some((item) => item.message.includes('继续同一会话')));
 });
 
@@ -212,6 +226,11 @@ test('session permission remembers a confirmed network tool for later rounds', a
   } }, session: { get: async (key) => ({ [key]: { features: { url: 'https://example.test/', title: 'Example' } } }) } } };
   const context = {
     console, Date, Error, Object, JSON, URLSearchParams, AbortController, setTimeout, clearTimeout, chrome,
+    ensureWasm: async () => {},
+    goNormalizeRules: (docsJSON) => JSON.stringify({ rules: JSON.parse(docsJSON) }),
+    goMatch: () => JSON.stringify({ hits: [] }),
+    goAgentRegexTest: (patternsJSON) => JSON.stringify({ backend: 'go-re2', results: JSON.parse(patternsJSON).map((pattern) => ({ pattern, valid: true, matches: [] })) }),
+    goDslEval: () => JSON.stringify({ results: [], errors: [] }),
     fetch: async (url, init) => {
       if (String(url).includes('duckduckgo.com')) return {
         ok: true,
@@ -229,16 +248,22 @@ test('session permission remembers a confirmed network tool for later rounds', a
         ];
         return { ok: true, json: async () => ({ choices: [{ message: { role: 'assistant', tool_calls: calls } }] }) };
       }
+      if (aiRequests === 3) {
+        const call = { id: 'validate', type: 'function', function: { name: 'validate_rule', arguments: '{"rule":{"id":"react","name":"React","matchers-condition":"or","matchers":[{"type":"regex","regex":["data-reactroot"]}]}}' } };
+        return { ok: true, json: async () => ({ choices: [{ message: { role: 'assistant', tool_calls: [call] } }] }) };
+      }
       const content = '## 结论\n完成\n## 证据依据\n公开资料\n## 可导入规则\n```yaml\nid: react\nname: React\nmatchers-condition: or\nmatchers:\n  - type: regex\n    regex: [data-reactroot]\n```\n## 风险与限制\n旧版本特征';
       return { ok: true, json: async () => ({ choices: [{ message: { role: 'assistant', content } }] }) };
     },
     GoPainterUtils: { normalizeRuleSets: (_sets, _active, rules) => ({ ruleSets: [{ id: 'default', name: '默认', rules }], activeRuleSetId: 'default', rules }) },
   };
   context.globalThis = context;
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '..', 'extension', 'lib', 'js-yaml.min.js'), 'utf8'), context, { filename: 'js-yaml.min.js' });
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '..', 'extension', 'shared-utils.js'), 'utf8'), context, { filename: 'shared-utils.js' });
   for (const file of [
     'tools/registry.js', 'tools/page-context.js', 'tools/inspect-page.js', 'tools/ping.js',
     'tools/search-page-body.js', 'tools/search-page-js.js', 'tools/search-rules.js',
-    'tools/test-word-matcher.js', 'tools/test-regex.js', 'tools/evaluate-dsl.js', 'tools/validate-rule.js', 'tools/web-search.js',
+    'tools/test-word-matcher.js', 'tools/test-regex.js', 'tools/evaluate-dsl.js', 'tools/validate-rule.js', 'tools/web-search.js', 'tools/fetch-url.js',
     'skills/registry.js', 'skills/agent-setup/index.js',
     'skills/gopainter-word-matcher/index.js', 'skills/gopainter-regex-matcher/index.js', 'skills/gopainter-runtime-matcher/index.js',
     'skills/fingerprint-research/index.js',
@@ -318,7 +343,7 @@ test('agent loop keeps one session until the model returns a final answer', asyn
   for (const file of [
     'tools/registry.js', 'tools/page-context.js', 'tools/inspect-page.js', 'tools/ping.js',
     'tools/search-page-body.js', 'tools/search-page-js.js', 'tools/search-rules.js',
-    'tools/test-word-matcher.js', 'tools/test-regex.js', 'tools/evaluate-dsl.js', 'tools/validate-rule.js', 'tools/web-search.js',
+    'tools/test-word-matcher.js', 'tools/test-regex.js', 'tools/evaluate-dsl.js', 'tools/validate-rule.js', 'tools/web-search.js', 'tools/fetch-url.js',
     'skills/registry.js', 'skills/agent-setup/index.js',
     'skills/gopainter-word-matcher/index.js', 'skills/gopainter-regex-matcher/index.js', 'skills/gopainter-runtime-matcher/index.js',
     'skills/fingerprint-research/index.js',

@@ -24,6 +24,7 @@ Apply this workflow only when the active goal produces or edits a fingerprint ru
 - `search_page_body`: Verify bounded literal evidence on the current page.
 - `test_word_matcher`: Test native word-matcher semantics in Go.
 - `web_search`: Search approved public sources after host permission.
+- `fetch_url`: Read bounded text from an approved public source after host permission.
 
 ## Completion
 

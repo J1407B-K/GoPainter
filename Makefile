@@ -22,6 +22,7 @@ test-go-stdlib:
 	GOOS=js GOARCH=wasm go test -tags stdlibregexp -count=1 -exec "node --stack-size=8192 $$(go env GOROOT)/lib/wasm/wasm_exec_node.js" ./wasm/...
 
 test-js:
+	find extension scripts -type f \( -name '*.js' -o -name '*.mjs' \) -print0 | xargs -0 -n1 node --check
 	node --test test/*.test.cjs
 
 bench-js:

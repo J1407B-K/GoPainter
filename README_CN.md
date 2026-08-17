@@ -84,7 +84,7 @@ powershell -ExecutionPolicy Bypass -File scripts/build.ps1
 | `icon_hash` | favicon mmh3 哈希（fofa 标准） | `hash` |
 | `dsl` | 表达式求值（nuclei dsl 子集） | `dsl` |
 | `js` | 页面运行时全局变量（MAIN world 探测） | `js: [{path, pattern?}]` |
-| `dom` | CSS 选择器存在性 | `words` 装选择器 |
+| `dom` | CSS 选择器及可选文本/属性约束 | `dom: [{sel, text?, attrs?}]` |
 
 规则还支持 `implies: ["其他技术名"]`——命中后自动级联推导（如 Next.js → React），推导命中带「由 X 推导」证据。
 

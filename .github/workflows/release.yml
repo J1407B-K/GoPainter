@@ -25,8 +25,8 @@ jobs:
       - name: Build wasm
         run: make build
 
-      - name: Smoke test
-        run: node scripts/smoke-test.mjs
+      - name: Test
+        run: make test
 
       - name: Package extension
         run: |

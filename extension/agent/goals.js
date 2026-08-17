@@ -6,27 +6,24 @@
     const blocks = [...String(text || '').matchAll(/```(?:yaml|yml)[^\S\r\n]*\r?\n([\s\S]*?)```/gi)];
     return blocks.length === 1 ? blocks[0][1].trim() : '';
   };
-  const completeRuleOutput = (text, expectedId = '') => {
+  const ruleOutput = (text, expectedId = '') => {
     const yaml = fencedYaml(text);
-    if (!yaml) return false;
+    if (!yaml || !globalThis.jsyaml || !globalThis.GoPainterUtils) return null;
     try {
-      if (globalThis.jsyaml && globalThis.GoPainterUtils) {
-        const docs = [];
-        globalThis.jsyaml.loadAll(yaml, (doc) => docs.push(doc));
-        const rawRules = docs.flatMap((doc) => Array.isArray(doc) ? doc : [doc]).filter((rule) => rule && typeof rule === 'object');
-        const rules = globalThis.GoPainterUtils.sanitizeRuleDocs(docs);
-        if (rawRules.length !== 1 || rules.length !== 1 || !rules[0]['matchers-condition']) return false;
-        const rawMatchers = Array.isArray(rawRules[0].matchers) ? rawRules[0].matchers : [];
-        // Agent 产物不允许依靠导入清洗静默丢 matcher；否则预览和实际入库规则会不一致。
-        if (!rawMatchers.length || rawMatchers.length !== rules[0].matchers.length) return false;
-        return !expectedId || rules[0].id === expectedId;
-      }
-    } catch { return false; }
-    const has = (key) => new RegExp(`(^|\\n)\\s*(?:-\\s*)?${key}\\s*:`, 'i').test(yaml);
-    if (!has('id') || !has('name') || !has('matchers-condition') || !has('matchers')) return false;
-    if (!expectedId) return true;
-    const id = yaml.match(/(?:^|\n)\s*(?:-\s*)?id\s*:\s*["']?([^\s"'#]+)["']?/i)?.[1] || '';
-    return id === expectedId;
+      const docs = [];
+      globalThis.jsyaml.loadAll(yaml, (doc) => docs.push(doc));
+      const rawRules = docs.flatMap((doc) => Array.isArray(doc) ? doc : [doc]).filter((rule) => rule && typeof rule === 'object');
+      const rules = globalThis.GoPainterUtils.sanitizeRuleDocs(docs);
+      if (rawRules.length !== 1 || rules.length !== 1) return null;
+      const rawRule = rawRules[0];
+      if (!String(rawRule.id || '').trim() || !String(rawRule.name || '').trim()
+        || !['and', 'or'].includes(rawRule['matchers-condition'])) return null;
+      const rawMatchers = Array.isArray(rawRules[0].matchers) ? rawRules[0].matchers : [];
+      // Agent 产物不允许依靠导入清洗静默丢 matcher；否则预览和实际入库规则会不一致。
+      if (!rawMatchers.length || rawMatchers.length !== rules[0].matchers.length) return null;
+      if (expectedId && rules[0].id !== expectedId) return null;
+      return rules[0];
+    } catch { return null; }
   };
   const goals = Object.freeze({
     'identify-site': Object.freeze({
@@ -52,7 +49,9 @@
         '结论只能声称 YAML 中实际 matcher 能检测到的能力；不要把仅存在于证据说明、但无法被原生 matcher 表达的特征描述成规则已覆盖。',
         '“## 可导入规则”下必须且只能包含一个 ```yaml 代码块，内容必须是一条完整 GoPainter 原生规则，至少包含 id、name、matchers-condition 和非空 matchers；matcher 必须使用 GoPainter 支持的 word/regex/status/icon_hash/dsl/js/dom 类型。不要只给 matcher 片段，不要省略 id/name，不要声称自动写入。',
       ].join('\n\n'),
-      isOutputComplete: (text) => insufficientResearch(text) || completeRuleOutput(text),
+      acceptsWithoutValidatedRule: insufficientResearch,
+      extractRule: (text) => ruleOutput(text),
+      isOutputComplete: (text) => insufficientResearch(text) || Boolean(ruleOutput(text)),
     }),
     'optimize-rule': Object.freeze({
       id: 'optimize-rule', skillId: 'fingerprint-research', maxTurns: 8,
@@ -67,7 +66,9 @@
         '“## 优化后规则”下必须且只能包含一个 ```yaml 代码块，内容必须是可直接覆盖入库的完整 GoPainter 原生规则，保留原 id，并至少包含 id、name、matchers-condition 和非空 matchers。不要只输出 diff 或 matcher 片段，不要声称自动写入。',
       ].join('\n\n'),
       isNoChange: (text) => noOptimization(text),
-      isOutputComplete: (text, input) => noOptimization(text) || completeRuleOutput(text, String(input || '').trim()),
+      acceptsWithoutValidatedRule: noOptimization,
+      extractRule: (text, input) => ruleOutput(text, String(input || '').trim()),
+      isOutputComplete: (text, input) => noOptimization(text) || Boolean(ruleOutput(text, String(input || '').trim())),
     }),
   });
   globalThis.GoPainterAgentGoals = Object.freeze({ get: (id) => goals[id] || null });

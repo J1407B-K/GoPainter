@@ -23,6 +23,7 @@ Apply this workflow only when the active goal produces or edits a fingerprint ru
 - `search_page_js`: Verify bounded runtime property paths on the current page.
 - `evaluate_dsl`: Evaluate native DSL expressions against current-page features.
 - `web_search`: Search approved public sources after host permission.
+- `fetch_url`: Read bounded text from an approved public source after host permission.
 
 ## Completion
 

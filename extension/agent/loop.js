@@ -61,6 +61,7 @@
       system: context.system, user: context.user, tools: toolSpecs, signal,
     });
     const state = { steps: 0 };
+    const validatedRuleArtifacts = new Set();
     const trace = [];
     const record = (step, message) => {
       const item = { step, message };
@@ -68,21 +69,34 @@
       onTrace?.(item);
     };
     const outputComplete = (summary) => !goal.isOutputComplete || goal.isOutputComplete(summary, input);
+    const validatedOutput = (summary) => {
+      if (goal.acceptsWithoutValidatedRule?.(summary, input)) return true;
+      if (!goal.extractRule) return true;
+      const rule = goal.extractRule(summary, input);
+      if (!rule || !globalThis.GoPainterAgentRuleArtifacts) return false;
+      const artifact = globalThis.GoPainterAgentRuleArtifacts.canonicalize(rule);
+      return Boolean(artifact) && validatedRuleArtifacts.has(artifact);
+    };
     for (let step = 1; step <= maxTurns; step++) {
       state.steps = step;
       const reply = await session.next();
       record(step, reply.calls.length ? `模型请求工具：${reply.calls.map((call) => call.name).join('、')}` : '模型返回最终结论');
       if (!reply.calls.length) {
         const summary = String(reply.text || '').trim();
-        if (summary && outputComplete(summary)) {
+        if (summary && outputComplete(summary) && validatedOutput(summary)) {
           const noChange = goal.isNoChange?.(summary, input) === true;
-          record(step, noChange ? '当前 AI 无合理优化建议' : '模型最终产物已通过宿主结构校验，目标完成');
+          record(step, noChange ? '当前 AI 无合理优化建议' : '模型最终产物已通过结构与原生验证绑定，目标完成');
           return { status: noChange ? 'nochange' : 'complete', goalId, steps: step, summary, trace };
         }
         if (summary) {
-          record(step, '模型产物未通过宿主结构校验，已回填错误并继续同一会话');
+          const needsValidation = outputComplete(summary) && goal.extractRule && !validatedOutput(summary);
+          record(step, needsValidation
+            ? '最终规则未与本会话成功验证的候选匹配，已回填并继续同一会话'
+            : '模型产物未通过宿主结构校验，已回填错误并继续同一会话');
           session.addAssistantReply(reply);
-          session.addUserText(`你刚才的交付未通过宿主结构校验。请自行决定继续调用工具或修正最终产物。${goalId === 'optimize-rule' ? `若输出规则，唯一 YAML 的 id 必须保持为 ${input}；无可靠修改时可输出规定的 no-change 结论。` : '若输出规则，必须提供唯一、完整、可导入的 YAML。'}`);
+          session.addUserText(needsValidation
+            ? '你刚才的完整规则尚未通过 validate_rule，或与本会话中已验证的候选不一致。请先对这一份完整候选调用 validate_rule，成功后再原样交付；不要为了通过校验而改变研究结论。'
+            : `你刚才的交付未通过宿主结构校验。请自行决定继续调用工具或修正最终产物。${goalId === 'optimize-rule' ? `若输出规则，唯一 YAML 的 id 必须保持为 ${input}；无可靠修改时可输出规定的 no-change 结论。` : '若输出规则，必须提供唯一、完整、可导入的 YAML。'}`);
         } else {
           record(step, '模型返回了空交付，已回填状态并继续同一会话');
           session.addAssistantReply(reply);
@@ -120,6 +134,7 @@
           const output = await GoPainterAgentTools.executeTool(action.name, action.input, {
             tabId, grants: callGrants, skillId: skill.id, allowedTools: skill.tools, cache: executionCache, signal,
           });
+          if (action.name === 'validate_rule' && output?.valid && output.artifact) validatedRuleArtifacts.add(output.artifact);
           record(step, `工具完成：${action.name}`);
           return output;
         } catch (error) {
