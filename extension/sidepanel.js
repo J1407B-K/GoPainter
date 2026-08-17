@@ -10,12 +10,13 @@ const statusEl = document.getElementById('crawl-status');
 const listEl = document.getElementById('crawl-results');
 const startBtn = document.getElementById('crawl-start');
 const stopBtn = document.getElementById('crawl-stop');
+const t = (zh, english) => GoPainterI18n?.locale === 'en' ? english : zh;
 
 function setBadge(running, interrupted) {
   badge.className = 'badge' + (running ? ' running' : '');
-  if (running) badge.textContent = '爬取中';
-  else if (interrupted) badge.textContent = '已中断';
-  else badge.textContent = '未运行';
+  if (running) badge.textContent = t('爬取中', 'Crawling');
+  else if (interrupted) badge.textContent = t('已中断', 'Interrupted');
+  else badge.textContent = t('未运行', 'Not running');
 }
 
 function renderResults(resp) {
@@ -28,19 +29,19 @@ function renderResults(resp) {
     rows.push(
       `<div class="crawl-item"><div class="t">${escapeHtml(r.title)}</div>` +
       `<div class="u">${escapeHtml(r.url)}（HTTP ${r.status}）</div>` +
-      `<div class="hits">${names ? '🎯 ' + escapeHtml(names) : '— 未识别'}</div></div>`
+      `<div class="hits">${names ? '🎯 ' + escapeHtml(names) : t('— 未识别', '— No match')}</div></div>`
     );
   }
   for (const r of (resp.failed || []).slice(-20)) {
     rows.push(
-      `<div class="crawl-item failed"><div class="t">抓取失败</div>` +
+      `<div class="crawl-item failed"><div class="t">${t('抓取失败', 'Fetch failed')}</div>` +
       `<div class="u">${escapeHtml(r.url)}</div>` +
-      `<div class="hits">${escapeHtml(r.error || '未知错误')}</div></div>`
+      `<div class="hits">${escapeHtml(r.error || t('未知错误', 'Unknown error'))}</div></div>`
     );
   }
   listEl.innerHTML = rows.length
     ? rows.join('')
-    : '<div class="empty">尚未爬取</div>';
+    : `<div class="empty">${t('尚未爬取', 'No crawl yet')}</div>`;
 }
 
 async function pollCrawl() {
@@ -52,15 +53,18 @@ async function pollCrawl() {
 
   if (resp.running) {
     statusEl.innerHTML =
+      t(`已扫 ${resp.visited} 页，队列 ${resp.queued}，失败 ${resp.failed?.length || 0}…`,
+        `Scanned <span class="highlight">${resp.visited}</span> pages, queued <span class="highlight">${resp.queued}</span>, failed <span class="highlight">${resp.failed?.length || 0}</span>…`);
+    if (GoPainterI18n?.locale !== 'en') statusEl.innerHTML =
       `已扫 <span class="highlight">${resp.visited}</span> 页，` +
       `队列 <span class="highlight">${resp.queued}</span>，` +
       `失败 <span class="highlight">${resp.failed?.length || 0}</span>…`;
   } else if (resp.interrupted) {
-    statusEl.textContent = `任务被系统中断（service worker 被回收），已保留 ${resp.results.length} 页结果`;
+    statusEl.textContent = t(`任务被系统中断（service worker 被回收），已保留 ${resp.results.length} 页结果`, `Interrupted by service-worker shutdown; retained ${resp.results.length} page results`);
   } else if (resp.results.length) {
-    statusEl.textContent = `结束：成功 ${resp.results.length} 页，失败 ${resp.failed?.length || 0} 页`;
+    statusEl.textContent = t(`结束：成功 ${resp.results.length} 页，失败 ${resp.failed?.length || 0} 页`, `Finished: ${resp.results.length} succeeded, ${resp.failed?.length || 0} failed`);
   } else if (resp.failed?.length) {
-    statusEl.textContent = `结束：没有成功页面，失败 ${resp.failed.length} 页`;
+    statusEl.textContent = t(`结束：没有成功页面，失败 ${resp.failed.length} 页`, `Finished: no successful pages; ${resp.failed.length} failed`);
   } else {
     statusEl.textContent = '';
   }
@@ -79,13 +83,13 @@ async function pollCrawl() {
 startBtn.addEventListener('click', async () => {
   const url = document.getElementById('crawl-url').value.trim();
   if (!/^https?:/.test(url)) {
-    statusEl.textContent = '起始 URL 得是 http/https';
+    statusEl.textContent = t('起始 URL 得是 http/https', 'Start URL must use http or https');
     return;
   }
   const raw = document.getElementById('crawl-max').value.trim();
   const maxPages = raw === '' ? null : parseInt(raw, 10);
   if (raw !== '' && (!Number.isInteger(maxPages) || maxPages <= 0)) {
-    statusEl.textContent = '最大页数要么留空，要么填正整数';
+    statusEl.textContent = t('最大页数要么留空，要么填正整数', 'Maximum pages must be blank or a positive integer');
     return;
   }
   await chrome.storage.local.set({ crawlMaxPages: raw });
@@ -109,6 +113,11 @@ stopBtn.addEventListener('click', async () => {
   if (crawlMaxPages != null) document.getElementById('crawl-max').value = crawlMaxPages;
   await pollCrawl();
 })();
+
+window.addEventListener('gopainter:localechange', () => {
+  resultsSignature = '';
+  pollCrawl();
+});
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({

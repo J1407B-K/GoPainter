@@ -33,6 +33,18 @@ test('shared UI CSS uses static page scopes instead of dynamic :has selectors', 
   assert.doesNotMatch(popupHtml, /rule-conflict-debug/);
 });
 
+test('extension surfaces share a persisted Chinese/English locale switch', () => {
+  const i18n = fs.readFileSync(path.join(extension, 'i18n.js'), 'utf8');
+  assert.match(i18n, /const LOCALE_KEY = 'uiLocale'/);
+  assert.match(i18n, /'指纹规则': 'Fingerprint rules'/);
+  assert.match(i18n, /gopainter:localechange/);
+  for (const file of ['popup.html', 'options.html', 'sidepanel.html']) {
+    const html = fs.readFileSync(path.join(extension, file), 'utf8');
+    assert.match(html, /data-locale-toggle/);
+    assert.match(html, /<script src="i18n\.js"><\/script>/);
+  }
+});
+
 test('page collection and large lists keep bounded performance paths', () => {
   const content = fs.readFileSync(path.join(extension, 'content.js'), 'utf8');
   const options = fs.readFileSync(path.join(extension, 'options.js'), 'utf8');

@@ -167,14 +167,8 @@
       cursor: pointer; padding: 0 4px; font-size: 13px;
     }
 
-    /* 外接脚本 / 爬取 */
+    /* 爬取 */
     code { font-family: var(--mono); background: #f1f2f6; padding: 1px 4px; border-radius: 4px; font-size: 11px; }
-    .script-item {
-      display: flex; align-items: center; gap: 8px; padding: 6px 10px;
-      border-radius: 6px; font-size: 13px;
-    }
-    .script-item:nth-child(odd) { background: #fafbfc; }
-    .script-item .del { margin-left: auto; border: none; background: none; color: #dc2626; cursor: pointer; }
     #crawl-results { max-height: 320px; overflow: auto; margin-top: 8px; }
     .crawl-item { padding: 6px 10px; border-radius: 6px; font-size: 12px; }
     .crawl-item:nth-child(odd) { background: #fafbfc; }
@@ -247,6 +241,7 @@
   <div class="banner">
     <h1><img class="gp-logo" src="icons/icon32.png" alt="">GoPainter</h1>
     <div class="sub">设置与数据管理</div>
+    <button type="button" class="locale-toggle" data-locale-toggle>EN</button>
   </div>
 
   <div class="settings-layout">
@@ -259,7 +254,6 @@
       <a href="#hashes-section">favicon 哈希库</a>
       <a href="#bookmarks-section">书签分类</a>
       <a href="#history-section">扫描历史</a>
-      <a href="#scripts-section">外接脚本</a>
       <a href="#crawl-section">站点爬取</a>
       <a href="#ai-section">AI 与 Agent</a>
     </nav>
@@ -453,29 +447,10 @@
       <div id="history-list"></div>
     </div>
 
-    <div class="card" id="scripts-section">
-      <h2>外接脚本</h2>
-      <p class="muted">
-        自定义 JS，在规则匹配之后执行。脚本体即函数体，参数 <code>(features, hits)</code>，
-        返回要追加的指纹数组 <code>[{id, name, evidence?}]</code>；不追加就不返回。
-        features 里有 url / title / body / headers / meta / scripts / faviconHash / status。
-        <b>脚本以扩展权限运行，只粘贴你信得过的代码。</b>
-      </p>
-      <textarea id="script-code" rows="6" placeholder="// 例子：检测页面里的私有组件标记
-if (features.body.includes('hello-world-cta')) {
-  return [{ id: 'my-product', name: 'My Product',
-    evidence: [{ type: 'script', detail: 'hello-world-cta' }] }];
-}"></textarea>
-      <label for="script-name">脚本名</label>
-      <input type="text" id="script-name" placeholder="my-detector">
-      <button id="script-add" class="primary">添加脚本</button>
-      <div id="script-list"></div>
-    </div>
-
     <div class="card" id="crawl-section">
       <h2>站点爬取</h2>
       <p class="muted">
-        从起始 URL 递归抓取同站点页面并逐一做指纹识别（含哈希库和外接脚本），自动去重。
+        从起始 URL 递归抓取同站点页面并逐一做指纹识别（含哈希库），自动去重。
         最大页数留空 = 一直爬到没有新链接；填 100 = 最多扫 100 个页面。
       </p>
       <label for="crawl-url">起始 URL</label>
@@ -529,6 +504,7 @@ if (features.body.includes('hello-world-cta')) {
   </div>
 
   <script src="lib/js-yaml.min.js"></script>
+  <script src="i18n.js"></script>
   <script src="shared-utils.js"></script>
   <script src="options.js"></script>
 </body>

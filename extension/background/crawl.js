@@ -16,7 +16,7 @@
     try {
       const features = await GoPainterPageFetch.fetchFeatures(url);
       const result = await appendHashHit(features, await runMatch(features));
-      const hits = await runUserScripts(features, result.hits);
+      const hits = result.hits;
       results.push({ url, title: features.title || url, status: features.status, hits });
       await GoPainterHistoryHost.record(features, { ...result, hits }, 'crawl');
       globalThis.goCrawlFeed(url, JSON.stringify(features.links || []));

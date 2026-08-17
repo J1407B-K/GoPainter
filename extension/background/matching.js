@@ -1,5 +1,40 @@
 // Feature enrichment, rule matching, hash lookup, user scripts, and rescans.
 
+const MAX_ICON_BYTES = 200_000;
+const MAX_ICON_URLS = 64;
+
+async function readBoundedIcon(response) {
+  const contentLength = Number(response.headers.get('content-length'));
+  if (Number.isFinite(contentLength) && contentLength > MAX_ICON_BYTES) return null;
+  if (!response.body) return null;
+
+  const reader = response.body.getReader();
+  const chunks = [];
+  let length = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      length += value.byteLength;
+      if (length > MAX_ICON_BYTES) {
+        await reader.cancel();
+        return null;
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  const bytes = new Uint8Array(length);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return bytes;
+}
+
 async function hashIconUrl(url) {
   if (!url || !/^https?:/.test(url)) return 0;
   // 坏 icon 域可能一直不响应，没有超时整次扫描会被挂住
@@ -8,7 +43,8 @@ async function hashIconUrl(url) {
   try {
     const resp = await fetch(url, { signal: ctrl.signal });
     if (!resp.ok) return 0;
-    const buf = new Uint8Array(await resp.arrayBuffer());
+    const buf = await readBoundedIcon(resp);
+    if (!buf) return 0;
     // btoa 要求每个字符保留原始字节值；不要用 TextDecoder('latin1')，
     // 浏览器将该标签映射到 Windows-1252，会改写 0x80-0x9f 等字节。
     const bin = GoPainterUtils.bytesToBinaryString(buf);
@@ -23,11 +59,17 @@ async function hashIconUrl(url) {
   }
 }
 
-// 一组 icon URL 全部算哈希，去重去 0。不能限制数量：网络中后到的任一图标
-// 都可能正好是规则或哈希库要命中的那个。
+// 每个页面只取有限个 icon；匹配是 best-effort，不能让页面把扩展变成无界下载器。
 async function hashIcons(urls) {
   const hashes = new Set();
-  const unique = [...new Set(urls)];
+  const unique = [];
+  const seen = new Set();
+  for (const url of Array.isArray(urls) ? urls : []) {
+    if (unique.length >= MAX_ICON_URLS) break;
+    if (typeof url !== 'string' || !/^https?:/.test(url) || seen.has(url)) continue;
+    seen.add(url);
+    unique.push(url);
+  }
   let next = 0;
   const worker = async () => {
     while (next < unique.length) {
@@ -67,13 +109,20 @@ async function enrichFeatures(features) {
 // 序列化后的 rules JSON 缓存：重扫/爬虫对同一规则集反复调 goMatch，省得每次
 // 都 JSON.stringify 上万条规则。规则一变在 storage.onChanged 里置空。
 let rulesJsonCache = null;
+let rulesGeneration = 0;
 
 async function getRulesJSON() {
-  if (rulesJsonCache === null) {
+  while (true) {
+    const generation = rulesGeneration;
+    if (rulesJsonCache?.generation === generation) return rulesJsonCache.json;
     const { rules = [] } = await chrome.storage.local.get('rules');
-    rulesJsonCache = JSON.stringify(rules);
+    // storage.onChanged may have invalidated us while get() was pending. Do not let
+    // an old read repopulate the cache; re-read against the new generation instead.
+    if (generation !== rulesGeneration) continue;
+    const json = JSON.stringify(rules);
+    rulesJsonCache = { generation, json };
+    return json;
   }
-  return rulesJsonCache;
 }
 
 // 重复页面匹配缓存：相同 features（完整匹配输入）直接复用 goMatch 输出。
@@ -94,7 +143,7 @@ async function runMatch(features) {
     return { hits: cached.hits.slice() };
   }
   const out = JSON.parse(globalThis.goMatch(rulesJSON, featuresJSON));
-  // 缓存 goMatch 原始输出的副本；调用方（appendHashHit/userScripts）会改返回的 out.hits
+  // 缓存 goMatch 原始输出的副本；调用方 appendHashHit 会改返回的 out.hits。
   matchCache.set(featuresJSON, { hits: out.hits.slice() });
   if (matchCache.size > MATCH_CACHE_MAX) {
     // Map 保持插入序，删最老的
@@ -217,55 +266,16 @@ async function getCustomHashesJSON() {
   return customHashesJsonCache;
 }
 
-// 外接脚本：规则匹配之后执行，脚本返回要追加的指纹。
-async function runUserScripts(features, hits) {
-  const scripts = await getCompiledUserScripts();
-  const out = [...(hits || [])];
-  const seen = new Set(out.map((h) => h.id || h.name).filter(Boolean));
-  for (const s of scripts) {
-    try {
-      const extra = s.fn(features, out);
-      if (Array.isArray(extra)) {
-        for (const h of extra) {
-          const key = h?.id || h?.name;
-          if (h?.id && h?.name && !seen.has(key)) {
-            out.push(h);
-            seen.add(key);
-          }
-        }
-      }
-    } catch (e) {
-      console.warn(`用户脚本「${s.name}」执行失败:`, e);
-    }
-  }
-  return out;
-}
-
-let compiledUserScriptsCache = null;
-async function getCompiledUserScripts() {
-  if (compiledUserScriptsCache) return compiledUserScriptsCache;
-  const { userScripts = [] } = await chrome.storage.local.get('userScripts');
-  compiledUserScriptsCache = userScripts.filter((s) => s.enabled).flatMap((s) => {
-    try {
-      return [{ id: s.id, name: s.name, fn: new Function('features', 'hits', s.code) }];
-    } catch (e) {
-      console.warn(`用户脚本「${s.name}」编译失败:`, e);
-      return [];
-    }
-  });
-  return compiledUserScriptsCache;
-}
-
 // 规则/哈希库变动 → 自动重扫所有已打开的 tab。
 let rescanTimer = null;
 let probeCache = null; // 规则里的 js/dom 探测清单，规则变了就失效
 
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== 'local') return;
-  if (changes.userScripts) compiledUserScriptsCache = null;
   if (changes.customHashes) customHashesJsonCache = null;
-  if (!changes.rules && !changes.customHashes && !changes.userScripts) return;
+  if (!changes.rules && !changes.customHashes) return;
   if (changes.rules) {
+    rulesGeneration++;
     probeCache = null;
     rulesJsonCache = null;
     matchCache.clear();
@@ -288,7 +298,6 @@ async function rescanAllTabs() {
       // 不要用上一次导航留下的缓存去改当前页面的图标。
       if (!(await isCurrentTabPage(tabId, val.features.url, navigationVersion))) continue;
       const result = await appendHashHit(val.features, await runMatch(val.features));
-      result.hits = await runUserScripts(val.features, result.hits);
       if (!(await isCurrentTabPage(tabId, val.features.url, navigationVersion))) continue;
       await chrome.storage.session.set({
         [key]: { ...val, result },

@@ -39,6 +39,7 @@ const ruleConflictModal = document.getElementById('rule-conflict-modal');
 const ruleConflictTitle = document.getElementById('rule-conflict-title');
 const ruleConflictProgress = document.getElementById('rule-conflict-progress');
 const ruleConflictDiff = document.getElementById('rule-conflict-diff');
+const t = (zh, english) => GoPainterI18n?.locale === 'en' ? english : zh;
 
 let currentTabId = null;
 let currentTabUrl = '';
@@ -212,7 +213,7 @@ async function addRuleWithResolution(payload) {
 async function init() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab?.id || !/^https?:/.test(tab.url || '')) {
-    statusEl.innerHTML = '<span class="icon">🚫</span>当前页面不支持分析（仅 http/https）';
+    statusEl.innerHTML = `<span class="icon">🚫</span>${t('当前页面不支持分析（仅 http/https）', 'This page cannot be analyzed (http/https only)')}`;
     for (const id of ['crawl-btn', 'agent-btn']) {
       document.getElementById(id).classList.add('disabled');
     }
@@ -232,7 +233,7 @@ async function init() {
   const data = compactStored[popupKey]
     || await chrome.runtime.sendMessage({ type: 'getPopupResult', tabId: currentTabId }).catch(() => null);
   if (!data) {
-    statusEl.innerHTML = '<span class="icon">🔄</span>尚未采集到页面特征<br>请刷新页面后重试';
+    statusEl.innerHTML = `<span class="icon">🔄</span>${t('尚未采集到页面特征', 'Page features are not available yet')}<br>${t('请刷新页面后重试', 'Refresh the page and try again')}`;
     return;
   }
   currentData = data;
@@ -261,7 +262,7 @@ function displayHits() {
 
 function renderPageSummary(features, result) {
   pageInfo.style.display = 'block';
-  document.getElementById('page-title').textContent = features.title || '（无标题）';
+  document.getElementById('page-title').textContent = features.title || t('（无标题）', '(Untitled)');
   document.getElementById('page-url').textContent = features.url;
   const faviconEl = document.getElementById('page-favicon');
   faviconEl.style.display = features.favicon ? 'block' : 'none';
@@ -293,27 +294,28 @@ function showHitStatus(html) {
 function renderHitList(result) {
   const allHits = displayHits();
   if (result.note === 'no_rules') {
-    showHitStatus('<span class="icon">📭</span>尚未导入任何规则<br>点击右下角「⚙️ 规则」导入 YAML');
+    showHitStatus(`<span class="icon">📭</span>${t('尚未导入任何规则', 'No rules have been imported')}<br>${t('点击右下角「⚙️ 规则」导入 YAML', 'Open Settings to import YAML')}`);
     return;
   }
   if (!allHits.length) {
-    showHitStatus('<span class="icon">🔍</span>未命中任何规则<br>可点击下方 AI 辅助识别');
+    showHitStatus(`<span class="icon">🔍</span>${t('未命中任何规则', 'No rules matched')}<br>${t('可点击下方 AI 辅助识别', 'Use AI-assisted identification below')}`);
     return;
   }
 
   const { hits, hidden } = GoPainterUtils.filterAndSortHits(allHits, confCfg);
   if (!hits.length) {
     showHitStatus(hidden > 0
-      ? `<span class="icon">🔍</span>${hidden} 个命中都低于置信度阈值<br>可在设置里调低阈值`
-      : '<span class="icon">🔍</span>未命中任何规则<br>可点击下方 AI 辅助识别');
+      ? `<span class="icon">🔍</span>${t(`${hidden} 个命中都低于置信度阈值`, `${hidden} matches are below the confidence threshold`)}<br>${t('可在设置里调低阈值', 'Lower the threshold in Settings')}`
+      : `<span class="icon">🔍</span>${t('未命中任何规则', 'No rules matched')}<br>${t('可点击下方 AI 辅助识别', 'Use AI-assisted identification below')}`);
     return;
   }
 
   const label = document.createElement('div');
   label.className = 'section-label';
   const totalHits = Math.max(hits.length, Number(result.totalHits) || 0);
-  const limited = totalHits > hits.length ? `，展示前 ${hits.length} 个` : '';
-  label.textContent = `命中 ${totalHits} 个指纹${limited}` + (hidden > 0 ? `（隐藏 ${hidden} 个低置信度）` : '');
+  const limited = totalHits > hits.length ? t(`，展示前 ${hits.length} 个`, `, showing first ${hits.length}`) : '';
+  label.textContent = t(`命中 ${totalHits} 个指纹${limited}`, `${totalHits} fingerprints detected${limited}`)
+    + (hidden > 0 ? t(`（隐藏 ${hidden} 个低置信度）`, ` (${hidden} low-confidence hidden)`) : '');
   hitsEl.append(label, ...hits.map(renderHit));
 }
 
@@ -350,7 +352,7 @@ function renderHit(hit) {
     const badge = document.createElement('span');
     badge.className = 'conf ' + (conf == null ? 'none' : conf >= 80 ? 'high' : conf >= 50 ? 'mid' : 'low');
     badge.textContent = conf == null ? 'null' : conf + '%';
-    badge.title = '置信度';
+    badge.title = t('置信度', 'Confidence');
     head.querySelector('.tail').appendChild(badge);
   }
   card.appendChild(head);
@@ -375,7 +377,7 @@ function renderHit(hit) {
   if (rule) {
     const btn = document.createElement('button');
     btn.className = 'opt-btn';
-    btn.textContent = '优化此规则';
+    btn.textContent = t('优化此规则', 'Optimize this rule');
     btn.addEventListener('click', () => optimizeRule(rule));
     card.appendChild(btn);
   }
@@ -1085,5 +1087,9 @@ function showAiMessage(text) {
   aiRaw.style.display = 'block';
   aiResult.style.display = 'block';
 }
+
+window.addEventListener('gopainter:localechange', () => {
+  if (currentData) render(currentData);
+});
 
 init();

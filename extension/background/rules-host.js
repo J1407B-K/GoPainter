@@ -7,9 +7,17 @@
     'enabledRuleSetIds',
     'ruleSetOverrides',
   ];
+  const RULE_STATE_REVISION_KEY = 'ruleStateRevision';
+  // chrome.storage has no compare-and-swap. Keep every GoPainter rule mutation in
+  // this one service-worker queue so two async handlers cannot lose each other's write.
+  let mutationQueue = Promise.resolve();
+  function serializeMutation(fn) {
+    const task = mutationQueue.then(fn, fn);
+    mutationQueue = task.catch(() => {});
+    return task;
+  }
 
-  async function loadRuleState() {
-    const stored = await chrome.storage.local.get(RULE_STATE_KEYS);
+  function normalizeStoredRuleState(stored) {
     return GoPainterUtils.normalizeRuleSets(
       stored.ruleSets,
       stored.activeRuleSetId,
@@ -17,6 +25,24 @@
       stored.enabledRuleSetIds,
       stored.ruleSetOverrides
     );
+  }
+
+  async function loadRuleState() {
+    return normalizeStoredRuleState(await chrome.storage.local.get(RULE_STATE_KEYS));
+  }
+
+  async function loadVersionedRuleState() {
+    const stored = await chrome.storage.local.get([...RULE_STATE_KEYS, RULE_STATE_REVISION_KEY]);
+    return {
+      state: normalizeStoredRuleState(stored),
+      revision: Number.isSafeInteger(stored[RULE_STATE_REVISION_KEY]) ? stored[RULE_STATE_REVISION_KEY] : 0,
+    };
+  }
+
+  async function writeRuleState(values, revision) {
+    const nextRevision = revision + 1;
+    await chrome.storage.local.set({ ...values, [RULE_STATE_REVISION_KEY]: nextRevision });
+    return nextRevision;
   }
 
   async function normalizeRuleYaml(yaml) {
@@ -52,15 +78,16 @@
   }
 
   async function setActive({ ruleSetId }) {
-    const state = await loadRuleState();
+    const { state, revision } = await loadVersionedRuleState();
     const selected = state.ruleSets.find((set) => set.id === ruleSetId);
     if (!selected) throw new Error('规则集不存在');
-    await chrome.storage.local.set({ activeRuleSetId: selected.id });
-    return { ok: true };
+    const next = { ...state, activeRuleSetId: selected.id };
+    const nextRevision = await writeRuleState({ activeRuleSetId: selected.id }, revision);
+    return { ok: true, state: next, revision: nextRevision };
   }
 
   async function setEnabled({ enabledRuleSetIds }) {
-    const current = await loadRuleState();
+    const { state: current, revision } = await loadVersionedRuleState();
     const state = GoPainterUtils.normalizeRuleSets(
       current.ruleSets,
       current.activeRuleSetId,
@@ -68,18 +95,18 @@
       enabledRuleSetIds,
       current.ruleSetOverrides
     );
-    await chrome.storage.local.set({
+    const nextRevision = await writeRuleState({
       enabledRuleSetIds: state.enabledRuleSetIds,
       ruleSetOverrides: state.ruleSetOverrides,
       rules: state.rules,
-    });
-    return { ok: true, enabledRuleSetIds: state.enabledRuleSetIds, ruleCount: state.rules.length };
+    }, revision);
+    return { ok: true, enabledRuleSetIds: state.enabledRuleSetIds, ruleCount: state.rules.length, state, revision: nextRevision };
   }
 
   async function setOverride({ ruleId: rawRuleId, ruleSetId: rawRuleSetId }) {
     const ruleId = String(rawRuleId || '');
     const ruleSetId = String(rawRuleSetId || '');
-    const current = await loadRuleState();
+    const { state: current, revision } = await loadVersionedRuleState();
     const info = GoPainterUtils.ruleSetOverrideInfo(
       current.ruleSets,
       current.enabledRuleSetIds,
@@ -97,8 +124,8 @@
       current.enabledRuleSetIds,
       overrides
     );
-    await chrome.storage.local.set({ ruleSetOverrides: state.ruleSetOverrides, rules: state.rules });
-    return { ok: true, ruleSetOverrides: state.ruleSetOverrides, ruleSetName: source.name };
+    const nextRevision = await writeRuleState({ ruleSetOverrides: state.ruleSetOverrides, rules: state.rules }, revision);
+    return { ok: true, ruleSetOverrides: state.ruleSetOverrides, ruleSetName: source.name, state, revision: nextRevision };
   }
 
   function conflictResponse(conflicts) {
@@ -124,12 +151,12 @@
       throw new Error(`优化规则必须保留原 id：${expectedId}`);
     }
 
-    const state = await loadRuleState();
+    const { state, revision } = await loadVersionedRuleState();
     const existing = state.ruleSets.find((set) => set.id === state.activeRuleSetId)?.rules || [];
     const merge = GoPainterUtils.planRuleMerge(existing, incoming, msg.resolutions || {});
     if (merge.unresolved.length) return conflictResponse(merge.unresolved);
     if (merge.added || merge.replaced) {
-      await chrome.storage.local.set(GoPainterUtils.replaceActiveRuleSetRules(state, merge.rules));
+      await writeRuleState(GoPainterUtils.replaceActiveRuleSetRules(state, merge.rules), revision);
     }
     return {
       ok: true,
@@ -138,6 +165,46 @@
       kept: merge.kept,
       unchanged: merge.unchanged,
     };
+  }
+
+  async function replaceActiveRuleSetRules({ rules, expectedRevision }) {
+    if (!Array.isArray(rules)) throw new Error('规则必须是数组');
+    const { state, revision } = await loadVersionedRuleState();
+    if (!Number.isSafeInteger(expectedRevision) || expectedRevision !== revision) {
+      throw new Error('规则状态已更新，请刷新后重试');
+    }
+    const next = GoPainterUtils.replaceActiveRuleSetRules(state, rules);
+    const nextRevision = await writeRuleState(next, revision);
+    return { ok: true, state: next, revision: nextRevision };
+  }
+
+  async function createRuleSet({ name: rawName }) {
+    const name = String(rawName || '').trim();
+    if (!name) throw new Error('请填写规则集名称');
+    const { state, revision } = await loadVersionedRuleState();
+    if (state.ruleSets.some((set) => set.name === name)) throw new Error('已有同名规则集');
+    const base = name.toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '') || 'ruleset';
+    let id = base;
+    let suffix = 2;
+    while (state.ruleSets.some((set) => set.id === id)) id = `${base}-${suffix++}`;
+    const next = GoPainterUtils.normalizeRuleSets(
+      [...state.ruleSets, { id, name, rules: [] }], id, [], state.enabledRuleSetIds, state.ruleSetOverrides
+    );
+    const nextRevision = await writeRuleState(next, revision);
+    return { ok: true, state: next, name, revision: nextRevision };
+  }
+
+  async function deleteRuleSet({ ruleSetId }) {
+    const { state, revision } = await loadVersionedRuleState();
+    const target = state.ruleSets.find((set) => set.id === ruleSetId);
+    if (!target) throw new Error('规则集不存在');
+    if (state.ruleSets.length <= 1) throw new Error('至少保留一个规则集');
+    const ruleSets = state.ruleSets.filter((set) => set.id !== target.id);
+    const next = GoPainterUtils.normalizeRuleSets(
+      ruleSets, ruleSets[0].id, [], state.enabledRuleSetIds.filter((id) => id !== target.id), state.ruleSetOverrides
+    );
+    const nextRevision = await writeRuleState(next, revision);
+    return { ok: true, state: next, name: target.name, revision: nextRevision };
   }
 
   async function normalizeRules({ docsJSON }) {
@@ -190,10 +257,13 @@
     handlers: Object.freeze({
       getRuleSetOverview: overview,
       getActiveRuleSummaries: activeSummaries,
-      setActiveRuleSet: setActive,
-      setEnabledRuleSets: setEnabled,
-      setRuleSetOverride: setOverride,
-      addRule,
+      setActiveRuleSet: (msg) => serializeMutation(() => setActive(msg)),
+      setEnabledRuleSets: (msg) => serializeMutation(() => setEnabled(msg)),
+      setRuleSetOverride: (msg) => serializeMutation(() => setOverride(msg)),
+      addRule: (msg) => serializeMutation(() => addRule(msg)),
+      replaceActiveRuleSetRules: (msg) => serializeMutation(() => replaceActiveRuleSetRules(msg)),
+      createRuleSet: (msg) => serializeMutation(() => createRuleSet(msg)),
+      deleteRuleSet: (msg) => serializeMutation(() => deleteRuleSet(msg)),
       normalizeRules,
       convertWappalyzer: ({ techJSON }) => callCoreConverter('goConvertWappalyzer', techJSON),
       convertEHole: ({ fingerJSON }) => callCoreConverter('goConvertEHole', fingerJSON),

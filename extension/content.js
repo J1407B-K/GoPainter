@@ -1,5 +1,5 @@
 // 采集页面特征发给 background。响应头/状态码那边有 webRequest 管，这里管 DOM 能拿到的
-// 加上两个探测：js 全局变量（找 MAIN world 的 route-hook 帮忙）和 dom 选择器（自己就能查）。
+// 加上两个探测：js 全局变量（background 从 MAIN world 读取）和 dom 选择器（自己就能查）。
 // SPA 路由变化（pushState/replaceState/popstate/hashchange）时重采重扫。
 
 (() => {
@@ -64,23 +64,23 @@
     return parts.join('');
   }
 
-  // js 探测：路径列表 postMessage 给 main world，等它回结果，超时就当没有
-  function probeJs(paths) {
-    return new Promise((resolve) => {
-      if (!paths.length) return resolve({});
-      const timer = setTimeout(() => {
-        window.removeEventListener('message', onMsg);
-        resolve({});
-      }, 1500);
-      function onMsg(e) {
-        if (e.source !== window || e.data?.type !== 'gopainter:jsResult') return;
-        window.removeEventListener('message', onMsg);
-        clearTimeout(timer);
-        resolve(e.data.globals || {});
-      }
-      window.addEventListener('message', onMsg);
-      window.postMessage({ type: 'gopainter:probe', paths }, '*');
-    });
+  const DOM_YIELD_EVERY = 100;
+
+  function yieldToBrowser() {
+    if (globalThis.scheduler?.yield) return globalThis.scheduler.yield();
+    return new Promise((resolve) => setTimeout(resolve, 0));
+  }
+
+  // 全局变量仍是页面可控证据；但结果通过 chrome.scripting 从 MAIN world 直接返回
+  // background，避免与页面共享可伪造的 window.postMessage 协议。
+  async function probeJs(paths) {
+    if (!paths.length) return {};
+    try {
+      const response = await chrome.runtime.sendMessage({ type: 'probeJs', paths });
+      return response?.ok && response.globals && typeof response.globals === 'object' ? response.globals : {};
+    } catch {
+      return {};
+    }
   }
 
   function domAttributesMatch(element, patterns) {
@@ -90,7 +90,7 @@
     });
   }
 
-  function domProbeMatches(probe) {
+  async function domProbeMatches(probe) {
     let selector = probe.sel;
     // 有属性条件但选择器是 * 或裸标签时，把属性名拼成预筛选择器，
     // 不然 querySelector('*') 只会检查第一个元素的属性，语义错了。
@@ -101,21 +101,22 @@
     const elements = document.querySelectorAll(selector);
     const textPattern = probe.text ? new RegExp(probe.text, 'i') : null;
     const attrPatterns = Object.entries(probe.attrs || {}).map(([name, pattern]) => [name, new RegExp(pattern, 'i')]);
-    const count = Math.min(elements.length, 50);
-    for (let index = 0; index < count; index++) {
+    for (let index = 0; index < elements.length; index++) {
       const element = elements[index];
-      if (textPattern && !textPattern.test(element.textContent || '')) continue;
-      if (!domAttributesMatch(element, attrPatterns)) continue;
-      return true;
+      const textMatches = !textPattern || textPattern.test(element.textContent || '');
+      const attrsMatch = textMatches && domAttributesMatch(element, attrPatterns);
+      if (attrsMatch) return true;
+      // 完整匹配不能再静默截断；长列表中让出主线程，避免一次扫描变成长任务。
+      if (index && index % DOM_YIELD_EVERY === 0) await yieldToBrowser();
     }
     return false;
   }
 
-  function probeDom(probes) {
+  async function probeDom(probes) {
     const hit = [];
     for (const probe of probes) {
       try {
-        if (domProbeMatches(probe)) hit.push(probe.id); // 背景按 Core 生成的 id 对应
+        if (await domProbeMatches(probe)) hit.push(probe.id); // 背景按 Core 生成的 id 对应
       } catch { /* 坏选择器/坏正则跳过 */ }
     }
     return hit;
@@ -133,7 +134,7 @@
       if (probes?.ok) {
         [js, domHits] = await Promise.all([
           probeJs(probes.paths || []),
-          Promise.resolve(probeDom(probes.probes || [])).then((ids) =>
+          probeDom(probes.probes || []).then((ids) =>
             Object.fromEntries(ids.map((id) => [id, true]))
           ),
         ]);
@@ -164,7 +165,7 @@
   let lastUrl = location.href;
   let timer = null;
   window.addEventListener('message', (e) => {
-    if (e.source !== window || e.data?.type !== 'gopainter:route') return;
+    if (e.source !== window || e.origin !== location.origin || e.data?.type !== 'gopainter:route') return;
     if (location.href === lastUrl) return; // pushState 有时也会原地打
     lastUrl = location.href;
     clearTimeout(timer);

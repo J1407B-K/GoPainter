@@ -44,9 +44,9 @@ While you browse, GoPainter fingerprints the current site automatically and surf
 - **Agent-assisted fingerprint research** — a bounded, streaming tool loop researches the current tab or a rule, shows its auditable tool trace, and returns an evidence-based task report
 - **Scan history & reports** — choose a 50–5,000 entry rolling window and export it as JSON/CSV
 
-## Current release: v0.6.4
+## Current release: v0.6.5
 
-v0.6.4 makes the rule-delivery path strict end to end: an Agent's final YAML must resolve to the same canonical artifact as a candidate successfully validated by the production Go/WASM Core. Rule health inspection now reports invalid regexes, structural prefilter potential, unavoidable scans, and short/long representative anchors without presenting structural metrics as detection accuracy. The extension Host was also split into focused page, rule, history, crawl, bookmark, AI, and Agent lifecycle modules; bounded UI rendering and concurrent read-only tools keep long work away from interactive paths. See the current measurements and previous versions in the [performance record](BENCHMARK.md).
+v0.6.5 hardens page probing, favicon hashing, rule-state consistency, and cache invalidation. Runtime probes now use an extension-side MAIN-world bridge; icon downloads have strict URL and byte budgets; rule mutations are serialized and revision-checked. The extension UI also includes a persisted Chinese/English switch. See the current measurements and previous versions in the [performance record](BENCHMARK.md).
 
 ## Quick start
 
@@ -159,33 +159,7 @@ Choose the OpenAI-compatible or Anthropic protocol in Settings, then fill in you
 - When using a cloud LLM, page features are sent to the model service you configure. Agent workflows start with a compact overview and send HTML snippets only when the page-body search tool is used; the direct AI identification/rule helpers may send a truncated HTML snippet. Do not enable AI on sensitive sites unless these can be shared with that provider.
 - AI-assisted identification, AI-generated rules, and AI bookmark fallback can be wrong or hallucinated. Review before promoting AI-generated rules into your long-term rule set. The project is not responsible for AI output accuracy, compliance, or external service costs.
 - Agent tool calls are limited to the selected task. Automatic read-only calls may run concurrently up to five; permission-gated network calls remain serialized and pause for approval. External results are untrusted reference material, not instructions.
-- External scripts execute with extension privileges. Only add scripts you wrote or fully trust; don't paste code of unknown provenance.
-
-## External scripts
-
-Settings → "External scripts" lets you append custom identification logic after rule matching and the favicon hash database. The script body is executed as a function:
-
-```js
-// Arguments: features, hits
-// Return: an array of extra fingerprints; returning nothing is fine
-if (features.body.includes('hello-world-cta')) {
-  return [{
-    id: 'my-product',
-    name: 'My Product',
-    evidence: [{ type: 'script', detail: 'hello-world-cta' }],
-  }];
-}
-```
-
-Available inputs:
-
-- `features.url` / `features.title` / `features.body`
-- `features.headers` / `features.status`
-- `features.meta` / `features.scripts` / `features.links`
-- `features.faviconHash` / `features.faviconHashes`
-- `hits`: results already matched by the rules and hash database
-
-Returned items need at least `id` and `name`. An `id` that already exists is skipped to avoid duplicates.
+- Runtime and DOM signals come from the scanned page and are therefore untrusted evidence, not an authenticity assertion. Favicon downloads are bounded by URL count and response bytes.
 
 ## Commands
 
@@ -273,7 +247,7 @@ Rule semantics—including strict Agent candidate validation and required-probe 
 
 ## Project status
 
-The core browser workflow is implemented: automatic matching, evidence, composable rule sets and imports, Agent research and importable rule generation, crawling, history/report export, bookmark organization, and external scripts. The next planned area is remote rule-source subscriptions and updates.
+The core browser workflow is implemented: automatic matching, evidence, composable rule sets and imports, Agent research and importable rule generation, crawling, history/report export, and bookmark organization. The next planned area is remote rule-source subscriptions and updates.
 
 ## License
 

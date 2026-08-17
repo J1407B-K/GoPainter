@@ -125,7 +125,7 @@ function trackIconRequest(tabId, url) {
     st = { seen: new Set(), pending: new Set(), timer: null };
     tabIcons.set(tabId, st);
   }
-  if (st.seen.has(url)) return;
+  if (st.seen.has(url) || st.seen.size >= MAX_ICON_URLS) return;
   st.seen.add(url);
   st.pending.add(url);
   // 页面已有的 icon 可能晚于 content script 上报，攒一批重新匹配
@@ -163,7 +163,6 @@ async function flushIcons(tabId) {
 
   // 有新哈希就完整重跑一遍匹配（规则 + 哈希库 + 脚本），毫秒级
   const result = await appendHashHit(stored.features, await runMatch(stored.features));
-  result.hits = await runUserScripts(stored.features, result.hits);
   // 哈希和匹配期间可能已经发生导航，再确认一次才提交。
   if (!(await isCurrentTabPage(tabId, stored.features?.url, navigationVersion))) return;
   stored.result = result;

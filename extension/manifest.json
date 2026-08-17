@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
   "name": "GoPainter",
-  "version": "0.6.4",
+  "version": "0.6.5",
   "description": "基于 YAML 指纹规则的 Web 资产测绘（Go WASM 匹配引擎 + AI 辅助识别）",
-  "permissions": ["storage", "tabs", "webRequest", "bookmarks", "sidePanel"],
+  "permissions": ["storage", "tabs", "webRequest", "bookmarks", "sidePanel", "scripting"],
   "side_panel": {
     "default_path": "sidepanel.html"
   },

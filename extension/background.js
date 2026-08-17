@@ -28,6 +28,7 @@ importScripts(
   'agent/goals.js',
   'agent/providers.js',
   'agent/loop.js',
+  'background/migrations.js',
   'background/wasm.js',
   'background/matching.js',
   'background/history.js',

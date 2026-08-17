@@ -592,13 +592,11 @@ html.gp-options .file-drop {
 html.gp-options .file-drop:hover { color: var(--gp-accent); background: var(--gp-accent-soft); border-color: var(--gp-accent); }
 html.gp-options #rule-list,
 html.gp-options #hash-list,
-html.gp-options #script-list,
 html.gp-options #crawl-results,
 html.gp-options #history-list { margin-top: 10px; }
 html.gp-options .rule-item,
 html.gp-options .source-item,
 html.gp-options .hash-item,
-html.gp-options .script-item,
 html.gp-options .crawl-item,
 html.gp-options .history-item {
   margin: 0;
@@ -611,13 +609,26 @@ html.gp-options .history-item {
 html.gp-options .rule-item:hover,
 html.gp-options .source-item:hover,
 html.gp-options .hash-item:hover,
-html.gp-options .script-item:hover,
 html.gp-options .crawl-item:hover,
 html.gp-options .history-item:hover { background: var(--gp-surface-2); border-color: var(--gp-line); }
 html.gp-options .source-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; }
 html.gp-options .source-item .src-info { min-width: 0; }
 html.gp-options .source-item a { color: var(--gp-accent); text-decoration: none; }
 html.gp-options .source-item button { margin: 0; white-space: nowrap; }
+
+.locale-toggle {
+  margin-left: auto;
+  flex: 0 0 auto;
+  min-width: 38px;
+  padding: 4px 7px;
+  border: 1px solid currentColor;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
 html.gp-options .rule-item .id,
 html.gp-options .hash-item .h,
 html.gp-options .crawl-item .u,

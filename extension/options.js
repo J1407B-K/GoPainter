@@ -10,6 +10,7 @@ function showMsg(text, isError = false) {
 // --- 规则存取 ---
 
 let ruleSetState = null;
+let ruleSetRevision = 0;
 const RULE_RENDER_LIMIT = 300;
 const LIST_RENDER_LIMIT = 300;
 
@@ -23,11 +24,8 @@ async function loadRuleSetState(force = false) {
   if (!force && ruleSetState) return ruleSetState;
   const raw = await chrome.storage.local.get(['rules', 'ruleSets', 'activeRuleSetId', 'enabledRuleSetIds', 'ruleSetOverrides']);
   const state = GoPainterUtils.normalizeRuleSets(raw.ruleSets, raw.activeRuleSetId, raw.rules, raw.enabledRuleSetIds, raw.ruleSetOverrides);
-  // 只在结构缺失/激活集失效时修复，避免每次操作 stringify 整个大型规则库。
-  if (!Array.isArray(raw.ruleSets) || raw.activeRuleSetId !== state.activeRuleSetId || !Array.isArray(raw.enabledRuleSetIds) || !Array.isArray(raw.rules) || !raw.ruleSetOverrides) {
-    await chrome.storage.local.set(state);
-  }
   ruleSetState = state;
+  ruleSetRevision = Number.isSafeInteger(raw.ruleStateRevision) ? raw.ruleStateRevision : 0;
   return state;
 }
 
@@ -37,9 +35,10 @@ async function loadRules() {
 }
 
 async function saveActiveRules(rules) {
-  const state = await loadRuleSetState();
-  ruleSetState = GoPainterUtils.replaceActiveRuleSetRules(state, rules);
-  await chrome.storage.local.set(ruleSetState);
+  const response = await chrome.runtime.sendMessage({ type: 'replaceActiveRuleSetRules', rules, expectedRevision: ruleSetRevision });
+  if (!response?.ok) throw new Error(response?.error || '保存规则失败');
+  ruleSetState = response.state;
+  ruleSetRevision = response.revision;
 }
 
 let visibleRuleSetConflicts = [];
@@ -101,14 +100,12 @@ document.getElementById('ruleset-overrides-list').addEventListener('change', asy
   if (!select) return;
   select.disabled = true;
   try {
-    const state = await loadRuleSetState();
     const response = await chrome.runtime.sendMessage({
       type: 'setRuleSetOverride', ruleId: select.dataset.ruleOverrideId, ruleSetId: select.value,
     });
     if (!response?.ok) throw new Error(response?.error || '更新规则版本失败');
-    ruleSetState = GoPainterUtils.normalizeRuleSets(
-      state.ruleSets, state.activeRuleSetId, [], state.enabledRuleSetIds, response.ruleSetOverrides
-    );
+    ruleSetState = response.state;
+    ruleSetRevision = response.revision;
     renderRuleSetControls(ruleSetState);
     showMsg(`规则 ${select.dataset.ruleOverrideId} 已改用「${response.ruleSetName}」版本`);
   } catch (error) {
@@ -503,18 +500,17 @@ document.getElementById('ruleset-select').addEventListener('change', async (e) =
   if (!next || next.id === state.activeRuleSetId) return;
   const response = await chrome.runtime.sendMessage({ type: 'setActiveRuleSet', ruleSetId: next.id });
   if (!response?.ok) return showMsg(response?.error || '切换编辑集失败', true);
-  ruleSetState = { ...state, activeRuleSetId: next.id };
+  ruleSetState = response.state;
+  ruleSetRevision = response.revision;
   await refreshRuleList();
   showMsg(`当前编辑集已切换到「${next.name}」`);
 });
 
 async function saveEnabledRuleSets(enabledRuleSetIds, message) {
-  const state = await loadRuleSetState();
   const response = await chrome.runtime.sendMessage({ type: 'setEnabledRuleSets', enabledRuleSetIds });
   if (!response?.ok) throw new Error(response?.error || '更新启用规则集失败');
-  ruleSetState = GoPainterUtils.normalizeRuleSets(
-    state.ruleSets, state.activeRuleSetId, [], response.enabledRuleSetIds, state.ruleSetOverrides
-  );
+  ruleSetState = response.state;
+  ruleSetRevision = response.revision;
   renderRuleSetControls(ruleSetState);
   showMsg(message || `已启用 ${response.enabledRuleSetIds.length} 个规则集，共 ${response.ruleCount} 条匹配规则`);
 }
@@ -573,14 +569,10 @@ document.getElementById('ruleset-create').addEventListener('click', async () => 
   const input = document.getElementById('ruleset-name');
   const name = input.value.trim();
   if (!name) return showMsg('请填写规则集名称', true);
-  const state = await loadRuleSetState();
-  if (state.ruleSets.some((set) => set.name === name)) return showMsg('已有同名规则集', true);
-  const base = name.toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '') || 'ruleset';
-  let id = base, suffix = 2;
-  while (state.ruleSets.some((set) => set.id === id)) id = `${base}-${suffix++}`;
-  const ruleSets = [...state.ruleSets, { id, name, rules: [] }];
-  ruleSetState = { ...state, ruleSets, activeRuleSetId: id };
-  await chrome.storage.local.set({ ruleSets, activeRuleSetId: id });
+  const response = await chrome.runtime.sendMessage({ type: 'createRuleSet', name });
+  if (!response?.ok) return showMsg(response?.error || '新建规则集失败', true);
+  ruleSetState = response.state;
+  ruleSetRevision = response.revision;
   input.value = '';
   await refreshRuleList();
   showMsg(`已新建并切换到「${name}」`);
@@ -591,13 +583,12 @@ document.getElementById('ruleset-delete').addEventListener('click', async () => 
   const active = state.ruleSets.find((set) => set.id === state.activeRuleSetId);
   if (state.ruleSets.length <= 1) return showMsg('至少保留一个规则集', true);
   if (!confirm(`删除规则集「${active.name}」及其中 ${active.rules.length} 条规则？`)) return;
-  const ruleSets = state.ruleSets.filter((set) => set.id !== active.id);
-  const next = ruleSets[0];
-  const enabledRuleSetIds = state.enabledRuleSetIds.filter((id) => id !== active.id);
-  ruleSetState = GoPainterUtils.normalizeRuleSets(ruleSets, next.id, [], enabledRuleSetIds, state.ruleSetOverrides);
-  await chrome.storage.local.set(ruleSetState);
+  const response = await chrome.runtime.sendMessage({ type: 'deleteRuleSet', ruleSetId: active.id });
+  if (!response?.ok) return showMsg(response?.error || '删除规则集失败', true);
+  ruleSetState = response.state;
+  ruleSetRevision = response.revision;
   await refreshRuleList();
-  showMsg(`已删除「${active.name}」，切换到「${next.name}」`);
+  showMsg(`已删除「${response.name}」，已切换到「${ruleSetState.ruleSets[0].name}」`);
 });
 
 // --- favicon 哈希库：自定义条目存 storage，查库时传给 wasm，覆盖内置 ---
@@ -866,70 +857,6 @@ organizeBtn.addEventListener('click', async () => {
     updateBmCount();
   }
 });
-
-// --- 外接脚本 ---
-
-async function loadScripts() {
-  const { userScripts = [] } = await chrome.storage.local.get('userScripts');
-  return userScripts;
-}
-
-async function refreshScriptList() {
-  const scripts = await loadScripts();
-  const list = document.getElementById('script-list');
-  list.innerHTML = scripts.length ? '' : '<div class="muted">（空）</div>';
-  for (const s of scripts) {
-    const row = document.createElement('div');
-    row.className = 'script-item';
-    const cb = document.createElement('input');
-    cb.type = 'checkbox';
-    cb.checked = s.enabled;
-    cb.title = '启用/停用';
-    cb.addEventListener('change', async () => {
-      const cur = await loadScripts();
-      const target = cur.find((x) => x.id === s.id);
-      if (target) target.enabled = cb.checked;
-      await chrome.storage.local.set({ userScripts: cur });
-    });
-    const name = document.createElement('span');
-    name.textContent = s.name;
-    const del = document.createElement('button');
-    del.className = 'del';
-    del.textContent = '✕';
-    del.addEventListener('click', async () => {
-      const cur = (await loadScripts()).filter((x) => x.id !== s.id);
-      await chrome.storage.local.set({ userScripts: cur });
-      refreshScriptList();
-    });
-    row.append(cb, name, del);
-    list.appendChild(row);
-  }
-}
-
-document.getElementById('script-add').addEventListener('click', async () => {
-  const name = document.getElementById('script-name').value.trim();
-  const code = document.getElementById('script-code').value.trim();
-  if (!name || !code) {
-    showMsg('脚本名和代码都要填', true);
-    return;
-  }
-  // 先语法检查一下，别存个跑不起来的
-  try {
-    new Function('features', 'hits', code);
-  } catch (e) {
-    showMsg(`脚本语法错误：${e.message}`, true);
-    return;
-  }
-  const scripts = await loadScripts();
-  scripts.push({ id: `s-${Date.now()}`, name, code, enabled: true });
-  await chrome.storage.local.set({ userScripts: scripts });
-  document.getElementById('script-name').value = '';
-  document.getElementById('script-code').value = '';
-  await refreshScriptList();
-  showMsg(`脚本「${name}」已添加并启用`);
-});
-
-scheduleIdle(refreshScriptList);
 
 // --- 站点爬取 ---
 
@@ -1260,5 +1187,8 @@ scheduleIdle(loadConfConfig);
 
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== 'local') return;
-  if (changes.rules || changes.ruleSets || changes.activeRuleSetId || changes.enabledRuleSetIds || changes.ruleSetOverrides) ruleSetState = null;
+  if (changes.rules || changes.ruleSets || changes.activeRuleSetId || changes.enabledRuleSetIds || changes.ruleSetOverrides || changes.ruleStateRevision) {
+    ruleSetState = null;
+    ruleSetRevision = 0;
+  }
 });
