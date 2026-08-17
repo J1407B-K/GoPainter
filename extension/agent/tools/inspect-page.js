@@ -3,7 +3,7 @@ GoPainterAgentTools.register({
   name: 'inspect_page',
   description: '读取当前标签页的 URL、标题、状态码、响应头、meta、脚本路径、favicon 哈希与已探测 JS 信号。用于先确认识别对象和可靠指纹；不返回页面正文。',
   inputSchema: { type: 'object', properties: {}, additionalProperties: false },
-  effect: 'read', permission: 'auto', annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, skillIds: ['fingerprint-research'],
+  effect: 'read', permission: 'auto', annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, skillIds: ['fingerprint-research', 'gopainter-word-matcher', 'gopainter-regex-matcher', 'gopainter-runtime-matcher'],
   validate(input) {
     if (input != null && (typeof input !== 'object' || Array.isArray(input))) throw new Error('input 必须是对象');
     return {};

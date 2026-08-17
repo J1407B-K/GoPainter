@@ -2,7 +2,7 @@ GoPainterAgentTools.register({
   name: 'search_page_js',
   description: '搜索当前页面已探测的 JavaScript 全局变量和值。用于核验运行时指纹证据。',
   inputSchema: { type: 'object', properties: { query: { type: 'string', minLength: 1 }, limit: { type: 'integer', minimum: 1, maximum: 30 } }, required: ['query'], additionalProperties: false },
-  effect: 'read', permission: 'auto', annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, skillIds: ['fingerprint-research'],
+  effect: 'read', permission: 'auto', annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, skillIds: ['fingerprint-research', 'gopainter-runtime-matcher'],
   validate(input) {
     const query = GoPainterAgentPage.string(input?.query).trim();
     if (!query) throw new Error('query 不能为空');

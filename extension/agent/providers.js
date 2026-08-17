@@ -69,18 +69,18 @@
     return { id: call.id, name: call.function.name, input, assistantMessage: message };
   }
 
-  async function testOpenAI(cfg, tool) {
+  async function testOpenAI(cfg, tool, skill) {
     const url = apiURL(cfg.baseURL, '/chat/completions');
     const headers = { Authorization: `Bearer ${cfg.apiKey}`, 'Content-Type': 'application/json' };
     const tools = [{ type: 'function', function: { name: tool.name, description: tool.description, parameters: tool.inputSchema } }];
     const firstBody = {
       model: cfg.model,
-      messages: [{ role: 'system', content: 'Call the required ping tool now.' }, { role: 'user', content: 'Run the connection test.' }],
+      messages: [{ role: 'system', content: `${skill.instructions}\n\nCall the required ping tool now.` }, { role: 'user', content: 'Run the connection test.' }],
       tools,
     };
     const first = await request(url, headers, firstBody);
     const call = parseOpenAICall(first);
-    const result = await GoPainterAgentTools.executeTool(call.name, call.input, { skillId: 'agent-setup', allowedTools: ['ping'] });
+    const result = await GoPainterAgentTools.executeTool(call.name, call.input, { skillId: skill.id, allowedTools: skill.tools });
     const second = await request(url, headers, {
       model: cfg.model,
       messages: [...firstBody.messages, call.assistantMessage, {
@@ -91,19 +91,19 @@
     return { protocol: PROTOCOLS.OPENAI_CHAT, tool: call.name, result, reply: second.choices?.[0]?.message?.content || '' };
   }
 
-  async function testAnthropic(cfg, tool) {
+  async function testAnthropic(cfg, tool, skill) {
     const url = apiURL(cfg.baseURL, '/messages');
     const headers = { 'x-api-key': cfg.apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' };
     const tools = [{ name: tool.name, description: tool.description, input_schema: tool.inputSchema }];
     const firstBody = {
-      model: cfg.model, max_tokens: 64, system: 'Call the required ping tool now.',
+      model: cfg.model, max_tokens: 64, system: `${skill.instructions}\n\nCall the required ping tool now.`,
       messages: [{ role: 'user', content: 'Run the connection test.' }], tools,
       tool_choice: { type: 'tool', name: tool.name },
     };
     const first = await request(url, headers, firstBody);
     const use = first.content?.find((part) => part.type === 'tool_use' && part.name === tool.name);
     if (!use) throw new Error('模型未按要求调用 ping 工具');
-    const result = await GoPainterAgentTools.executeTool(use.name, use.input || {}, { skillId: 'agent-setup', allowedTools: ['ping'] });
+    const result = await GoPainterAgentTools.executeTool(use.name, use.input || {}, { skillId: skill.id, allowedTools: skill.tools });
     const second = await request(url, headers, {
       ...firstBody,
       messages: [...firstBody.messages, { role: 'assistant', content: first.content }, {
@@ -116,10 +116,12 @@
 
   async function testToolCalling(cfg) {
     if (!cfg?.baseURL || !cfg?.apiKey || !cfg?.model) throw new Error('请填写 Base URL、API Key 和模型');
-    const tool = GoPainterAgentTools.getTool('ping');
+    const skill = await GoPainterAgentSkills.load('agent-setup');
+    if (!skill) throw new Error('agent-setup skill 不存在');
+    const [tool] = GoPainterAgentTools.list(skill.tools, skill.id);
     try {
-      if (cfg.protocol === PROTOCOLS.OPENAI_CHAT) return testOpenAI(cfg, tool);
-      if (cfg.protocol === PROTOCOLS.ANTHROPIC_MESSAGES) return testAnthropic(cfg, tool);
+      if (cfg.protocol === PROTOCOLS.OPENAI_CHAT) return testOpenAI(cfg, tool, skill);
+      if (cfg.protocol === PROTOCOLS.ANTHROPIC_MESSAGES) return testAnthropic(cfg, tool, skill);
     } catch (error) {
       if (/HTTP 404/.test(error.message)) {
         const expected = cfg.protocol === PROTOCOLS.ANTHROPIC_MESSAGES
@@ -160,6 +162,7 @@
       addToolResults(reply, results) {
         messages.push(reply.assistantMessage, ...results.map((result) => ({ role: 'tool', tool_call_id: result.id, content: compactJSON(result.output) })));
       },
+      addAssistantReply(reply) { messages.push(reply.assistantMessage); },
       addUserText(text) { messages.push({ role: 'user', content: text }); },
     };
   }
@@ -184,6 +187,7 @@
       addToolResults(reply, results) {
         messages.push(reply.assistantMessage, { role: 'user', content: results.map((result) => ({ type: 'tool_result', tool_use_id: result.id, content: compactJSON(result.output) })) });
       },
+      addAssistantReply(reply) { messages.push(reply.assistantMessage); },
       addUserText(text) { messages.push({ role: 'user', content: text }); },
     };
   }

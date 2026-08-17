@@ -137,6 +137,38 @@ func jsDslEval(_ js.Value, args []js.Value) any {
 	return string(out)
 }
 
+// goAgentRegexTest(patternsJSON, samplesJSON) -> 生产 Go RE2 编译与匹配结果。
+func jsAgentRegexTest(_ js.Value, args []js.Value) any {
+	if len(args) < 2 {
+		return jsError("agentRegexTest(patternsJSON, samplesJSON) 需要两个参数")
+	}
+	var patterns, samples []string
+	if err := json.Unmarshal([]byte(args[0].String()), &patterns); err != nil {
+		return jsError("正则数组 JSON 解析失败: %s", err)
+	}
+	if err := json.Unmarshal([]byte(args[1].String()), &samples); err != nil {
+		return jsError("样本数组 JSON 解析失败: %s", err)
+	}
+	out, _ := json.Marshal(map[string]any{"backend": engine.RegexBackendName(), "results": engine.TestRegexPatterns(patterns, samples)})
+	return string(out)
+}
+
+// goAgentWordTest(wordsJSON, samplesJSON, condition, negative) -> 原生 word matcher 结果。
+func jsAgentWordTest(_ js.Value, args []js.Value) any {
+	if len(args) < 4 {
+		return jsError("agentWordTest(wordsJSON, samplesJSON, condition, negative) 需要四个参数")
+	}
+	var words, samples []string
+	if err := json.Unmarshal([]byte(args[0].String()), &words); err != nil {
+		return jsError("word 数组 JSON 解析失败: %s", err)
+	}
+	if err := json.Unmarshal([]byte(args[1].String()), &samples); err != nil {
+		return jsError("样本数组 JSON 解析失败: %s", err)
+	}
+	out, _ := json.Marshal(map[string]any{"results": engine.TestWordMatcher(words, samples, args[2].String(), args[3].Bool())})
+	return string(out)
+}
+
 func registerJSExports() {
 	g := js.Global()
 	g.Set("goRegexBackend", js.FuncOf(func(this js.Value, args []js.Value) any { return engine.RegexBackendName() }))
@@ -148,6 +180,8 @@ func registerJSExports() {
 	g.Set("goConvertWappalyzer", js.FuncOf(jsConvertWappalyzer))
 	g.Set("goConvertEHole", js.FuncOf(jsConvertEHole))
 	g.Set("goDslEval", js.FuncOf(jsDslEval))
+	g.Set("goAgentRegexTest", js.FuncOf(jsAgentRegexTest))
+	g.Set("goAgentWordTest", js.FuncOf(jsAgentWordTest))
 	g.Set("goCrawlStart", js.FuncOf(jsCrawlStart))
 	g.Set("goCrawlBatch", js.FuncOf(jsCrawlBatch))
 	g.Set("goCrawlFeed", js.FuncOf(jsCrawlFeed))

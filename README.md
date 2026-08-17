@@ -8,9 +8,9 @@ GoPainter provides the detection and crawling engine. Rules can come from your o
 
 While you browse, GoPainter fingerprints the current site automatically and surfaces hits in real time: the toolbar icon stays gray when nothing matches, and turns colored with a badge showing the hit count when it does.
 
-## Current release: v0.6.2
+## Current release: v0.6.3
 
-This release expands rule-set management: multiple sets can participate in matching, editing stays scoped to one selected set, and conflicting imports or AI updates require an explicit YAML diff decision before replacement. It also fixes nuclei template imports, moves large rule-set activation work off the settings-page main thread, and adds YAML export for the current editing set. The latest published performance measurements remain available in the [performance record](BENCHMARK.md).
+This release rebuilds Agent research around a single-session native tool loop: the model decides whether to continue gathering evidence or return its final artifact, bounded only by the configured turn limit. Executable Skill packages now load canonical `SKILL.md` instructions, enforce bidirectional tool permissions, and expose Go/WASM-backed word, RE2, DSL, and complete-rule validation. Read-only tools run concurrently with a limit of five, while network access remains explicitly permission-gated. The latest published performance measurements remain available in the [performance record](BENCHMARK.md).
 
 ## Features
 

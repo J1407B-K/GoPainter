@@ -171,6 +171,21 @@ console.log('dsl =', JSON.stringify(dslOut));
 pass &&= JSON.stringify(dslOut.results) === JSON.stringify([true, true, true, true, true, false, false, true])
   && dslOut.errors[5] !== '' && dslOut.errors[6] !== '';
 
+// Agent 原生 matcher tools：必须走生产 go-re2 / word 语义，而不是 JS 模拟。
+const regexTool = JSON.parse(globalThis.goAgentRegexTest(
+  JSON.stringify(['data-react(root|id)']),
+  JSON.stringify(['DATA-REACTROOT', 'other']),
+));
+const wordTool = JSON.parse(globalThis.goAgentWordTest(
+  JSON.stringify(['server:', 'nginx']), JSON.stringify(['Server: NGINX', 'nginx']), 'and', false,
+));
+console.log('agentTools =', JSON.stringify({ regexTool, wordTool }));
+pass &&= regexTool.backend === 'go-re2'
+  && regexTool.results[0].valid === true
+  && regexTool.results[0].matches[0].matched === true
+  && wordTool.results[0].matched === true
+  && wordTool.results[1].matched === false;
+
 // dsl 也走 matcher 通道（nuclei 模板里的 dsl 会被转换过来）
 const dslRules = [{
   id: 'dsl-test', name: 'DSL Test',

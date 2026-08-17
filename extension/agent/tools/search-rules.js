@@ -70,7 +70,7 @@ GoPainterAgentTools.register({
   name: 'search_rules',
   description: '搜索当前编辑规则集或全部命名规则集中的规则 ID、名称和 matcher 内容，避免生成重复规则。',
   inputSchema: { type: 'object', properties: { query: { type: 'string', minLength: 1 }, scope: { type: 'string', enum: ['active', 'all'] }, limit: { type: 'integer', minimum: 1, maximum: 30 } }, required: ['query'], additionalProperties: false },
-  effect: 'read', permission: 'auto', annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, skillIds: ['fingerprint-research'],
+  effect: 'read', permission: 'auto', annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, skillIds: ['fingerprint-research', 'gopainter-word-matcher', 'gopainter-regex-matcher', 'gopainter-runtime-matcher'],
   validate(input) {
     const query = GoPainterAgentPage.string(input?.query).trim().toLowerCase();
     if (!query) throw new Error('query 不能为空');

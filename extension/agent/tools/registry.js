@@ -2,11 +2,32 @@
 (() => {
   const tools = new Map();
 
+  function deepFreeze(value, seen = new WeakSet()) {
+    if (!value || typeof value !== 'object' || seen.has(value)) return value;
+    seen.add(value);
+    for (const child of Object.values(value)) deepFreeze(child, seen);
+    return Object.freeze(value);
+  }
+
   function register(tool) {
     if (!tool?.name || typeof tool.execute !== 'function' || typeof tool.validate !== 'function' || !tool.inputSchema
       || !Array.isArray(tool.skillIds) || !tool.skillIds.length) throw new Error('无效 Agent 工具声明');
+    if (tool.skillIds.some((id) => typeof id !== 'string' || !id) || new Set(tool.skillIds).size !== tool.skillIds.length) {
+      throw new Error(`Agent 工具 ${tool.name} 的 skillIds 无效`);
+    }
+    if (!['auto', 'confirm'].includes(tool.permission) || !['read', 'network', 'write'].includes(tool.effect)) {
+      throw new Error(`Agent 工具 ${tool.name} 的权限分级无效`);
+    }
+    if (tool.effect !== 'read' && tool.permission !== 'confirm') {
+      throw new Error(`Agent 工具 ${tool.name} 的 ${tool.effect} 操作必须经过用户确认`);
+    }
     if (tools.has(tool.name)) throw new Error(`重复注册 Agent 工具：${tool.name}`);
-    tools.set(tool.name, Object.freeze(tool));
+    tools.set(tool.name, Object.freeze({
+      ...tool,
+      skillIds: Object.freeze([...tool.skillIds]),
+      inputSchema: deepFreeze(tool.inputSchema),
+      annotations: deepFreeze({ ...(tool.annotations || {}) }),
+    }));
   }
 
   function getTool(name) { return tools.get(name) || null; }
