@@ -1,10 +1,13 @@
 # GoPainter 🎨
 
 [![CI](https://img.shields.io/github/actions/workflow/status/J1407B-K/GoPainter/ci.yml?branch=master&style=flat-square&label=CI)](https://github.com/J1407B-K/GoPainter/actions/workflows/ci.yml)
+[![CodeFactor](https://www.codefactor.io/repository/github/j1407b-k/gopainter/badge)](https://www.codefactor.io/repository/github/j1407b-k/gopainter)
 [![Release](https://img.shields.io/github/v/release/J1407B-K/GoPainter?style=flat-square)](https://github.com/J1407B-K/GoPainter/releases/latest)
 [![License](https://img.shields.io/github/license/J1407B-K/GoPainter?style=flat-square)](./LICENSE)
 ![Go WASM](https://img.shields.io/badge/Go-WASM-00ADD8?style=flat-square&logo=go&logoColor=white)
 ![Chrome Extension](https://img.shields.io/badge/Chrome-Extension-4285F4?style=flat-square&logo=googlechrome&logoColor=white)
+
+> **项目目标：**在持续增加能力的同时保持小而美、快速且可审计。新增实现应守住 Go Core / JavaScript Host 边界，解决真实维护问题，不为指标拆碎内聚的领域语义。
 
 [English](./README.md) | **简体中文** · [示例规则](./rules/examples.yaml)
 
