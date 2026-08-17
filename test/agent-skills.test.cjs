@@ -118,9 +118,10 @@ test('background composition root loads every Host module and rejects duplicate 
   assert.doesNotMatch(background, /switch\s*\(msg\.type\)/);
 });
 
-test('Stable extension manifest does not require the Dev-only chrome.dns permission', () => {
+test('Stable extension and fetch tool do not depend on the Dev-only chrome.dns API', () => {
   const manifest = JSON.parse(read(path.join(root, 'extension', 'manifest.json')));
   assert.equal(manifest.permissions.includes('dns'), false);
+  assert.doesNotMatch(read(path.join(toolsRoot, 'fetch-url.js')), /chrome\.dns|dnsCheck|resolvePublic/);
 });
 
 test('Go-backed skill tools reference exports registered by the WASM bridge', () => {
@@ -214,13 +215,11 @@ test('validate_rule rejects silently normalized or unsupported candidates', asyn
   assert.equal(JSON.stringify(result).includes('artifact'), false);
 });
 
-function loadFetchURLTool({ address = '93.184.216.34', fetchImpl, dns = true, dnsError = '' }) {
-  const chrome = { runtime: dnsError ? { lastError: { message: dnsError } } : {} };
-  if (dns) chrome.dns = { resolve: (_hostname, callback) => callback({ resultCode: 0, address }) };
+function loadFetchURLTool({ fetchImpl }) {
   const context = {
     console, Object, Number, Set, Map, JSON, URL, AbortController, TextDecoder, Uint8Array, setTimeout, clearTimeout,
     fetch: fetchImpl,
-    chrome,
+    chrome: { runtime: {} },
   };
   context.globalThis = context;
   for (const file of ['registry.js', 'page-context.js', 'fetch-url.js']) {
@@ -240,7 +239,7 @@ function response({ status = 200, headers = {}, body = '' }) {
   };
 }
 
-test('fetch_url blocks local targets and DNS answers before making a request', async () => {
+test('fetch_url blocks explicit local and private targets before making a request', () => {
   let fetches = 0;
   const direct = loadFetchURLTool({ fetchImpl: async () => { fetches++; return response({}); } });
   const tool = direct.GoPainterAgentTools.getTool('fetch_url');
@@ -253,11 +252,6 @@ test('fetch_url blocks local targets and DNS answers before making a request', a
   }
   assert.equal(direct.GoPainterAgentFetchURL.addressBlocked('203.0.114.8'), false);
   assert.equal(direct.GoPainterAgentFetchURL.addressBlocked('203.0.113.8'), true);
-
-  const privateDNS = loadFetchURLTool({ address: '192.168.1.10', fetchImpl: async () => { fetches++; return response({}); } });
-  await assert.rejects(privateDNS.GoPainterAgentTools.executeTool('fetch_url', { url: 'https://docs.example.test/' }, {
-    skillId: 'fingerprint-research', allowedTools: ['fetch_url'], grants: ['fetch_url:https://docs.example.test'],
-  }), /DNS 结果/);
   assert.equal(fetches, 0);
 });
 
@@ -289,9 +283,8 @@ test('fetch_url scopes grants by origin and reauthorizes cross-origin redirects'
   }), /只允许 HTTPS/);
 });
 
-test('fetch_url works without chrome.dns and returns bounded readable text', async () => {
+test('fetch_url returns bounded readable text', async () => {
   const publicPage = loadFetchURLTool({
-    dns: false,
     fetchImpl: async () => response({
       headers: { 'content-type': 'text/html; charset=utf-8' },
       body: '<html><title>Official React docs</title><style>ignore</style><main><h1>React</h1><p>React creates user interfaces.</p></main></html>',
@@ -303,18 +296,7 @@ test('fetch_url works without chrome.dns and returns bounded readable text', asy
   assert.equal(result.title, 'Official React docs');
   assert.match(result.text, /React creates user interfaces/);
   assert.doesNotMatch(result.text, /ignore/);
-  assert.equal(result.dnsCheck, 'unavailable');
   assert.equal(result.untrusted, true);
-
-  const unusableDNS = loadFetchURLTool({
-    dnsError: 'The dns permission is unavailable',
-    fetchImpl: async () => response({ headers: { 'content-type': 'text/plain' }, body: 'ok' }),
-  });
-  const fallback = await unusableDNS.GoPainterAgentTools.executeTool('fetch_url', { url: 'https://docs.example.test/fallback' }, {
-    skillId: 'fingerprint-research', allowedTools: ['fetch_url'], grants: ['fetch_url:https://docs.example.test'],
-  });
-  assert.equal(fallback.text, 'ok');
-  assert.equal(fallback.dnsCheck, 'unavailable');
 
   for (const badResponse of [
     response({ headers: { 'content-type': 'application/octet-stream' }, body: 'binary' }),

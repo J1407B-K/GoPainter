@@ -47,25 +47,6 @@
     return url;
   }
 
-  async function resolvePublic(hostname) {
-    const literal = ipv4Blocked(hostname);
-    if (literal !== null || hostname.includes(':')) {
-      if (addressBlocked(hostname)) throw new Error('不允许访问私有、本地或保留地址');
-      return true;
-    }
-    // chrome.dns 未向 Stable Chrome 普遍开放，只能作为可选的纵深防御，不能作为可用性前提。
-    if (!globalThis.chrome?.dns?.resolve) return false;
-    const result = await new Promise((resolve) => {
-      chrome.dns.resolve(hostname, (answer) => {
-        const error = chrome.runtime?.lastError;
-        resolve(error ? null : (answer || null));
-      });
-    });
-    if (!result || result.resultCode !== 0 || !result.address) return false;
-    if (addressBlocked(result.address)) throw new Error('DNS 结果指向私有、本地或保留地址');
-    return true;
-  }
-
   async function readBounded(response, maxBytes) {
     const declared = Number(response.headers.get('content-length') || 0);
     if (declared > maxBytes) throw new Error(`响应体超过 ${maxBytes} 字节上限`);
@@ -116,7 +97,6 @@
   async function fetchPublic(startURL, context = {}) {
     const signal = context?.signal;
     let current = validateURL(startURL);
-    let dnsChecked = true;
     const controller = new AbortController();
     const abort = () => controller.abort();
     if (signal?.aborted) controller.abort();
@@ -124,7 +104,6 @@
     const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
     try {
       for (let redirects = 0; redirects <= MAX_REDIRECTS; redirects++) {
-        dnsChecked = (await resolvePublic(current.hostname.replace(/^\[|\]$/g, ''))) && dnsChecked;
         const response = await fetch(current.href, {
           method: 'GET', redirect: 'manual', signal: controller.signal,
           headers: { Accept: 'text/html,text/plain,application/json,application/xml,text/xml;q=0.9,*/*;q=0.1' },
@@ -152,7 +131,6 @@
           url: current.href, status: response.status, contentType, bytes: bytes.byteLength,
           title: typeof content === 'string' ? '' : content.title,
           text: typeof content === 'string' ? content : content.text,
-          dnsCheck: dnsChecked ? 'performed' : 'unavailable',
           untrusted: true,
         };
       }
