@@ -40,8 +40,8 @@ test('large UI collections are filtered and compacted without returning the full
   const snapshot = popupResultSnapshot({ faviconHashes: Array(30).fill(1) }, { hits }, 123);
   assert.equal(snapshot.result.totalHits, 200);
   assert.equal(snapshot.result.hits.length, 100);
-  assert.equal(snapshot.result.hits[0].evidence.length, 20);
-  assert.equal(snapshot.result.hits[0].evidence[0].detail.length, 500);
+  assert.equal(snapshot.result.hits[0].evidence.length, 6);
+  assert.equal(snapshot.result.hits[0].evidence[0].detail.length, 240);
   assert.equal(snapshot.features.faviconHashes.length, 20);
   const agent = agentPageSnapshot({
     url: 'https://example.test', body: 'x'.repeat(200_000),

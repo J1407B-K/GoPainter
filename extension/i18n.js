@@ -4,6 +4,7 @@
   const LOCALE_KEY = 'uiLocale';
   const DEFAULT_LOCALE = 'zh-CN';
   let locale = DEFAULT_LOCALE;
+  let localeWriteVersion = 0;
   const originals = new WeakMap();
   const attributeOriginals = new WeakMap();
   const translatedNodes = new WeakMap();
@@ -271,73 +272,6 @@
     [/^模型返回了空交付，已回填状态并继续同一会话$/, () => 'The model returned an empty deliverable; status was fed back and the same session continues'],
   ];
 
-  // Last-resort UI fragments for messages composed by legacy template strings.
-  // Keep these specific enough that fingerprint names and page content are untouched.
-  const fragments = [
-    ['规则集', 'rule set'], ['规则', 'rule'], ['指纹', 'fingerprint'], ['置信度', 'confidence'],
-    ['扫描历史', 'scan history'], ['自定义哈希', 'custom hashes'], ['内置规则库', 'built-in rules'],
-    ['当前编辑集', 'active rule set'], ['规则版本', 'rule version'], ['规则 ID', 'rule ID'],
-    ['匹配规则', 'matching rules'], ['技术名', 'technology name'], ['生效版本', 'effective version'],
-    ['重复规则 ID', 'duplicate rule IDs'], ['全部规则集', 'all rule sets'], ['规则详情', 'rule details'],
-    ['规则冲突', 'rule conflict'], ['保留旧版', 'keep existing'], ['保留旧规则', 'keep existing'],
-    ['覆盖规则', 'replace rule'], ['覆盖当前规则', 'replace current rule'], ['导入完成', 'import complete'],
-    ['导入失败', 'import failed'], ['拉取失败', 'fetch failed'], ['拉取中…', 'fetching…'], ['转换中…', 'converting…'],
-    ['已取消导入', 'import cancelled'], ['没有修改当前编辑集', 'the active rule set was not changed'],
-    ['新增', 'added'], ['替换', 'replaced'], ['保留', 'kept'], ['未变化', 'unchanged'],
-    ['已导出', 'exported'], ['已保存', 'saved'], ['已清空', 'cleared'], ['已删除', 'deleted'],
-    ['已启用', 'enabled'], ['启用中…', 'enabling…'], ['切换中…', 'switching…'], ['已切换到', 'switched to'],
-    ['正在加载', 'loading'], ['正在体检', 'checking'], ['体检失败', 'health check failed'],
-    ['无效正则', 'invalid regex'], ['无锚点', 'no anchor'], ['短锚点榜', 'short anchor list'], ['长锚点榜', 'long anchor list'],
-    ['最弱分支代表锚点', 'representative anchor in weakest branch'], ['个字母/数字', ' alphanumeric characters'],
-    ['生产引擎无法解析', 'not parseable by production engine'], ['实际跳过数取决于页面内容', 'actual skips depend on page content'],
-    ['参与匹配', 'used for matching'], ['最终生效', 'effective'], ['被覆盖', 'overridden'],
-    ['抓取失败', 'fetch failed'], ['爬取中', 'crawling'], ['已中断', 'interrupted'], ['未识别', 'no match'],
-    ['未知错误', 'unknown error'], ['未知时间', 'unknown time'], ['最新记录在前', 'newest first'],
-    ['仅显示最新', 'showing newest'], ['仅显示前', 'showing first'], ['显示前', 'showing first'],
-    ['书签', 'bookmarks'], ['分类', 'classification'], ['整理中…', 'organizing…'], ['出错：', 'Error: '],
-    ['已选', 'selected'], ['全选', 'select all'], ['命中', 'matched'], ['失败', 'failed'],
-    ['开始爬取', 'start crawl'], ['停止', 'stop'], ['最大页数', 'maximum pages'], ['起始 URL', 'start URL'],
-    ['任务被系统中断', 'task interrupted by the system'], ['已保留', 'retained'], ['发现链接去重中…', 'deduplicating discovered links…'],
-    ['测试中：', 'testing: '], ['验证成功：', 'verified: '], ['验证失败：', 'verification failed: '],
-    ['测试未完成', 'test did not complete'], ['保存 AI 配置', 'save AI settings'], ['恢复默认', 'restore default'],
-    ['生成失败：', 'generation failed: '], ['优化失败：', 'optimization failed: '], ['生成中…', 'generating…'], ['优化中…', 'optimizing…'],
-    ['新建规则', 'new rule'], ['优化规则：', 'optimize rule: '], ['新建规则：', 'new rule: '],
-    ['执行记录', 'execution log'], ['不含模型私有推理', 'excluding private model reasoning'], ['第 ', 'Step '], [' 步', ''],
-    ['需要授权', 'permission required'], ['本次会话', 'this session'], ['允许此来源', 'allow this origin'],
-    ['请刷新后重试', 'refresh and try again'], ['请填写', 'enter '], ['不能为空', 'cannot be empty'],
-    ['（空）', '(empty)'], ['（无标题）', '(untitled)'], ['（当前生效）', '(currently effective)'],
-    ['条规则', ' rules'], ['条扫描记录', ' scan records'], ['条自定义哈希', ' custom hashes'], ['页结果', ' page results'],
-    [' 页', ' pages'], [' 条', ' entries'], [' 个', ''], ['项', 'items'], ['成功', 'succeeded'], ['结束：', 'Finished: '],
-    ['文件超过 5MB，跳过了', 'file exceeds 5 MB; skipped'], ['YAML 里没有有效规则', 'YAML contains no valid rules'],
-    ['finger.json 不是数组格式', 'finger.json is not an array'], ['finger.json 解析失败', 'finger.json parse failed'],
-    ['finger.json 已拉取，但没有转换出有效规则', 'finger.json was fetched but produced no valid rules'],
-    ['后台转换无响应', 'background conversion did not respond'], ['列目录失败', 'directory listing failed'],
-    ['可能触发了 GitHub 限流，过会儿再试', 'GitHub rate limiting may apply; try again later'],
-    ['目录中没有找到可导入的 YAML 模板', 'no importable YAML templates were found in this directory'],
-    ['模板文件下载完成，但没有解析出 YAML 文档', 'template download completed but no YAML documents could be parsed'],
-    ['确定清空当前编辑集中的所有规则？', 'Clear every rule in the active rule set?'],
-    ['确定清空全部扫描历史？此操作无法撤销。', 'Clear all scan history? This cannot be undone.'],
-    ['最大页数要么留空，要么填正整数', 'maximum pages must be blank or a positive integer'],
-    ['最大页数要么是空，要么是正整数', 'maximum pages must be blank or a positive integer'],
-    ['上次验证成功：', 'Last verification succeeded: '], ['默认提示词：', 'Default prompt:'],
-    ['工具调用测试会发送两次极短 API 请求，可能产生 token/API 费用；仅调用本地无副作用的', 'Tool-call testing sends two very small API requests and may incur token/API costs; it only calls the local, side-effect-free'],
-    ['当前页面不支持分析（仅 http/https）', 'This page cannot be analyzed (http/https only)'],
-    ['尚未采集到页面特征', 'Page features are not available yet'], ['请刷新页面后重试', 'Refresh the page and try again'],
-    ['尚未导入任何规则', 'No rules have been imported'], ['未命中任何规则', 'No rules matched'],
-    ['可点击下方 AI 辅助识别', 'Use AI-assisted identification below'], ['可在设置里调低阈值', 'Lower the threshold in Settings'],
-    ['个命中都低于置信度阈值', 'matches are below the confidence threshold'],
-    ['优化此规则', 'Optimize this rule'], ['新建规则', 'New rule'], ['覆盖入库', 'Replace in rule set'],
-    ['生成失败：', 'Generation failed: '], ['优化失败：', 'Optimization failed: '], ['入库失败：', 'Failed to add rule: '],
-    ['执行记录', 'Execution log'], ['当前 AI 无合理优化建议', 'The AI has no reasonable optimization suggestion'],
-    ['Agent 已完成', 'Agent completed'], ['Agent 未完成', 'Agent did not complete'],
-    ['Agent 请求联网搜索公开网页', 'Agent requests a web search for public pages'], ['搜索词：', 'Search query: '],
-    ['搜索结果属于外部不可信内容，并会产生一次网络请求。', 'Search results are untrusted external content and this makes one network request.'],
-    ['Agent 请求读取 HTTPS 页面：', 'Agent requests to read an HTTPS page:'], ['只执行有界 GET；外部内容不可信。', 'Only a bounded GET is performed; external content is untrusted.'],
-    ['拒绝显式本地/私有地址，并尽力降低 SSRF 风险，但浏览器 fetch 无法提供 DNS pinning。', 'Explicit local/private addresses are rejected and SSRF risk is reduced where possible, but browser fetch cannot provide DNS pinning.'],
-    ['会话记忆仅适用于', 'Session memory applies only to '], ['这个来源', 'this origin'],
-    ['Agent 请求调用工具', 'Agent requests to call tool'], ['该调用需要你的明确授权。', 'This call requires your explicit permission.'],
-  ];
-
   const attrs = {
     '筛选重复规则 ID': 'Filter duplicate rule IDs', '新规则集名称': 'New rule set name',
     '筛选规则 ID 或名称': 'Filter rule ID or name', '0': '0',
@@ -415,6 +349,7 @@
 
   async function setLocale(next) {
     locale = next === 'en' ? 'en' : DEFAULT_LOCALE;
+    localeWriteVersion++;
     apply();
     window.dispatchEvent(new CustomEvent('gopainter:localechange'));
     await chrome.storage.local.set({ [LOCALE_KEY]: locale });
@@ -427,12 +362,15 @@
   });
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area === 'local' && changes[LOCALE_KEY]) {
-      locale = changes[LOCALE_KEY].newValue === 'en' ? 'en' : DEFAULT_LOCALE;
+      const next = changes[LOCALE_KEY].newValue === 'en' ? 'en' : DEFAULT_LOCALE;
+      if (next === locale) return;
+      locale = next;
       apply();
       window.dispatchEvent(new CustomEvent('gopainter:localechange'));
     }
   });
   chrome.storage.local.get(LOCALE_KEY).then((stored) => {
+    if (localeWriteVersion) return;
     locale = stored[LOCALE_KEY] === 'en' ? 'en' : DEFAULT_LOCALE;
     apply();
   });

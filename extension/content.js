@@ -141,21 +141,28 @@
       }
     } catch { /* background 没起来就裸采 */ }
 
-    chrome.runtime.sendMessage(
-      {
-        type: 'pageFeatures',
-        features: {
-          url: location.href,
-          title: document.title || '',
-          // 真正有界的序列化；不能先 outerHTML 再 slice，否则超大页面仍会阻塞主线程。
-          body: serializeDocumentPrefix(),
-          favicon,
-          js,
-          domHits,
-        },
-      },
-      () => void chrome.runtime.lastError // SW 没起来之类的就不管了
-    );
+    sendFeatures({
+      url: location.href,
+      title: document.title || '',
+      // 真正有界的序列化；不能先 outerHTML 再 slice，否则超大页面仍会阻塞主线程。
+      body: serializeDocumentPrefix(),
+      favicon,
+      js,
+      domHits,
+    });
+  }
+
+  function sendFeatures(features) {
+    chrome.runtime.sendMessage({ type: 'pageFeatures', features }, (response) => {
+      if (chrome.runtime.lastError || !response?.retryAfter) return;
+      // The background kept its bounded queue full of still-current tabs.
+      // Reuse the already bounded snapshot rather than re-running DOM/JS
+      // probes. If SPA navigation changed the URL meanwhile, collect anew.
+      setTimeout(() => {
+        if (location.href === features.url) sendFeatures(features);
+        else report();
+      }, response.retryAfter);
+    });
   }
 
   report();

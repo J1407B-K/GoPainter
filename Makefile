@@ -4,7 +4,7 @@
 WASM_OUT := extension/wasm/matcher.wasm
 EXEC_JS  := extension/wasm/wasm_exec.js
 
-.PHONY: build build-tinygo build-go build-go-stdlib build-go-re2 icons test test-go test-go-stdlib test-go-re2 test-js bench-js bench-regex clean
+.PHONY: build build-tinygo build-go build-go-stdlib build-go-re2 icons test test-go test-go-stdlib test-go-re2 test-js bench-js bench-regex bench-chromium clean
 
 icons:
 	node scripts/generate-icons.mjs
@@ -31,6 +31,9 @@ bench-js:
 # 独立比较浏览器 WASM 下可用的 regex 后端；不改变生产引擎。
 bench-regex:
 	GOOS=js GOARCH=wasm go test -run '^$$' -bench '^BenchmarkRegexBackends' -benchmem -count=5 -exec "node --stack-size=8192 $$(go env GOROOT)/lib/wasm/wasm_exec_node.js" ./wasm/engine
+
+bench-chromium:
+	node scripts/bench-chromium.mjs
 
 test:
 	$(MAKE) test-go

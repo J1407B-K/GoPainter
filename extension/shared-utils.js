@@ -68,10 +68,10 @@
       name: hit.name,
       confidence: hit.confidence,
       source: hit.source,
-      evidence: (hit.evidence || []).slice(0, 20).map((item) => ({
+      evidence: (hit.evidence || []).slice(0, 6).map((item) => ({
         type: item.type || item.matcher,
         part: item.part || item.location,
-        detail: String(item.detail ?? item.matched ?? '').slice(0, 500),
+        detail: String(item.detail ?? item.matched ?? '').slice(0, 240),
       })),
     }));
     return {

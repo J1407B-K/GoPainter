@@ -2,6 +2,22 @@
 
 这是项目的长期性能档案。每一次重要性能改动、所用负载、取舍和复现命令都应记录在这里。它不是收集微基准的地方，而是让后续设计决策可以被复核的依据。
 
+## v0.6.8 —— Chromium 多标签页资源边界
+
+v0.6.8 用真实 Chromium，而不是只靠源码层的队列断言，完成多标签页资源加固验证。压测使用全新 profile，通过 CDP 加载 unpacked 扩展；每页提供 10 个刻意放慢且互不相同的 favicon 响应，并在运行期间轮询 extension service worker。它检查扫描 / favicon 的活动与等待队列、`storage.session` 用量、storage error、stale result commit、每 tab 孤儿 key，以及所有仍打开标签页的最终结果。
+
+首次 50 标签页压测暴露了一个真实丢工作问题：队列满时淘汰仍有效的 scan，会使对应 tab 没有结果。最终实现保留有界队列，并让 content script 复用已受限的特征快照后重试；以下是修复后的实测数据。
+
+| 全新 profile Chromium 负载 | 存活标签 | 扫描 active / pending 峰值 | Favicon active / pending 峰值 | Session 峰值字节 | Storage error / stale commit / 孤儿 key | 有最终结果的存活标签 |
+|---|---:|---:|---:|---:|---:|---:|
+| 30 个标签页 | 30 | 3 / 26 | 6 / 74 | 125,792 | 0 / 0 / 0 | 30 / 30 |
+| 50 个标签页 | 50 | 3 / 32 | 6 / 97 | 200,960 | 0 / 0 / 0 | 50 / 50 |
+| 30 个标签页；10 个快速 SPA 路由；10 个立即关闭 | 20 | 3 / 18 | 6 / 197 | 104,688 | 0 / 0 / 0 | 20 / 20 |
+
+全部运行均保持在发布边界内：scan active ≤3、scan pending ≤32、favicon active ≤6、favicon pending ≤256，且页面快照 session storage ≤6,500,000 字节。这只证明资源与生命周期行为，不代表识别准确率。
+
+使用 `make build && make bench-chromium` 复现（需要本机 Chrome）。
+
 ## v0.6.4 —— 受限的 Host 运行时与规则体检
 
 v0.6.4 继续让 JavaScript 负责浏览器 I/O 编排，但移除了单体 service worker 控制路径。

@@ -2,10 +2,94 @@
 
 const MAX_ICON_BYTES = 200_000;
 const MAX_ICON_URLS = 64;
+const MAX_ICON_FETCH_CONCURRENCY = 6;
+const MAX_ICON_FETCH_QUEUE = 256;
+const MAX_ICON_REDIRECTS = 3;
+const ICON_BLOCKED_HOSTS = new Set(['localhost', 'localhost.localdomain', 'ip6-localhost', 'ip6-loopback']);
+let activeIconFetches = 0;
+const iconFetchQueue = [];
 
-async function readBoundedIcon(response) {
+function iconTaskIsStale(isStale) {
+  try { return Boolean(isStale?.()); } catch { return true; }
+}
+
+function ipv4IsBlocked(address) {
+  const parts = address.split('.');
+  if (parts.length !== 4 || parts.some((part) => !/^\d{1,3}$/.test(part) || Number(part) > 255)) return null;
+  const [a, b, c] = parts.map(Number);
+  return a === 0 || a === 10 || a === 127 || a >= 224
+    || (a === 100 && b >= 64 && b <= 127)
+    || (a === 169 && b === 254)
+    || (a === 172 && b >= 16 && b <= 31)
+    || (a === 192 && b === 168)
+    || (a === 192 && b === 0 && [0, 2].includes(c))
+    || (a === 192 && b === 88 && c === 99)
+    || (a === 198 && (b === 18 || b === 19))
+    || (a === 198 && b === 51 && c === 100)
+    || (a === 203 && b === 0 && c === 113);
+}
+
+function ipAddressIsBlocked(rawAddress) {
+  const address = String(rawAddress || '').toLowerCase().replace(/^\[|\]$/g, '').split('%')[0];
+  const ipv4 = ipv4IsBlocked(address);
+  if (ipv4 !== null) return ipv4;
+  if (!address.includes(':')) return true;
+  if (address === '::' || address === '::1' || address.startsWith('fc') || address.startsWith('fd')
+    || /^fe[89ab]/.test(address) || address.startsWith('ff') || address.startsWith('2001:db8:')
+    || address.includes('::ffff:')) return true;
+  const embedded = address.match(/(\d+\.\d+\.\d+\.\d+)$/)?.[1];
+  return embedded ? ipv4IsBlocked(embedded) !== false : false;
+}
+
+function publicIconURL(raw) {
+  let url;
+  try { url = new URL(raw); } catch { return null; }
+  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) return null;
+  const hostname = url.hostname.toLowerCase().replace(/^\[|\]$/g, '').replace(/\.+$/, '');
+  if (!hostname || ICON_BLOCKED_HOSTS.has(hostname) || hostname.endsWith('.localhost') || hostname.endsWith('.local')
+    || hostname.endsWith('.internal') || hostname.endsWith('.home.arpa')) return null;
+  const ipv4 = ipv4IsBlocked(hostname);
+  if (ipv4 === true || (hostname.includes(':') && ipAddressIsBlocked(hostname))) return null;
+  return url;
+}
+
+function drainIconHashQueue() {
+  while (activeIconFetches < MAX_ICON_FETCH_CONCURRENCY && iconFetchQueue.length) {
+    const job = iconFetchQueue.shift();
+    if (iconTaskIsStale(job.isStale)) {
+      job.resolve(0);
+      continue;
+    }
+    activeIconFetches++;
+    hashIconUrl(job.url, job.isStale).then(job.resolve, () => job.resolve(0)).finally(() => {
+      activeIconFetches--;
+      drainIconHashQueue();
+    });
+  }
+}
+
+function discardStaleIconJobs() {
+  for (let index = iconFetchQueue.length - 1; index >= 0; index--) {
+    const job = iconFetchQueue[index];
+    if (!iconTaskIsStale(job.isStale)) continue;
+    iconFetchQueue.splice(index, 1);
+    job.resolve(0);
+  }
+}
+
+function queueIconHash(url, isStale) {
+  discardStaleIconJobs();
+  if (iconTaskIsStale(isStale)) return Promise.resolve(0);
+  if (iconFetchQueue.length >= MAX_ICON_FETCH_QUEUE) return Promise.resolve(0);
+  return new Promise((resolve) => {
+    iconFetchQueue.push({ url, isStale, resolve });
+    drainIconHashQueue();
+  });
+}
+
+async function readBoundedIcon(response, isStale) {
   const contentLength = Number(response.headers.get('content-length'));
-  if (Number.isFinite(contentLength) && contentLength > MAX_ICON_BYTES) return null;
+  if (iconTaskIsStale(isStale) || (Number.isFinite(contentLength) && contentLength > MAX_ICON_BYTES)) return null;
   if (!response.body) return null;
 
   const reader = response.body.getReader();
@@ -13,6 +97,10 @@ async function readBoundedIcon(response) {
   let length = 0;
   try {
     while (true) {
+      if (iconTaskIsStale(isStale)) {
+        await reader.cancel();
+        return null;
+      }
       const { done, value } = await reader.read();
       if (done) break;
       length += value.byteLength;
@@ -35,15 +123,30 @@ async function readBoundedIcon(response) {
   return bytes;
 }
 
-async function hashIconUrl(url) {
-  if (!url || !/^https?:/.test(url)) return 0;
+async function hashIconUrl(url, isStale) {
+  let current = publicIconURL(url);
+  if (!current || iconTaskIsStale(isStale)) return 0;
   // 坏 icon 域可能一直不响应，没有超时整次扫描会被挂住
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 4000);
+  const staleTimer = isStale && setInterval(() => {
+    if (iconTaskIsStale(isStale)) ctrl.abort();
+  }, 100);
   try {
-    const resp = await fetch(url, { signal: ctrl.signal });
+    let resp;
+    for (let redirects = 0; redirects <= MAX_ICON_REDIRECTS; redirects++) {
+      if (iconTaskIsStale(isStale)) return 0;
+      resp = await fetch(current.href, { signal: ctrl.signal, redirect: 'manual', credentials: 'omit' });
+      if (iconTaskIsStale(isStale)) return 0;
+      if (resp.status < 300 || resp.status >= 400) break;
+      if (redirects === MAX_ICON_REDIRECTS) return 0;
+      const location = resp.headers.get('location');
+      if (!location) return 0;
+      current = publicIconURL(new URL(location, current).href);
+      if (!current) return 0;
+    }
     if (!resp.ok) return 0;
-    const buf = await readBoundedIcon(resp);
+    const buf = await readBoundedIcon(resp, isStale);
     if (!buf) return 0;
     // btoa 要求每个字符保留原始字节值；不要用 TextDecoder('latin1')，
     // 浏览器将该标签映射到 Windows-1252，会改写 0x80-0x9f 等字节。
@@ -56,29 +159,24 @@ async function hashIconUrl(url) {
     return 0;
   } finally {
     clearTimeout(timer);
+    if (staleTimer) clearInterval(staleTimer);
   }
 }
 
 // 每个页面只取有限个 icon；匹配是 best-effort，不能让页面把扩展变成无界下载器。
-async function hashIcons(urls) {
+async function hashIcons(urls, isStale) {
   const hashes = new Set();
   const unique = [];
   const seen = new Set();
   for (const url of Array.isArray(urls) ? urls : []) {
     if (unique.length >= MAX_ICON_URLS) break;
-    if (typeof url !== 'string' || !/^https?:/.test(url) || seen.has(url)) continue;
-    seen.add(url);
-    unique.push(url);
+    const parsed = typeof url === 'string' ? publicIconURL(url) : null;
+    if (!parsed || seen.has(parsed.href)) continue;
+    seen.add(parsed.href);
+    unique.push(parsed.href);
   }
-  let next = 0;
-  const worker = async () => {
-    while (next < unique.length) {
-      const u = unique[next++];
-      const h = await hashIconUrl(u);
-      if (h) hashes.add(h);
-    }
-  };
-  await Promise.all(Array.from({ length: Math.min(6, unique.length) }, worker));
+  const values = await Promise.all(unique.map((url) => queueIconHash(url, isStale)));
+  for (const hash of values) if (hash) hashes.add(hash);
   return [...hashes];
 }
 
@@ -299,10 +397,7 @@ async function rescanAllTabs() {
       if (!(await isCurrentTabPage(tabId, val.features.url, navigationVersion))) continue;
       const result = await appendHashHit(val.features, await runMatch(val.features));
       if (!(await isCurrentTabPage(tabId, val.features.url, navigationVersion))) continue;
-      await chrome.storage.session.set({
-        [key]: { ...val, result },
-        ...popupResultEntry(tabId, val.features, result, val.at),
-      });
+      await storePageSession(tabId, val.features, result, val.at);
       await updateIcon(tabId, result.hits?.length || 0);
     } catch { /* 单个 tab 重扫失败就算了 */ }
   }

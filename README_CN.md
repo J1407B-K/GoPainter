@@ -43,9 +43,9 @@ GoPainter 强调可审计结果：每个命中都附带实际匹配的证据，A
 - 🤖 **Agent 指纹研究**：受限的流式工具循环可识别当前标签页、研究指纹或给出规则优化建议；执行记录可审计，最终交付基于证据的任务报告
 - 🕘 **扫描历史与报告**：自定义 50–5,000 条滚动窗口，可导出 JSON/CSV 报告
 
-## 当前版本：v0.6.7
+## 当前版本：v0.6.8
 
-v0.6.7 清理了重复的本地化词条，并简化了实时爬取状态的渲染；此前完成的持久化中英界面与 v0.6.5 的安全加固均继续保留。当前测量及各历史版本见[性能记录](BENCHMARK_CN.md)。
+v0.6.8 新增全局页面扫描与 favicon 下载队列；为 `storage.session` 增加单页快照上限和最旧优先淘汰；拒绝显式私有/本地 favicon 地址及不安全重定向。同时，JS probe 只返回原始值，清理了未使用的本地化兜底数据。当前测量及各历史版本见[性能记录](BENCHMARK_CN.md)。
 
 ## 快速开始
 
@@ -171,6 +171,7 @@ dsl 表达式支持：标识符 `body` / `title` / `url` / `header` / `raw` / `m
 | `make test-go` | 只跑 Go 单元测试（js/wasm 目标，经 node 执行，无需先构建） |
 | `make test-js` | 只跑扩展共享逻辑的 Node 单元测试 |
 | `make bench-js` | 测量 popup、大集合、序列化与 Agent 规则搜索路径 |
+| `make bench-chromium` | 运行 30/50 标签页 Chromium 资源压测（需要本机 Chrome） |
 | `make icons` | 重新生成扩展图标 |
 | `make clean` | 删除 `extension/wasm/matcher.wasm` 和 `wasm_exec.js` |
 | `node scripts/generate-icons.mjs` | 直接运行图标生成器 |

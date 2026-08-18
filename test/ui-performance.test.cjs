@@ -40,7 +40,8 @@ test('extension surfaces share a persisted Chinese/English locale switch', () =>
   assert.match(i18n, /gopainter:localechange/);
   assert.match(i18n, /characterData: true/);
   assert.match(i18n, /const patterns = \[/);
-  assert.match(i18n, /const fragments = \[/);
+  assert.doesNotMatch(i18n, /const fragments = \[/);
+  assert.match(i18n, /let localeWriteVersion = 0/);
   assert.match(i18n, /Agent step budget exhausted/);
   assert.match(i18n, /'默认规则集': 'Default rule set'/);
   assert.match(i18n, /'由 cdnjs 推导': 'Derived from cdnjs'/);
@@ -84,7 +85,9 @@ test('page collection and large lists keep bounded performance paths', () => {
   assert.doesNotMatch(popup, /appendAgentRuleDiff/);
   assert.doesNotMatch(popup, /renderPopupRuleComparison/);
   assert.match(options, /planRuleMerge/);
-  assert.match(matching, /Math\.min\(6, unique\.length\)/);
+  assert.match(matching, /MAX_ICON_FETCH_CONCURRENCY = 6/);
+  assert.match(matching, /unique\.map\(\(url\) => queueIconHash\(url, isStale\)\)/);
+  assert.match(matching, /discardStaleIconJobs\(\)/);
   assert.match(matching, /chrome\.tabs\.query\(\{\}\)/);
   assert.match(matching, /chrome\.storage\.session\.get\(keys\)/);
   assert.match(searchRules, /activeCache/);

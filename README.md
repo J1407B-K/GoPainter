@@ -44,9 +44,9 @@ While you browse, GoPainter fingerprints the current site automatically and surf
 - **Agent-assisted fingerprint research** — a bounded, streaming tool loop researches the current tab or a rule, shows its auditable tool trace, and returns an evidence-based task report
 - **Scan history & reports** — choose a 50–5,000 entry rolling window and export it as JSON/CSV
 
-## Current release: v0.6.7
+## Current release: v0.6.8
 
-v0.6.7 removes duplicate localization entries and simplifies live crawl-status rendering while retaining the completed persisted Chinese/English interface and the v0.6.5 security hardening. See the current measurements and previous versions in the [performance record](BENCHMARK.md).
+v0.6.8 adds global scan and favicon-download queues, protects `storage.session` with bounded per-page snapshots and oldest-first eviction, and rejects explicit private/local favicon targets and unsafe redirects. It also makes JS probes return only primitive values and removes unused localization fallback data. See the current measurements and previous versions in the [performance record](BENCHMARK.md).
 
 ## Quick start
 
@@ -170,6 +170,7 @@ Choose the OpenAI-compatible or Anthropic protocol in Settings, then fill in you
 | `make test-go` | Run only the Go unit tests (js/wasm target, executed via node; no build required) |
 | `make test-js` | Run only the Node unit tests for shared extension logic |
 | `make bench-js` | Benchmark popup, collection, serialization, and Agent rule-search paths |
+| `make bench-chromium` | Run the 30/50-tab Chromium resource benchmark (requires a local Chrome build) |
 | `make icons` | Regenerate extension icons |
 | `make clean` | Remove `extension/wasm/matcher.wasm` and `wasm_exec.js` |
 | `node scripts/generate-icons.mjs` | Run the icon generator directly |

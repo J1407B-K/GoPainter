@@ -4,6 +4,33 @@ This is the project's living performance record. Every material performance chan
 its measured workload, trade-offs, and reproduction command belongs here. The goal
 is not to collect micro-benchmarks; it is to make future design decisions auditable.
 
+## v0.6.8 - Chromium multi-tab resource bounds
+
+v0.6.8 closes the multi-tab resource-hardening work with a real Chromium run, not
+just source-level queue assertions. The benchmark launches a fresh profile, loads
+the unpacked extension through CDP, serves ten deliberately slow unique favicon
+responses per page, and polls the extension service worker while it runs. It checks
+the active and pending scan/favicon queues, `storage.session` bytes, storage errors,
+stale result commits, orphan per-tab keys, and final results for every still-open tab.
+
+The first 50-tab run exposed a real loss-of-work bug: evicting a still-current scan
+from a full queue could leave that tab without a result. The final implementation
+keeps the bounded queue and has the content script retry its already-bounded feature
+snapshot; the measurements below are from that corrected run.
+
+| Fresh-profile Chromium workload | Live tabs | Scan active / pending max | Favicon active / pending max | Peak session bytes | Storage errors / stale commits / orphan keys | Live tabs with final result |
+|---|---:|---:|---:|---:|---:|---:|
+| 30 tabs | 30 | 3 / 26 | 6 / 74 | 125,792 | 0 / 0 / 0 | 30 / 30 |
+| 50 tabs | 50 | 3 / 32 | 6 / 97 | 200,960 | 0 / 0 / 0 | 50 / 50 |
+| 30 tabs; 10 rapid SPA routes; 10 immediately closed | 20 | 3 / 18 | 6 / 197 | 104,688 | 0 / 0 / 0 | 20 / 20 |
+
+All runs remained inside the release limits: scan active ≤3, scan pending ≤32,
+favicon active ≤6, favicon pending ≤256, and page snapshot storage ≤6,500,000 bytes.
+This establishes resource and lifecycle behavior only; it is not an identification-
+accuracy measurement.
+
+Reproduce with `make build && make bench-chromium` (requires a local Chrome build).
+
 ## v0.6.4 - bounded Host runtime and rule-health inspection
 
 v0.6.4 keeps browser I/O orchestration in JavaScript while removing the monolithic
