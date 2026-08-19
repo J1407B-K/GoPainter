@@ -9,17 +9,19 @@
 
 **English** | [简体中文](./README_CN.md) · [Example rules](./rules/examples.yaml) · [Performance record](./BENCHMARK.md)
 
-**Browser-native web technology fingerprinting with live, explainable evidence.**
+> **The best open-source web fingerprinting tool for Chromium browsers.**
+>
+> It runs locally with Go/WASM and Google RE2, and shows the evidence behind every result.
 
 GoPainter identifies the technology behind the current page from HTTP, HTML, DOM,
-JavaScript runtime, and favicon signals. Matching is deterministic and runs locally in
-a **Go/WASM + Google RE2** core. Every hit shows the evidence that produced it; optional
-AI tools can research and propose fingerprints, but the Go core remains the final validator.
+JavaScript runtime, and favicon signals. Matching is deterministic, local, and explainable:
+every result shows exactly why it matched. Optional AI tools can research and propose
+fingerprints; validation still happens in the Go core.
 
 While you browse, the toolbar icon stays gray when nothing matches and becomes colored
 with a hit-count badge when fingerprints are found.
 
-## Highlights
+## What makes GoPainter different
 
 - **Explainable detection** — inspect the exact keyword, regex, status code, runtime value, DOM selector, or favicon hash behind each hit.
 - **Deterministic rule engine** — seven matcher types, `and`/`or`, negative conditions, confidence propagation, and Google RE2 semantics.

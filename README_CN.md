@@ -9,15 +9,17 @@
 
 [English](./README.md) | **简体中文** · [示例规则](./rules/examples.yaml) · [性能记录](./BENCHMARK_CN.md)
 
-**浏览器原生的 Web 技术指纹识别，提供实时且可解释的证据。**
+> **最好用的开源浏览器 Web 指纹识别工具。**
+>
+> 基于 Go/WASM 和 Google RE2 在本地运行，每个识别结果都能看到对应证据。
 
 GoPainter 从 HTTP、HTML、DOM、JavaScript 运行时和 favicon 信号识别当前页面使用的
-技术。确定性匹配在本地的 **Go/WASM + Google RE2** Core 中完成，每个命中都会展示
-实际证据。可选的 AI 工具可以研究并提出指纹规则，但最终仍由 Go Core 校验。
+技术。匹配过程确定、本地且可解释：每个结果都会明确展示为什么命中。可选 AI 工具
+只负责辅助研究和提出指纹，最终仍由 Go Core 校验。
 
 浏览网页时，未命中则工具栏图标保持灰色；发现指纹后，图标变为彩色并显示命中数量。
 
-## 核心能力
+## GoPainter 有什么不同
 
 - **可解释识别**：查看每个命中对应的关键词、正则、状态码、运行时值、DOM 选择器或 favicon 哈希。
 - **确定性规则引擎**：七种 matcher、`and`/`or`、negative、置信度传播和 Google RE2 语义。
