@@ -4,7 +4,7 @@
 WASM_OUT := extension/wasm/matcher.wasm
 EXEC_JS  := extension/wasm/wasm_exec.js
 
-.PHONY: build build-tinygo build-go build-go-stdlib build-go-re2 icons test test-go test-go-stdlib test-go-re2 test-js bench-js bench-regex bench-chromium clean
+.PHONY: build build-tinygo build-go build-go-stdlib build-go-re2 icons test test-go test-go-stdlib test-go-re2 test-js test-browser-e2e bench-js bench-regex bench-chromium clean
 
 icons:
 	node scripts/generate-icons.mjs
@@ -34,6 +34,9 @@ bench-regex:
 
 bench-chromium:
 	node scripts/bench-chromium.mjs
+
+test-browser-e2e:
+	node scripts/bench-chromium.mjs --e2e
 
 test:
 	$(MAKE) test-go

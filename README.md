@@ -169,6 +169,7 @@ Choose the OpenAI-compatible or Anthropic protocol in Settings, then fill in you
 | `make test` | Run Go and JS unit tests, then the WASM smoke test |
 | `make test-go` | Run only the Go unit tests (js/wasm target, executed via node; no build required) |
 | `make test-js` | Run only the Node unit tests for shared extension logic |
+| `make test-browser-e2e` | Run the small Chromium content-collection, match, session, popup, and SPA end-to-end test |
 | `make bench-js` | Benchmark popup, collection, serialization, and Agent rule-search paths |
 | `make bench-chromium` | Run the 30/50-tab Chromium resource benchmark (requires a local Chrome build) |
 | `make icons` | Regenerate extension icons |

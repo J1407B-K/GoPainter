@@ -78,6 +78,23 @@ async function listenFixture() {
       setTimeout(() => response.end(body.subarray(512)), 180);
       return;
     }
+    if (url.pathname === '/assets/e2e-signal.js') {
+      response.writeHead(200, { 'content-type': 'application/javascript', 'cache-control': 'no-store' });
+      response.end("window.GoPainterE2E = { version: '1.0.0' };");
+      return;
+    }
+    if (url.pathname === '/e2e') {
+      response.writeHead(200, {
+        'content-type': 'text/html; charset=utf-8',
+        'cache-control': 'no-store',
+      });
+      response.end(`<!doctype html><html><head><title>E2E_TITLE_MARKER</title>
+        <meta name="generator" content="E2E_META_MARKER">
+        <link rel="icon" href="/icon?e2e=1&icon=42">
+        <script src="/assets/e2e-signal.js"></script></head>
+        <body><main id="e2e-dom" data-e2e="ready">E2E_BODY_MARKER E2E_DOM_MARKER</main></body></html>`);
+      return;
+    }
     if (url.pathname !== '/page') {
       response.writeHead(404);
       response.end('not found');
@@ -175,6 +192,192 @@ async function attachPage(browser, targetId) {
   return browser.call('Target.attachToTarget', { targetId, flatten: true });
 }
 
+const TARGET_FILTER_WITH_TABS = [{ type: 'browser', exclude: true }, { exclude: false }];
+
+async function targetsIncludingTabs(browser) {
+  return browser.call('Target.getTargets', { filter: TARGET_FILTER_WITH_TABS });
+}
+
+async function cleanupChrome(child, profile) {
+  const waitForExit = (timeout) => new Promise((resolvePromise) => {
+    if (child.exitCode !== null) return resolvePromise();
+    const timer = setTimeout(resolvePromise, timeout);
+    child.once('exit', () => {
+      clearTimeout(timer);
+      resolvePromise();
+    });
+  });
+  try { child.kill('SIGTERM'); } catch { /* already gone */ }
+  await waitForExit(5_000);
+  if (child.exitCode === null) {
+    try { child.kill('SIGKILL'); } catch { /* already gone */ }
+    await waitForExit(1_000);
+  }
+  // Chrome can finish a last profile write just after its exit event on macOS.
+  // Cleanup must never mask the useful E2E/benchmark assertion result.
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      await rm(profile, { recursive: true, force: true, maxRetries: 1, retryDelay: 100 });
+      return;
+    } catch (error) {
+      if (attempt === 4) console.warn(`临时 Chrome profile 未能清理: ${error.message}`);
+      else await delay(150);
+    }
+  }
+}
+
+const E2E_RULES = [
+  { id: 'e2e-body', name: 'E2E body', matchers: [{ type: 'word', part: 'body', words: ['E2E_BODY_MARKER'] }] },
+  { id: 'e2e-title', name: 'E2E title', matchers: [{ type: 'word', part: 'title', words: ['E2E_TITLE_MARKER'] }] },
+  { id: 'e2e-meta', name: 'E2E meta', matchers: [{ type: 'word', part: 'meta', words: ['E2E_META_MARKER'] }] },
+  { id: 'e2e-script', name: 'E2E script', matchers: [{ type: 'word', part: 'script', words: ['/assets/e2e-signal.js'] }] },
+  { id: 'e2e-js', name: 'E2E JS', matchers: [{ type: 'js', js: [{ path: 'GoPainterE2E.version', pattern: '^1\\.0\\.0$' }] }] },
+  { id: 'e2e-dom', name: 'E2E DOM', matchers: [{ type: 'dom', dom: [{ sel: '#e2e-dom', text: 'E2E_DOM_MARKER' }] }] },
+  { id: 'e2e-spa', name: 'E2E SPA', matchers: [{ type: 'word', part: 'body', words: ['E2E_SPA_MARKER'] }] },
+];
+const E2E_INITIAL_IDS = E2E_RULES.filter((rule) => rule.id !== 'e2e-spa').map((rule) => rule.id);
+
+function e2eStateExpression(baseURL) {
+  return `(async () => {
+    const tab = (await chrome.tabs.query({})).find((item) => item.url === ${JSON.stringify(`${baseURL}/e2e`)} || item.url === ${JSON.stringify(`${baseURL}/e2e?spa=1`)});
+    if (!tab) return null;
+    const stored = await chrome.storage.session.get([\`result:\${tab.id}\`, \`popup:\${tab.id}\`]);
+    const result = stored[\`result:\${tab.id}\`];
+    const popup = stored[\`popup:\${tab.id}\`];
+    return { tab, result, popup, hitIds: (popup?.result?.hits || []).map((hit) => hit.id) };
+  })()`;
+}
+
+function e2eDebugExpression(baseURL) {
+  return `(async () => {
+    const tabs = (await chrome.tabs.query({})).filter((item) => item.url?.startsWith(${JSON.stringify(`${baseURL}/e2e`)}));
+    const stored = await chrome.storage.session.get(null);
+    const rules = await chrome.storage.local.get('rules');
+    return {
+      tabs: tabs.map(({ id, url, status }) => ({ id, url, status })),
+      ruleCount: Array.isArray(rules.rules) ? rules.rules.length : null,
+      snapshots: tabs.map((tab) => ({
+        result: stored[\`result:\${tab.id}\`],
+        popup: stored[\`popup:\${tab.id}\`],
+      })),
+      queue: GoPainterPageHost.queueStats(),
+    };
+  })()`;
+}
+
+async function waitFor(browser, sessionId, predicate, label, timeout = 15_000) {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    const value = await predicate();
+    if (value) return value;
+    await delay(50);
+  }
+  throw new Error(`Timed out waiting for ${label}`);
+}
+
+async function runBrowserE2E(baseURL) {
+  const profile = await mkdtemp(join(tmpdir(), 'gopainter-browser-e2e-'));
+  const port = 40_000 + Math.floor(Math.random() * 10_000);
+  const child = spawn(chromePath, [
+    `--remote-debugging-port=${port}`,
+    `--user-data-dir=${profile}`,
+    '--enable-unsafe-extension-debugging',
+    '--host-resolver-rules=MAP bench.gopainter.test 127.0.0.1',
+    '--headless=new', '--no-first-run', '--no-default-browser-check', '--disable-background-networking', 'about:blank',
+  ], { stdio: 'ignore' });
+  let browser;
+  try {
+    const version = await waitForEndpoint(port, Date.now() + 15_000);
+    browser = await new CDP(version.webSocketDebuggerUrl).connect();
+    const extensionId = await loadExtension(browser);
+    // Start the worker on a throwaway document.  The page under test must be
+    // its first real navigation only after the rule storage has been seeded;
+    // otherwise its document_idle content script can collect an empty probe
+    // plan before the E2E rules exist.
+    const warmup = await browser.call('Target.createTarget', { url: `${baseURL}/page?tab=e2e-warmup` });
+    const worker = await workerSession(browser, extensionId, () => '(no Chrome log output)');
+    // Discovering a worker target is earlier than completing background.js.
+    // Wait for page-host (loaded last) and responseCache (browser-state) so
+    // webRequest has registered before the E2E main-frame request begins.
+    await waitFor(browser, worker, () => evaluate(browser, worker,
+      'Boolean(globalThis.GoPainterPageHost && typeof responseCache !== "undefined")'), 'service worker initialization');
+    // Extensions.setStorageItems is not associated with a browser context in
+    // some Chromium builds. Populate the rules through the extension's own
+    // storage API instead, which also exercises the real runtime path.
+    await evaluate(browser, worker,
+      `chrome.storage.local.set({ rules: ${JSON.stringify(E2E_RULES)} })`);
+    const seeded = await evaluate(browser, worker, 'chrome.storage.local.get("rules")');
+    if (seeded?.rules?.length !== E2E_RULES.length) throw new Error('failed to seed E2E rules in extension storage');
+    await browser.call('Target.closeTarget', { targetId: warmup.targetId });
+    // Open the test document through the extension's normal tabs API.
+    const e2eTab = await evaluate(browser, worker, `chrome.tabs.create({ url: ${JSON.stringify(`${baseURL}/e2e`)} })`);
+    if (!Number.isInteger(e2eTab?.id)) throw new Error('extension failed to create E2E tab');
+    const targets = await waitFor(browser, worker, async () => {
+      const { targetInfos } = await targetsIncludingTabs(browser);
+      const page = targetInfos.find((item) => item.type === 'page' && item.url === `${baseURL}/e2e`);
+      const tab = targetInfos.find((item) => item.type === 'tab' && item.url === `${baseURL}/e2e`);
+      return page && tab ? { page, tab } : null;
+    }, 'E2E tab target');
+    const page = await attachPage(browser, targets.page.targetId);
+    await browser.call('Page.enable', {}, page.sessionId);
+    // Do one controlled navigation after the extension is fully initialized.
+    // chrome.tabs.create begins its first request before it resolves; a reload
+    // makes the main-frame webRequest observation deterministic on Chromium.
+    await waitFor(browser, page.sessionId, () => evaluate(browser, page.sessionId,
+      'document.readyState === "complete"'), 'initial E2E document load');
+    await browser.call('Page.reload', { ignoreCache: true }, page.sessionId);
+    let lastInitialState = null;
+    let state;
+    try {
+      state = await waitFor(browser, worker, async () => {
+        const value = await evaluate(browser, worker, e2eStateExpression(baseURL));
+        lastInitialState = value;
+        return value?.result && value?.popup && E2E_INITIAL_IDS.every((id) => value.hitIds.includes(id)) ? value : null;
+      }, 'initial page result');
+    } catch (error) {
+      const debug = await evaluate(browser, worker, e2eDebugExpression(baseURL)).catch(() => lastInitialState);
+      console.error(`E2E initial-result diagnostics: ${JSON.stringify(debug)}`);
+      throw error;
+    }
+    const features = state.result.features;
+    if (features.js?.['GoPainterE2E.version'] !== '1.0.0' || !Object.keys(features.domHits || {}).length
+      || !(features.faviconHashes || []).length) {
+      throw new Error('feature collection did not retain JS, DOM, and favicon evidence');
+    }
+
+    await browser.call('Extensions.triggerAction', { id: extensionId, targetId: targets.tab.targetId });
+    const popupTarget = await waitFor(browser, worker, async () => {
+      const { targetInfos } = await browser.call('Target.getTargets');
+      return targetInfos.find((item) => item.type === 'page' && item.url === `chrome-extension://${extensionId}/popup.html`) || null;
+    }, 'extension popup target');
+    const popup = await attachPage(browser, popupTarget.targetId);
+    await waitFor(browser, worker, async () => {
+      const names = await evaluate(browser, popup.sessionId,
+        `Array.from(document.querySelectorAll('#hits .hit .name')).map((item) => item.textContent.trim())`);
+      return E2E_INITIAL_IDS.every((id) => names.includes(E2E_RULES.find((rule) => rule.id === id).name)) ? names : null;
+    }, 'popup rendering');
+
+    await browser.call('Runtime.evaluate', {
+      expression: `history.pushState({}, '', '/e2e?spa=1'); document.querySelector('#e2e-dom').textContent = 'E2E_SPA_MARKER E2E_DOM_MARKER';`,
+    }, page.sessionId);
+    const spaState = await waitFor(browser, worker, async () => {
+      const value = await evaluate(browser, worker, e2eStateExpression(baseURL));
+      return value?.hitIds.includes('e2e-spa') && !value.hitIds.includes('e2e-body') ? value : null;
+    }, 'SPA replacement result');
+    if (spaState.result.features.url !== `${baseURL}/e2e?spa=1`) throw new Error('SPA result retained the old URL');
+    console.log(JSON.stringify({
+      e2e: 'passed',
+      initialHits: E2E_INITIAL_IDS.length,
+      spaHit: 'e2e-spa',
+      faviconHashes: features.faviconHashes.length,
+      popupRendered: true,
+    }));
+  } finally {
+    browser?.close();
+    await cleanupChrome(child, profile);
+  }
+}
+
 async function runScenario(baseURL, scenario) {
   const profile = await mkdtemp(join(tmpdir(), 'gopainter-chromium-bench-'));
   const port = 20_000 + Math.floor(Math.random() * 20_000);
@@ -269,8 +472,7 @@ async function runScenario(baseURL, scenario) {
     if (failed) throw new Error(`${scenario.name} exceeded an asserted resource or correctness bound`);
   } finally {
     browser?.close();
-    child.kill('SIGTERM');
-    await rm(profile, { recursive: true, force: true });
+    await cleanupChrome(child, profile);
   }
 }
 
@@ -279,8 +481,13 @@ if (!existsSync(join(extensionPath, 'wasm', 'matcher.wasm'))) throw new Error('M
 
 const fixture = await listenFixture();
 try {
-  for (const scenario of scenarios) await runScenario(fixture.baseURL, scenario);
-  console.log('✅ Chromium resource benchmark passed');
+  if (process.argv.includes('--e2e')) {
+    await runBrowserE2E(fixture.baseURL);
+    console.log('✅ Chromium browser E2E passed');
+  } else {
+    for (const scenario of scenarios) await runScenario(fixture.baseURL, scenario);
+    console.log('✅ Chromium resource benchmark passed');
+  }
 } finally {
   await new Promise((resolvePromise) => fixture.server.close(resolvePromise));
 }

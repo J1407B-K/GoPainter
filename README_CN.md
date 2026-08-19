@@ -170,6 +170,7 @@ dsl 表达式支持：标识符 `body` / `title` / `url` / `header` / `raw` / `m
 | `make test` | 跑 Go、JS 单元测试，再跑 WASM 冒烟测试 |
 | `make test-go` | 只跑 Go 单元测试（js/wasm 目标，经 node 执行，无需先构建） |
 | `make test-js` | 只跑扩展共享逻辑的 Node 单元测试 |
+| `make test-browser-e2e` | 运行小型 Chromium 内容采集 E2E：匹配、session、popup 与 SPA 链路 |
 | `make bench-js` | 测量 popup、大集合、序列化与 Agent 规则搜索路径 |
 | `make bench-chromium` | 运行 30/50 标签页 Chromium 资源压测（需要本机 Chrome） |
 | `make icons` | 重新生成扩展图标 |

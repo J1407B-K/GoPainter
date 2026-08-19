@@ -58,6 +58,14 @@ test('favicon hashing has byte, URL, and stream-read bounds', () => {
   assert.match(browserState, /function storePageSession/);
 });
 
+test('main-frame response state records both early and completed webRequest events', () => {
+  const browserState = read('background', 'browser-state.js');
+  assert.match(browserState, /function recordMainFrameResponse\(details\)/);
+  assert.match(browserState, /chrome\.webRequest\.onHeadersReceived\.addListener\(\s*recordMainFrameResponse/s);
+  assert.match(browserState, /chrome\.webRequest\.onCompleted\.addListener\(\s*recordMainFrameResponse/s);
+  assert.match(browserState, /\['responseHeaders'\]/);
+});
+
 test('rule writes are serialized and extension-privileged string execution is absent', () => {
   const rulesHost = read('background', 'rules-host.js');
   const options = read('options.js');

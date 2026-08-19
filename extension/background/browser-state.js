@@ -3,15 +3,27 @@
 // tabId -> { status, headers }，只记主框架
 const responseCache = new Map();
 
+function recordMainFrameResponse(details) {
+  if (details.type !== 'main_frame') return;
+  const headers = {};
+  for (const h of details.responseHeaders || []) {
+    headers[h.name.toLowerCase()] = h.value || '';
+  }
+  responseCache.set(details.tabId, { status: details.statusCode, headers });
+}
+
+// onHeadersReceived provides early data. onCompleted records the final
+// successful response too: it is a useful MV3 fallback when a worker is
+// activated around the same time as navigation, and avoids retaining a
+// redirect's intermediate headers as the page state.
 chrome.webRequest.onHeadersReceived.addListener(
-  (details) => {
-    if (details.type !== 'main_frame') return;
-    const headers = {};
-    for (const h of details.responseHeaders || []) {
-      headers[h.name.toLowerCase()] = h.value || '';
-    }
-    responseCache.set(details.tabId, { status: details.statusCode, headers });
-  },
+  recordMainFrameResponse,
+  { urls: ['http://*/*', 'https://*/*'] },
+  ['responseHeaders']
+);
+
+chrome.webRequest.onCompleted.addListener(
+  recordMainFrameResponse,
   { urls: ['http://*/*', 'https://*/*'] },
   ['responseHeaders']
 );
