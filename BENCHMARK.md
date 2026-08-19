@@ -1,12 +1,18 @@
-# GoPainter performance notes
+# GoPainter benchmarks and browser validation
 
-This is the project's living performance record. Every material performance change,
-its measured workload, trade-offs, and reproduction command belongs here. The goal
-is not to collect micro-benchmarks; it is to make future design decisions auditable.
+[README](./README.md) | [简体中文](./BENCHMARK_CN.md)
 
-## v0.6.8 - Chromium validation
+This is the project's reproducible performance and browser-validation record. It keeps
+three kinds of evidence separate: browser E2E correctness, bounded resource behavior,
+and historical performance measurements. Each result states its workload and command;
+numbers from different sections should not be compared unless their workloads match.
 
-### Browser E2E correctness baseline
+The latest measured baseline is v0.6.8. Older results remain available below for design
+history and regression context.
+
+## Current measured baseline: v0.6.8
+
+### 1. Browser E2E correctness
 
 v0.6.8 runs the real unpacked extension in Chromium.
 Unlike the resource benchmark below, this is a deterministic correctness test: a local
@@ -20,14 +26,13 @@ contains the old page hit. No real third-party repository is contacted: upstream
 availability, rate limits, and mutable rule data would make CI nondeterministic. Third-party
 rule-source download bounds and routing are covered by deterministic tests instead.
 
-Reproduce with `make build && make test-browser-e2e` (requires a local Chrome build).
 The machine-readable successful result is:
 
 ```json
 {"e2e":"passed","initialHits":6,"spaHit":"e2e-spa","faviconHashes":2,"popupRendered":true}
 ```
 
-### Chromium multi-tab resource bounds
+### 2. Multi-tab resource bounds
 
 v0.6.8 closes the multi-tab resource-hardening work with a real Chromium run, not
 just source-level queue assertions. The benchmark launches a fresh profile, loads
@@ -52,20 +57,39 @@ favicon active ≤6, favicon pending ≤256, and page snapshot storage ≤6,500,
 This establishes resource and lifecycle behavior only; it is not an identification-
 accuracy measurement.
 
-Reproduce with `make build && make bench-chromium` (requires a local Chrome build).
+### Reproduce the current baseline
 
-## v0.6.4 - bounded Host runtime and rule-health inspection
+Both browser commands require a local Chrome or Chromium build.
 
-v0.6.4 keeps browser I/O orchestration in JavaScript while removing the monolithic
-service-worker control path. `background.js` is now a thin composition root; page,
-rule, history, crawl, bookmark, AI, and Agent lifecycles have independent Host modules
-and a duplicate-safe message registry. Popup, options, content collection, Markdown,
-and Agent trace paths update bounded DOM/data sets instead of rebuilding large views.
+| Purpose | Command |
+|---|---|
+| Build and run the deterministic browser correctness test | `make build && make test-browser-e2e` |
+| Build and run the multi-tab resource benchmark | `make build && make bench-chromium` |
+| Run the complete Go, JavaScript, WASM, and smoke suite | `make test` |
 
-Rule health is computed by the Go Core from parsed regex ASTs. It reports validity,
-structural prefilter potential, unavoidable execution, and representative short/long
-anchors. These are rule scanning-cost signals, not claims about fingerprint accuracy
-or measured per-page heat.
+## Historical measurements
+
+| Release | Focus | Headline result |
+|---|---|---|
+| v0.6.4 | Host modularisation and bounded UI work | 50,000-rule indexed search: 1.15 ms |
+| v0.6.1 | JavaScript and DOM long-task removal | 20,000 rules rendered as 300 rows in 32 ms |
+| v0.5.1 | Embedded Google RE2 verifier | 20-page crawl: 12.52 s → 7.61 s |
+| v0.5.0 | Regex candidate prefilter and Go WASM | Real warm scan: 5–13 s → ~100–200 ms |
+
+> Historical rows mentioning user scripts predate removal of external scripts; they
+> are measurements of the old release, not current product capabilities.
+
+<details>
+<summary><strong>v0.6.4 - bounded Host runtime and rule-health inspection</strong></summary>
+
+> **Focus:** split the service-worker control path and bound large UI/data operations.
+
+- Page, rule, history, crawl, bookmark, AI, and Agent lifecycles moved into independent
+  Host modules with duplicate-safe message registration.
+- Popup, options, content collection, Markdown, and Agent trace paths update bounded
+  data and DOM sets.
+- Go Core rule health reports regex validity and prefilter cost signals. It does not
+  claim fingerprint accuracy or per-page heat.
 
 | JavaScript benchmark | v0.6.4 result |
 |---|---:|
@@ -76,27 +100,20 @@ or measured per-page heat.
 | Stringify 10,000 custom hashes / cached read | 0.73 / <0.01 ms |
 | Three rule searches across 50,000 rules, legacy / indexed | 44.08 / 1.15 ms |
 
-Reproduce with `make bench-js`; use `make test` for Go, JavaScript, WASM, strict
-candidate-validation, rule-health, Host-router, and smoke coverage.
+**Reproduce:** `make bench-js` · **Validate:** `make test`
 
-## Version history
+</details>
 
 <details>
 <summary><strong>v0.6.1 - remove JavaScript and DOM long tasks</strong></summary>
 
-## v0.6.1 - remove JavaScript and DOM long tasks
-
-v0.6.1 targets the UI-side stalls that remained after the matcher became fast. The
-content script no longer materializes the complete document before truncating it;
-it now serializes at most 200 KB and stops walking immediately at the limit.
-Favicon downloads use six workers, rule/hash/script data is cached until storage
-changes, and rescans read only the session entries for open tabs.
-
-Popup snapshots remain bounded at 100 hits, 20 evidence rows per hit, and 500
-characters per evidence row. Options, history, hash, and crawl views render at most
-300 rows; crawl polling skips unchanged result DOM. A 20,000-rule Chromium run
-rendered exactly 300 rule rows, produced 1,080 DOM nodes, and loaded in 32 ms in the
-test profile.
+| Boundary introduced | Limit or behavior |
+|---|---|
+| Document serialization | Stop at 200 KB; do not materialize the complete DOM |
+| Favicon downloads | 6 workers |
+| Popup snapshot | 100 hits × 20 evidence rows × 500 characters |
+| Options, history, hash, and crawl lists | 300 rendered rows |
+| Storage reads | Cache until invalidated; rescan open tabs only |
 
 | JavaScript benchmark | Result |
 |---|---:|
@@ -107,16 +124,14 @@ test profile.
 | Stringify 10,000 custom hashes / cached read | 0.70 / <0.01 ms |
 | Three rule searches across 50,000 rules, legacy / indexed | 43.23 / 1.56 ms |
 
-The matching engine stayed in its existing range after these changes: the 8,000-rule
-steady benchmark measured a 13.6 ms median, while the 200-page scan measured 28.0 ms
-p90 and 31.2 ms p99. Run the JS suite with `make bench-js`.
+| Browser/runtime check | Result |
+|---|---:|
+| 20,000-rule options render | 300 rows, 1,080 DOM nodes, 32 ms load |
+| 8,000-rule steady matcher median | 13.6 ms |
+| 200-page continuous scan | 28.0 ms p90 / 31.2 ms p99 |
+| 20,000-rule Agent flow, 10 ms popup heartbeat | 37.1 ms maximum delay |
 
-The Agent path now reads a body-free page overview and shares a cooperatively built
-rule-search index. In a Chromium end-to-end run with 20,000 rules, one model round
-requested `inspect_page`, three `search_rules` calls, and `search_page_js` before
-synthesis. A 10 ms popup heartbeat observed a maximum delay of 37.1 ms throughout.
-
-### Reproduce v0.6.1
+**Reproduce**
 
 ```bash
 make bench-js                         # JS, popup, collection, and Agent search paths
@@ -131,76 +146,47 @@ make test                             # Go, JS, and WASM smoke coverage
 <details>
 <summary><strong>v0.5.1 - migrate from Go regexp to embedded Google RE2</strong></summary>
 
-Historical measurements for migrating the final verifier from Go's standard-library
-`regexp` to `wasilibs/go-re2`. The main runtime had already moved to standard Go
-WASM in v0.5.0; v0.5.1 changes the regex verifier, not the WASM toolchain.
+> **Decision:** move only the final verifier from Go `regexp` to embedded Google RE2.
+> The AST + AC planner, cache, rule semantics, and standard Go WASM runtime stayed the same.
 
-## v0.5.1 — migrate from Go regexp to embedded Google RE2
-
-v0.5.0 made the planner effective: AST + AC eliminates nearly every regex that can
-be proved irrelevant. v0.5.1 migrates the verifier for the small set that remains
-from Go's standard-library `regexp` to embedded Google RE2 through `wasilibs/go-re2`.
-It retains RE2's linear-time, safe matching model and leaves the planner, cache, and
-rule semantics unchanged.
-
-This was selected by end-to-end measurement, not a microbenchmark. Chrome crawled the
-same 20 pages from `https://github.com/` using the same 1.85 MB / 6,908-rule corpus.
+Chrome crawled the same 20 pages from `https://github.com/` with the same 1.85 MB,
+6,908-rule corpus.
 
 | Chrome crawler, 20 successful pages | Standard Go `regexp` | go-re2 (v0.5.1 default) |
 |---|---:|---:|
 | Total elapsed time | 12.52 s | **7.61 s** |
 | Failed pages | 0 | 0 |
 | Total hits | 90 | 90 |
-| End-to-end improvement | — | **39% less time (1.65× throughput)** |
+| End-to-end change | — | **39% less time (1.65× throughput)** |
 | WASM size | 4.62 MB | 13.45 MB |
 
-The extra 8.8 MB is an intentional trade: this is an automatic scanner and crawler,
-where a five-second reduction per 20-page crawl is materially more valuable than a
-smaller binary. The runtime comparisons retained under v0.5.0 are historical only;
-neither TinyGo nor the standard-library regex backend is a supported release target.
+> **Trade-off:** +8.8 MB WASM for roughly five seconds less work per 20-page crawl.
+> TinyGo and the standard-library regex backend are not supported release targets.
 
 </details>
 
 <details>
 <summary><strong>v0.5.0 - regex scaling and runtime history</strong></summary>
 
-Historical measurements for the v0.5.0 matching-path redesign and its runtime baselines.
+> **Headline:** the real 6,908-rule warm scan fell from 5–13 seconds to roughly
+> 100–200 ms without changing regex matching semantics.
 
-## v0.5.0 — make regex rules scale
+v0.4.0 indexed `body + word` matchers, but regex prefilters still performed thousands
+of independent full-body searches. v0.5.0 adds required ASCII regex literals to the
+shared Aho–Corasick index, scans the body once, and runs the original regex for the
+remaining candidates. It also moves the WASM runtime from TinyGo to standard Go.
 
-v0.5.0 is a performance-focused release. In v0.4.0, large imported rule sets could
-turn ordinary page scans into multi-second work: regexes were correctly prefiltered,
-but thousands of prefilters still searched the same HTML body independently.
+```text
+Regex AST → required ASCII literals → shared AC index
+                                            ↓
+Page body ───────────────────────────→ scan once
+                                            ↓
+                              candidate regex set
+                                            ↓
+                                  original regex
+```
 
-The fix is deliberately conservative: a regex is skipped only after its parsed
-syntax tree proves that **every** matching branch is impossible. Required ASCII
-literals are collected when the rule set is built, indexed in a shared
-Aho–Corasick (AC) automaton, and found by scanning the page body once. The original
-regex remains the final authority.
-
-This is a change in execution strategy, not a weakening of detection.
-
-### Comparison with v0.4.0
-
-#### v0.4.0 — fast word matching, incomplete regex scaling
-
-v0.4.0 already cached the parsed rule set and used AC for `body + word`
-matchers. This made ordinary word-rule workloads fast, but imported rule sets are
-mostly regex-driven: their regex prefilters still performed thousands of independent
-`Contains(body, literal)` scans. The result was good synthetic word performance but
-multi-second latency on real pages with large regex corpora.
-
-#### v0.5.0 — one body scan for words and regex candidates
-
-v0.5.0 extends the existing body AC index to required regex literals. It adds
-conservative AST branch analysis, Unicode-safe prefilter boundaries, and direct
-evidence/result allocation reductions. It also moves the WASM runtime from TinyGo
-to standard Go after continuous-scan measurements showed that TinyGo's GC p99
-remained 7–10× worse even after the matching work was reduced.
-
-The outcome is not merely a lower average: v0.5.0 turns the actual 6,908-rule
-workload from a blocking multi-second operation into a generally background-safe
-scan while preserving the original regex as the final check.
+**Real-rule workload**
 
 | Real workload: 6,908 rules, 1.85 MB rules JSON, 195 KB Chinese HTML body | Result |
 |---|---:|
@@ -212,41 +198,10 @@ scan while preserving the original regex as the final check.
 | First scan, including rule parsing and AC construction | ~600 ms |
 | Before regex-literal AC prefiltering | ~5–13 s |
 
-The remaining cost is a handful of broad HTML regexes (for example, a XenForo
-pattern), which are rule-quality concerns rather than a general engine bottleneck.
+The remaining cost came from a few broad HTML regexes: a rule-quality issue rather
+than a general engine bottleneck.
 
-### Execution strategy changes
-
-| v0.4.0 | v0.5.0 |
-|---|---|
-| Each regex prefilter repeatedly searched the full body | One AC scan produces a shared literal-hit set |
-| 195 KB real pages could take 5–13 s | Typical warm scan is ~100–200 ms |
-| Compiler/GC looked like the likely culprit | Profiling identified repeated regex prefilter scans as the dominant cost |
-| TinyGo was the default build | Standard Go removes TinyGo GC tail-latency spikes |
-
-## The v0.5.0 matching path
-
-AC does **not** replace regular expressions. It acts as a candidate filter.
-
-```text
-Regex AST -> required ASCII literals -> AC index, built once per rule set
-                                                |
-Page body ----------------------------------- scan once
-                                                |
-                                   literal-hit set
-                                                |
-Regex AST proves every branch impossible? -- yes --> skip regex
-                                                |
-                                               no
-                                                |
-                                    run the original regex
-```
-
-For example, `Powered by <a href="[^>]+phpfusion` cannot match unless the
-page contains `phpfusion`. AC finds all such literals in one pass, instead of
-letting every regex repeatedly scan the whole HTML body.
-
-### Correctness is non-negotiable
+**Safety contract**
 
 The prefilter is deliberately one-way: it only skips a regex when the parsed
 `regexp/syntax` AST proves that every possible branch is excluded.
@@ -255,33 +210,16 @@ The prefilter is deliberately one-way: it only skips a regex when the parsed
 |---|---|
 | Concatenation (`A B`) | Exclude when any required child is absent |
 | Alternation (`A|B`) | Exclude only when every branch is excluded |
-| `*`, `?`, character classes, anchors, unknown constructs | Do not prefilter; run the regex |
+| Optional, character class, anchor, or unknown construct | Do not prefilter; run the regex |
 
-The matcher uses Go's case-insensitive regex semantics. To avoid Unicode folding
-false negatives, non-ASCII literals are never prefiltered, and body text containing
-non-ASCII runes that fold to ASCII (such as `ſ`/`s` and `K`/`k`) falls back to the
-original regex. Chinese and emoji alone do not disable ASCII-literal filtering.
+Non-ASCII literals are never prefiltered, and Unicode folds such as `ſ`/`s` and `K`/`k`
+fall back to the original regex. Tests covered AST branches, Unicode boundaries, and
+the real 6,350-pattern workload with zero prefilter false negatives.
 
-Unit tests cover branch semantics, Unicode folding boundaries, and equivalence of
-the AC literal-hit set with the former `strings.Contains` prefilter. A runtime
-verification pass over the real 6,350-pattern rule set and page reported zero
-false negatives; the original regex remains the final matcher in all cases.
+<details>
+<summary>Supporting runtime and synthetic baselines</summary>
 
-### Supporting optimisations
-
-- Rule JSON, compiled regexes, AC index, and name lookup are cached while the rule
-  set is unchanged.
-- `raw` / lowercased `raw` text is built only when a rule needs it.
-- The body AC scan skips non-ASCII bytes directly when the index holds only ASCII
-  words (a single reset per byte). Chinese and other non-ASCII pages therefore skip
-  the fail-transition work entirely; semantics are unchanged because a non-ASCII
-  byte can never match an ASCII word.
-- Matcher and rule `and`/`or` results are folded incrementally, avoiding temporary
-  result slices.
-- Evidence is appended directly to the rule result, avoiding intermediate slices.
-- `implies` and `excludes` post-processing is skipped when the rule set has none.
-
-## Historical runtime comparison: Go WASM versus TinyGo
+**Standard Go versus TinyGo**
 
 The following is a 200-page synthetic continuous scan: 8,000 rules, bodies from
 20–400 KB, varying matches, and a cached rule set.
@@ -293,11 +231,9 @@ The following is a 200-page synthetic continuous scan: 8,000 rules, bodies from
 | p99 | **~30 ms** | **~222–234 ms** |
 | max | **~31 ms** | **~290–322 ms** |
 
-TinyGo preserves its GC tail-latency spikes even after prefiltering removes most
-regex work. The production runtime is therefore Go WASM; v0.5.1 then upgrades its
-regex verifier to go-re2. TinyGo is retained only for historical/development comparison and is not maintained as a release target.
+TinyGo retained GC tail-latency spikes, so standard Go WASM became the release runtime.
 
-## Baseline: synthetic word rules
+**Synthetic word-only baseline**
 
 This benchmark isolates the ordinary `word` path rather than the production regex
 workload. It uses a ~98 KB body and measures 50 iterations after 30 warm-up calls.
@@ -307,10 +243,12 @@ workload. It uses a ~98 KB body and measures 50 iterations after 30 warm-up call
 | 1,000 | 3.7 ms | 4.3 ms | 5.1 ms | 25.1 ms |
 | 8,000 | 8.7 ms | 13.9 ms | 16.8 ms | 19.2 ms |
 
-The original first scan of this synthetic workload is ~150 ms because it includes
-rule JSON parsing and AC construction. Warm scans are ~15 ms.
+The first synthetic scan was ~150 ms including rule parsing and AC construction;
+warm scans were ~15 ms.
 
-## Reproduce the measurements
+</details>
+
+**Reproduce**
 
 ```bash
 make build                              # Go WASM + go-re2, production default
