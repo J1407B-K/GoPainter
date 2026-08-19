@@ -2,7 +2,7 @@
 // Usage: node scripts/bench-chromium.mjs
 // Optional: CHROME_PATH=/path/to/chrome node scripts/bench-chromium.mjs
 import { createServer } from 'node:http';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -19,6 +19,7 @@ const chromeCandidates = [
   '/usr/bin/chromium-browser',
 ].filter(Boolean);
 const chromePath = chromeCandidates.find(existsSync);
+const CHROME_START_TIMEOUT = 30_000;
 const scenarios = [
   { name: '30 tabs', tabs: 30 },
   { name: '50 tabs', tabs: 50 },
@@ -129,18 +130,59 @@ async function listenFixture() {
   return { server, baseURL: `http://bench.gopainter.test:${port}`, requestCounts };
 }
 
-async function json(url) {
-  const response = await fetch(url);
+async function json(url, options = {}) {
+  const response = await fetch(url, options);
   if (!response.ok) throw new Error(`HTTP ${response.status}: ${url}`);
   return response.json();
 }
 
-async function waitForEndpoint(port, deadline, diagnostics = () => '') {
+async function waitForEndpoint(profile, deadline, diagnostics = () => '') {
+  let lastError = '';
   while (Date.now() < deadline) {
-    try { return await json(`http://127.0.0.1:${port}/json/version`); } catch { await delay(50); }
+    try {
+      const [rawPort] = (await readFile(join(profile, 'DevToolsActivePort'), 'utf8')).trim().split(/\r?\n/);
+      const port = Number(rawPort);
+      if (!Number.isInteger(port) || port < 1 || port > 65_535) throw new Error(`invalid DevTools port ${rawPort}`);
+      return await json(`http://127.0.0.1:${port}/json/version`, { signal: AbortSignal.timeout(1_000) });
+    } catch (error) {
+      lastError = String(error?.message || error);
+      if (diagnostics.exited?.()) break;
+      await delay(50);
+    }
   }
-  const detail = diagnostics();
+  const detail = [diagnostics(), lastError && `DevToolsActivePort: ${lastError}`].filter(Boolean).join('\n');
   throw new Error(`Chrome remote-debugging endpoint did not start${detail ? `; Chrome log: ${detail}` : ''}`);
+}
+
+function chromeArgs(profile, verbose = false) {
+  return [
+    '--remote-debugging-port=0',
+    '--remote-debugging-address=127.0.0.1',
+    `--user-data-dir=${profile}`,
+    '--enable-unsafe-extension-debugging',
+    '--host-resolver-rules=MAP bench.gopainter.test 127.0.0.1',
+    '--no-proxy-server',
+    // GitHub's Ubuntu 24.04 runners can deny Chrome's unprivileged
+    // user-namespace sandbox. This process visits only our local fixture in an
+    // ephemeral benchmark profile.
+    ...(process.platform === 'linux' ? ['--no-sandbox'] : []),
+    '--headless=new', '--no-first-run', '--no-default-browser-check', '--disable-background-networking',
+    '--disable-dev-shm-usage', '--enable-logging=stderr', ...(verbose ? ['--v=1'] : []), 'about:blank',
+  ];
+}
+
+function captureChromeProcess(child) {
+  let output = '';
+  let state = '';
+  const capture = (chunk) => { output = `${output}${chunk}`.slice(-12_000); };
+  child.stdout.on('data', capture);
+  child.stderr.on('data', capture);
+  child.once('error', (error) => { state = `Chrome spawn error: ${error.message}`; });
+  child.once('exit', (code, signal) => { state = `Chrome exited (code=${code}, signal=${signal || 'none'})`; });
+  const diagnostics = () => [state, output].filter(Boolean).join('\n')
+    || `Chrome process is still running without output (binary=${chromePath})`;
+  diagnostics.exited = () => Boolean(state);
+  return diagnostics;
 }
 
 async function loadExtension(browser) {
@@ -215,7 +257,7 @@ async function targetsIncludingTabs(browser) {
 
 async function cleanupChrome(child, profile) {
   const waitForExit = (timeout) => new Promise((resolvePromise) => {
-    if (child.exitCode !== null) return resolvePromise();
+    if (child.exitCode !== null || child.signalCode !== null) return resolvePromise();
     const timer = setTimeout(resolvePromise, timeout);
     child.once('exit', () => {
       clearTimeout(timer);
@@ -224,7 +266,7 @@ async function cleanupChrome(child, profile) {
   });
   try { child.kill('SIGTERM'); } catch { /* already gone */ }
   await waitForExit(5_000);
-  if (child.exitCode === null) {
+  if (child.exitCode === null && child.signalCode === null) {
     try { child.kill('SIGKILL'); } catch { /* already gone */ }
     await waitForExit(1_000);
   }
@@ -363,27 +405,11 @@ async function navigatePage(browser, sessionId, url, label) {
 
 async function runBrowserE2E(baseURL, requestCounts) {
   const profile = await mkdtemp(join(tmpdir(), 'gopainter-browser-e2e-'));
-  const port = 40_000 + Math.floor(Math.random() * 10_000);
-  const child = spawn(chromePath, [
-    `--remote-debugging-port=${port}`,
-    `--user-data-dir=${profile}`,
-    '--enable-unsafe-extension-debugging',
-    '--host-resolver-rules=MAP bench.gopainter.test 127.0.0.1',
-    '--no-proxy-server',
-    '--headless=new', '--no-first-run', '--no-default-browser-check', '--disable-background-networking',
-    '--disable-dev-shm-usage', '--enable-logging=stderr', 'about:blank',
-  ], { stdio: ['ignore', 'pipe', 'pipe'] });
-  let chromeLogText = '';
-  let chromeExit = '';
-  const captureChromeLog = (chunk) => {
-    chromeLogText = `${chromeLogText}${chunk}`.slice(-12_000);
-  };
-  child.stdout.on('data', captureChromeLog);
-  child.stderr.on('data', captureChromeLog);
-  child.once('exit', (code, signal) => { chromeExit = `Chrome exited (code=${code}, signal=${signal || 'none'})`; });
+  const child = spawn(chromePath, chromeArgs(profile), { stdio: ['ignore', 'pipe', 'pipe'] });
+  const chromeDiagnostics = captureChromeProcess(child);
   let browser;
   try {
-    const version = await waitForEndpoint(port, Date.now() + 15_000, () => chromeLogText || chromeExit || '(no Chrome log output)');
+    const version = await waitForEndpoint(profile, Date.now() + CHROME_START_TIMEOUT, chromeDiagnostics);
     browser = await new CDP(version.webSocketDebuggerUrl).connect();
     const extensionId = await loadExtension(browser);
     // Start the worker on a throwaway document.  The page under test must be
@@ -391,7 +417,7 @@ async function runBrowserE2E(baseURL, requestCounts) {
     // otherwise its document_idle content script can collect an empty probe
     // plan before the E2E rules exist.
     const warmup = await browser.call('Target.createTarget', { url: `${baseURL}/page?tab=e2e-warmup` });
-    const worker = await workerSession(browser, extensionId, () => '(no Chrome log output)');
+    const worker = await workerSession(browser, extensionId, chromeDiagnostics);
     // Discovering a worker target is earlier than completing background.js.
     // Wait for page-host (loaded last) and responseCache (browser-state) so
     // webRequest has registered before the E2E main-frame request begins.
@@ -472,7 +498,7 @@ async function runBrowserE2E(baseURL, requestCounts) {
         pageState,
         diagnosticContentRoundTrip: roundTrip,
         runtimeEvents: runtimeEventDiagnostics(browser.events),
-        chromeLog: chromeLogText.slice(-4000),
+        chromeLog: chromeDiagnostics().slice(-4000),
       })}`);
       throw error;
     }
@@ -558,34 +584,18 @@ async function runBrowserE2E(baseURL, requestCounts) {
 
 async function runScenario(baseURL, scenario) {
   const profile = await mkdtemp(join(tmpdir(), 'gopainter-chromium-bench-'));
-  const port = 20_000 + Math.floor(Math.random() * 20_000);
-  const child = spawn(chromePath, [
-    `--remote-debugging-port=${port}`,
-    `--user-data-dir=${profile}`,
-    '--enable-unsafe-extension-debugging',
-    '--host-resolver-rules=MAP bench.gopainter.test 127.0.0.1',
-    '--no-proxy-server',
-    '--headless=new', '--no-first-run', '--no-default-browser-check', '--disable-background-networking',
-    '--disable-dev-shm-usage', '--enable-logging=stderr', '--v=1', 'about:blank',
-  ], { stdio: ['ignore', 'pipe', 'pipe'] });
-  let chromeLogText = '';
-  let chromeExit = '';
-  const captureChromeLog = (chunk) => {
-    chromeLogText = `${chromeLogText}${chunk}`.slice(-12_000);
-  };
-  child.stdout.on('data', captureChromeLog);
-  child.stderr.on('data', captureChromeLog);
-  child.once('exit', (code, signal) => { chromeExit = `Chrome exited (code=${code}, signal=${signal || 'none'})`; });
+  const child = spawn(chromePath, chromeArgs(profile, true), { stdio: ['ignore', 'pipe', 'pipe'] });
+  const chromeDiagnostics = captureChromeProcess(child);
   let browser;
   try {
-    const version = await waitForEndpoint(port, Date.now() + 15_000, () => chromeLogText || chromeExit || '(no Chrome log output)');
+    const version = await waitForEndpoint(profile, Date.now() + CHROME_START_TIMEOUT, chromeDiagnostics);
     browser = await new CDP(version.webSocketDebuggerUrl).connect();
     const extensionId = await loadExtension(browser);
     // Start one tab first, so its document_idle content script wakes the MV3
     // worker before the actual concurrent tab burst begins.
     const first = await browser.call('Target.createTarget', { url: `${baseURL}/page?tab=0` });
     await delay(500);
-    const worker = await workerSession(browser, extensionId, () => chromeLogText || '(no Chrome log output)');
+    const worker = await workerSession(browser, extensionId, chromeDiagnostics);
     const created = [{ index: 0, targetId: first.targetId }, ...(await Promise.all(
       Array.from({ length: scenario.tabs - 1 }, async (_, offset) => {
         const index = offset + 1;
