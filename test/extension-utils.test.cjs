@@ -2,10 +2,16 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
   confidenceValue, filterAndSortHits, filterRules, crawlRenderSignature, popupResultSnapshot, agentPageSnapshot, faviconHashValues, bytesToBinaryString, mergeRules, planRuleMerge, diffTextLines, mergeConvertedRules,
-  normalizeRuleSets, replaceActiveRuleSetRules, ruleSetOverrideInfo, extractYaml, sanitizeImportedRuleDocs,
+  normalizeRuleSets, replaceActiveRuleSetRules, ruleSetOverrideInfo, ruleSetUpdateSummary, extractYaml, sanitizeImportedRuleDocs,
   extractJson, normalizeAiEvidence, normalizeAiTech, techsFromAiReply, ruleByTechName, sanitizeRuleDocs,
   scanHistoryEntry, mergeScanHistory, normalizeHistoryLimit, scanHistoryReport, scanHistoryCsv,
 } = require('../extension/shared-utils.js');
+
+test('ruleSetUpdateSummary distinguishes additions, removals, and changed rule bodies', () => {
+  const previous = [{ id: 'same', value: 1 }, { id: 'changed', value: 1 }, { id: 'removed' }];
+  const next = [{ id: 'same', value: 1 }, { id: 'changed', value: 2 }, { id: 'added' }];
+  assert.deepEqual(ruleSetUpdateSummary(previous, next), { added: 1, removed: 1, changed: 1, unchanged: 1 });
+});
 
 test('confidenceValue only accepts the supported 0-100 range', () => {
   assert.equal(confidenceValue({ confidence: '85' }), 85);

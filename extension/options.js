@@ -22,7 +22,7 @@ function scheduleIdle(task) {
 
 async function loadRuleSetState(force = false) {
   if (!force && ruleSetState) return ruleSetState;
-  const raw = await chrome.storage.local.get(['rules', 'ruleSets', 'activeRuleSetId', 'enabledRuleSetIds', 'ruleSetOverrides']);
+  const raw = await chrome.storage.local.get(['rules', 'ruleSets', 'activeRuleSetId', 'enabledRuleSetIds', 'ruleSetOverrides', 'ruleStateRevision']);
   const state = GoPainterUtils.normalizeRuleSets(raw.ruleSets, raw.activeRuleSetId, raw.rules, raw.enabledRuleSetIds, raw.ruleSetOverrides);
   ruleSetState = state;
   ruleSetRevision = Number.isSafeInteger(raw.ruleStateRevision) ? raw.ruleStateRevision : 0;
@@ -339,152 +339,112 @@ document.getElementById('ruleset-export').addEventListener('click', async () => 
   showMsg(`已导出「${active.name}」的 ${active.rules.length} 条规则`);
 });
 
-// --- 第三方规则源：用户浏览器实时拉取 + wasm 转换，数据不随扩展分发 ---
-// 每个源的仓库链接在页面上标出，致敬社区作者
+// --- 第三方规则源：用户主动拉取，后台有界下载、独立规则集、定时更新与单版本回滚 ---
 
 const sourceStatus = (text, isError = false) => {
   const el = document.getElementById('source-status');
   el.textContent = text;
   el.className = isError ? 'error' : 'muted';
 };
-const SOURCE_LABELS = {
-  wappalyzer: 'Wappalyzer',
-  ehole: 'EHole',
-  nuclei: 'nuclei-templates',
-};
 
-function mergeConvertedRules(rules) {
-  return GoPainterUtils.mergeConvertedRules(rules);
+function sourceTime(timestamp) {
+  if (!timestamp) return '从未';
+  return new Date(timestamp).toLocaleString(GoPainterI18n.locale === 'en' ? 'en' : 'zh-CN');
 }
 
-const RULE_SOURCES = {
-  async wappalyzer() {
-    // 指纹按字母拆成 27 个文件
-    const base = 'https://raw.githubusercontent.com/enthec/webappanalyzer/main/src/technologies';
-    const files = ['_', ...'abcdefghijklmnopqrstuvwxyz'];
-    const techs = {};
-    let done = 0;
-    await Promise.all(files.map(async (f) => {
-      const resp = await fetch(`${base}/${f}.json`);
-      if (!resp.ok) throw new Error(`拉取 ${f}.json 失败: HTTP ${resp.status}`);
-      Object.assign(techs, await resp.json());
-      sourceStatus(`Wappalyzer：拉取中… ${++done}/${files.length}`);
-    }));
-    sourceStatus('Wappalyzer：转换中…');
-    // 一次性塞 7500+ 条进 wasm 会把 TinyGo 的堆搞崩，分批转
-    const entries = Object.entries(techs);
-    const CHUNK = 500;
-    const rules = [];
-    for (let i = 0; i < entries.length; i += CHUNK) {
-      const chunk = Object.fromEntries(entries.slice(i, i + CHUNK));
-      const resp = await chrome.runtime.sendMessage({ type: 'convertWappalyzer', techJSON: JSON.stringify(chunk) });
-      if (!resp.ok) throw new Error(resp.error);
-      rules.push(...resp.rules);
-      sourceStatus(`Wappalyzer：转换中… ${Math.min(i + CHUNK, entries.length)}/${entries.length}`);
-    }
-    return rules;
-  },
+function sourceSummary(source) {
+  if (source.running) return '正在检查并转换…';
+  if (source.lastError) return `上次检查失败：${GoPainterI18n.translate(source.lastError)}`;
+  if (!source.lastCheckedAt) return '尚未同步';
+  const summary = source.lastSummary;
+  const changes = summary
+    ? `；上次变化：新增 ${summary.added}，删除 ${summary.removed}，修改 ${summary.changed}`
+    : '';
+  return `${source.ruleCount} 条规则；上次检查：${sourceTime(source.lastCheckedAt)}${changes}`;
+}
 
-  async ehole() {
-    sourceStatus('EHole：拉取 finger.json…');
-    const urls = [
-      'https://raw.githubusercontent.com/EdgeSecurityTeam/EHole/main/finger.json',
-      'https://github.com/EdgeSecurityTeam/EHole/raw/main/finger.json',
-    ];
-    let text = '';
-    let lastErr = '';
-    for (const url of urls) {
-      try {
-        const resp = await fetch(url);
-        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-        text = await resp.text();
-        break;
-      } catch (err) {
-        lastErr = err.message || String(err);
-      }
-    }
-    if (!text) throw new Error(`拉取 finger.json 失败：${lastErr}`);
-    sourceStatus('EHole：转换中…');
-    let fingers;
+function renderRuleSources(sources) {
+  for (const source of sources) {
+    const status = document.querySelector(`[data-source-status="${source.id}"]`);
+    const refresh = document.querySelector(`[data-source-refresh="${source.id}"]`);
+    const rollback = document.querySelector(`[data-source-rollback="${source.id}"]`);
+    const auto = document.querySelector(`[data-source-auto="${source.id}"]`);
+    const interval = document.querySelector(`[data-source-interval="${source.id}"]`);
+    if (!status || !refresh || !rollback || !auto || !interval) continue;
+    status.textContent = sourceSummary(source);
+    status.className = `source-meta ${source.lastError ? 'error' : 'muted'}`;
+    refresh.disabled = source.running;
+    refresh.textContent = source.running ? '更新中…' : '立即刷新';
+    rollback.disabled = source.running || !source.canRollback;
+    auto.checked = source.autoUpdate;
+    interval.value = String(source.intervalHours === 168 ? 168 : 24);
+    interval.disabled = !source.autoUpdate;
+  }
+}
+
+async function loadRuleSources() {
+  const response = await chrome.runtime.sendMessage({ type: 'getRuleSources' });
+  if (!response?.ok) throw new Error(response?.error || '加载规则源失败');
+  renderRuleSources(response.sources || []);
+}
+
+async function reloadSourcesAndRules() {
+  ruleSetState = null;
+  ruleSetRevision = 0;
+  await Promise.all([loadRuleSources(), refreshRuleList()]);
+}
+
+document.querySelectorAll('[data-source-refresh]').forEach((button) => {
+  button.addEventListener('click', async () => {
+    const sourceId = button.dataset.sourceRefresh;
+    button.disabled = true;
+    sourceStatus('正在下载、转换并验证规则…');
     try {
-      fingers = JSON.parse(text);
-      if (!Array.isArray(fingers)) fingers = fingers?.fingerprint;
-      if (!Array.isArray(fingers)) throw new Error('finger.json 不是数组格式');
-    } catch (err) {
-      throw new Error(`finger.json 解析失败：${err.message}`);
-    }
-
-    // 跟 Wappalyzer 一样分批转，避免一次性大 JSON 触发 TinyGo wasm 栈/堆问题。
-    const CHUNK = 100;
-    const rules = [];
-    for (let i = 0; i < fingers.length; i += CHUNK) {
-      const chunk = fingers.slice(i, i + CHUNK);
-      const r = await chrome.runtime.sendMessage({ type: 'convertEHole', fingerJSON: JSON.stringify(chunk) });
-      if (!r?.ok) throw new Error(r?.error || '后台转换无响应');
-      rules.push(...(r.rules || []));
-      sourceStatus(`EHole：转换中… ${Math.min(i + CHUNK, fingers.length)}/${fingers.length}`);
-    }
-    const merged = mergeConvertedRules(rules);
-    if (!merged.length) throw new Error('finger.json 已拉取，但没有转换出有效规则');
-    return merged;
-  },
-
-  async nuclei() {
-    // GitHub API 列目录（未登录限 60 次/小时，只占 1 次），文件走 raw 不限
-    const listResp = await fetch('https://api.github.com/repos/projectdiscovery/nuclei-templates/contents/http/technologies');
-    if (!listResp.ok) throw new Error(`列目录失败: HTTP ${listResp.status}（可能触发了 GitHub 限流，过会儿再试）`);
-    const entries = await listResp.json();
-    const files = entries.filter((e) => e.type === 'file' && /\.ya?ml$/i.test(e.name));
-    if (!files.length) throw new Error('目录中没有找到可导入的 YAML 模板');
-    const docs = [];
-    let done = 0;
-    // 8 路并发拉 yaml，解析成文档
-    const queue = [...files];
-    await Promise.all(Array.from({ length: 8 }, async () => {
-      while (queue.length) {
-        const f = queue.shift();
-        try {
-          const response = await fetch(f.download_url);
-          if (!response.ok) throw new Error(`HTTP ${response.status}`);
-          const text = await response.text();
-          jsyaml.loadAll(text, (d) => docs.push(d));
-        } catch { /* 单个文件坏了就跳过 */ }
-        sourceStatus(`nuclei-templates：拉取中… ${++done}/${files.length}`);
-      }
-    }));
-    if (!docs.length) throw new Error('模板文件下载完成，但没有解析出 YAML 文档');
-    sourceStatus('nuclei-templates：转换中…');
-    return normalizeImportedDocs(docs, (converted, total) => {
-      sourceStatus(`nuclei-templates：转换中… ${converted}/${total}`);
-    });
-  },
-};
-
-document.querySelectorAll('[data-source]').forEach((btn) => {
-  btn.addEventListener('click', async () => {
-    const source = btn.dataset.source;
-    btn.disabled = true;
-    const orig = btn.textContent;
-    btn.textContent = '拉取中…';
-    try {
-      const rules = await RULE_SOURCES[source]();
-      const result = await importRules(rules);
-      if (!result) {
-        sourceStatus(`${SOURCE_LABELS[source] || source}：已取消，没有修改当前编辑集`);
-        showMsg('已取消导入');
-        return;
-      }
-      const summary = `新增 ${result.added}，替换 ${result.replaced}，保留旧版 ${result.kept}，未变化 ${result.unchanged}`;
-      sourceStatus(`${SOURCE_LABELS[source] || source}：导入完成，${summary}`);
-      showMsg(`导入完成：${summary}`);
-    } catch (err) {
-      sourceStatus(`${SOURCE_LABELS[source] || source}：失败：${err.message}`, true);
-      showMsg(`拉取失败：${err.message}`, true);
+      const response = await chrome.runtime.sendMessage({ type: 'refreshRuleSource', sourceId });
+      if (!response?.ok) throw new Error(response?.error || '规则源更新失败');
+      await reloadSourcesAndRules();
+      sourceStatus(response.unchanged ? '远程规则没有变化' : '规则源更新完成');
+    } catch (error) {
+      await loadRuleSources().catch(() => {});
+      sourceStatus(`规则源更新失败：${error.message}`, true);
     } finally {
-      btn.disabled = false;
-      btn.textContent = orig;
+      button.disabled = false;
     }
   });
+});
+
+document.querySelectorAll('[data-source-rollback]').forEach((button) => {
+  button.addEventListener('click', async () => {
+    const sourceId = button.dataset.sourceRollback;
+    if (!confirm('确定将此规则源回滚到上一个版本？当前版本会成为新的回滚版本。')) return;
+    button.disabled = true;
+    try {
+      const response = await chrome.runtime.sendMessage({ type: 'rollbackRuleSource', sourceId });
+      if (!response?.ok) throw new Error(response?.error || '规则源回滚失败');
+      await reloadSourcesAndRules();
+      sourceStatus('规则源已回滚');
+    } catch (error) {
+      sourceStatus(`规则源回滚失败：${error.message}`, true);
+    } finally {
+      button.disabled = false;
+    }
+  });
+});
+
+async function saveSourceSchedule(sourceId) {
+  const auto = document.querySelector(`[data-source-auto="${sourceId}"]`);
+  const interval = document.querySelector(`[data-source-interval="${sourceId}"]`);
+  const response = await chrome.runtime.sendMessage({
+    type: 'setRuleSourceAutoUpdate', sourceId, enabled: auto.checked, intervalHours: Number(interval.value),
+  });
+  if (!response?.ok) throw new Error(response?.error || '保存自动更新设置失败');
+  interval.disabled = !auto.checked;
+  sourceStatus(auto.checked ? '已开启自动更新' : '已关闭自动更新');
+}
+
+document.querySelectorAll('[data-source-auto], [data-source-interval]').forEach((control) => {
+  control.addEventListener('change', () => saveSourceSchedule(control.dataset.sourceAuto || control.dataset.sourceInterval)
+    .catch((error) => sourceStatus(`保存自动更新设置失败：${error.message}`, true)));
 });
 
 document.getElementById('clear-rules').addEventListener('click', async () => {
@@ -1190,6 +1150,8 @@ initSettingsNav();
 refreshRuleList();
 scheduleIdle(loadAiConfig);
 scheduleIdle(loadConfConfig);
+scheduleIdle(loadRuleSources);
+window.addEventListener('gopainter:localechange', () => loadRuleSources().catch(() => {}));
 
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== 'local') return;
@@ -1197,4 +1159,5 @@ chrome.storage.onChanged.addListener((changes, area) => {
     ruleSetState = null;
     ruleSetRevision = 0;
   }
+  if (changes.ruleSources) loadRuleSources().catch(() => {});
 });

@@ -4,6 +4,27 @@ This is the project's living performance record. Every material performance chan
 its measured workload, trade-offs, and reproduction command belongs here. The goal
 is not to collect micro-benchmarks; it is to make future design decisions auditable.
 
+## v0.6.9 - Chromium browser E2E correctness baseline
+
+v0.6.9 runs the real unpacked extension in Chromium as part of CI and release checks.
+Unlike the resource benchmark below, this is a deterministic correctness test: a local
+fixture supplies known title, meta, body, script, JavaScript-runtime, DOM, favicon, and
+SPA-route signals, then the test verifies the complete capture → match → session storage
+→ popup path.
+
+The release baseline passes with 6 initial matcher types, 2 favicon hashes, a replaced
+SPA result (`e2e-spa`), and a rendered popup. It also proves that the SPA result no longer
+contains the old page hit. No real third-party repository is contacted: upstream network
+availability, rate limits, and mutable rule data would make CI nondeterministic. Third-party
+rule-source download bounds and routing are covered by deterministic tests instead.
+
+Reproduce with `make build && make test-browser-e2e` (requires a local Chrome build).
+The machine-readable successful result is:
+
+```json
+{"e2e":"passed","initialHits":6,"spaHit":"e2e-spa","faviconHashes":2,"popupRendered":true}
+```
+
 ## v0.6.8 - Chromium multi-tab resource bounds
 
 v0.6.8 closes the multi-tab resource-hardening work with a real Chromium run, not

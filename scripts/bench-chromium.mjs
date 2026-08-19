@@ -10,7 +10,15 @@ import { spawn } from 'node:child_process';
 
 const root = resolve(import.meta.dirname, '..');
 const extensionPath = join(root, 'extension');
-const chromePath = process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+const chromeCandidates = [
+  process.env.CHROME_PATH,
+  '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+  '/usr/bin/google-chrome',
+  '/usr/bin/google-chrome-stable',
+  '/usr/bin/chromium',
+  '/usr/bin/chromium-browser',
+].filter(Boolean);
+const chromePath = chromeCandidates.find(existsSync);
 const scenarios = [
   { name: '30 tabs', tabs: 30 },
   { name: '50 tabs', tabs: 50 },
@@ -121,11 +129,12 @@ async function json(url) {
   return response.json();
 }
 
-async function waitForEndpoint(port, deadline) {
+async function waitForEndpoint(port, deadline, diagnostics = () => '') {
   while (Date.now() < deadline) {
     try { return await json(`http://127.0.0.1:${port}/json/version`); } catch { await delay(50); }
   }
-  throw new Error('Chrome remote-debugging endpoint did not start');
+  const detail = diagnostics();
+  throw new Error(`Chrome remote-debugging endpoint did not start${detail ? `; Chrome log: ${detail}` : ''}`);
 }
 
 async function loadExtension(browser) {
@@ -283,11 +292,20 @@ async function runBrowserE2E(baseURL) {
     `--user-data-dir=${profile}`,
     '--enable-unsafe-extension-debugging',
     '--host-resolver-rules=MAP bench.gopainter.test 127.0.0.1',
-    '--headless=new', '--no-first-run', '--no-default-browser-check', '--disable-background-networking', 'about:blank',
-  ], { stdio: 'ignore' });
+    '--headless=new', '--no-first-run', '--no-default-browser-check', '--disable-background-networking',
+    '--disable-dev-shm-usage', '--enable-logging=stderr', 'about:blank',
+  ], { stdio: ['ignore', 'pipe', 'pipe'] });
+  let chromeLogText = '';
+  let chromeExit = '';
+  const captureChromeLog = (chunk) => {
+    chromeLogText = `${chromeLogText}${chunk}`.slice(-12_000);
+  };
+  child.stdout.on('data', captureChromeLog);
+  child.stderr.on('data', captureChromeLog);
+  child.once('exit', (code, signal) => { chromeExit = `Chrome exited (code=${code}, signal=${signal || 'none'})`; });
   let browser;
   try {
-    const version = await waitForEndpoint(port, Date.now() + 15_000);
+    const version = await waitForEndpoint(port, Date.now() + 15_000, () => chromeLogText || chromeExit || '(no Chrome log output)');
     browser = await new CDP(version.webSocketDebuggerUrl).connect();
     const extensionId = await loadExtension(browser);
     // Start the worker on a throwaway document.  The page under test must be
@@ -387,17 +405,19 @@ async function runScenario(baseURL, scenario) {
     '--enable-unsafe-extension-debugging',
     '--host-resolver-rules=MAP bench.gopainter.test 127.0.0.1',
     '--headless=new', '--no-first-run', '--no-default-browser-check', '--disable-background-networking',
-    '--enable-logging=stderr', '--v=1', 'about:blank',
+    '--disable-dev-shm-usage', '--enable-logging=stderr', '--v=1', 'about:blank',
   ], { stdio: ['ignore', 'pipe', 'pipe'] });
   let chromeLogText = '';
+  let chromeExit = '';
   const captureChromeLog = (chunk) => {
     chromeLogText = `${chromeLogText}${chunk}`.slice(-12_000);
   };
   child.stdout.on('data', captureChromeLog);
   child.stderr.on('data', captureChromeLog);
+  child.once('exit', (code, signal) => { chromeExit = `Chrome exited (code=${code}, signal=${signal || 'none'})`; });
   let browser;
   try {
-    const version = await waitForEndpoint(port, Date.now() + 15_000);
+    const version = await waitForEndpoint(port, Date.now() + 15_000, () => chromeLogText || chromeExit || '(no Chrome log output)');
     browser = await new CDP(version.webSocketDebuggerUrl).connect();
     const extensionId = await loadExtension(browser);
     // Start one tab first, so its document_idle content script wakes the MV3
@@ -476,7 +496,7 @@ async function runScenario(baseURL, scenario) {
   }
 }
 
-if (!existsSync(chromePath)) throw new Error(`Chrome not found: ${chromePath}. Set CHROME_PATH.`);
+if (!chromePath) throw new Error(`Chrome not found. Checked: ${chromeCandidates.join(', ')}. Set CHROME_PATH.`);
 if (!existsSync(join(extensionPath, 'wasm', 'matcher.wasm'))) throw new Error('Missing extension/wasm/matcher.wasm; run make build first.');
 
 const fixture = await listenFixture();

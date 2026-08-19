@@ -28,6 +28,9 @@ jobs:
       - name: Test
         run: make test
 
+      - name: Browser E2E
+        run: make test-browser-e2e
+
       - name: Package extension
         run: |
           cd extension

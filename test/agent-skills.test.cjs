@@ -109,7 +109,7 @@ test('background composition root loads every Host module and rejects duplicate 
   const imports = new Set([...background.matchAll(/'([^']+\.js)'/g)].map((match) => match[1]));
   const hostModules = [
     'history.js', 'page-fetch.js', 'browser-state.js', 'bookmarks.js', 'crawl.js',
-    'page-host.js', 'rules-host.js', 'ai-host.js', 'agent-host.js',
+    'page-host.js', 'rules-host.js', 'source-host.js', 'ai-host.js', 'agent-host.js',
   ];
   for (const file of hostModules) {
     assert.ok(imports.has(`background/${file}`), `background omits Host module ${file}`);

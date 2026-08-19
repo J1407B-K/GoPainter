@@ -302,6 +302,24 @@
     return [...byId.values()];
   }
 
+  function ruleSetUpdateSummary(previousRules = [], nextRules = []) {
+    const previous = new Map((Array.isArray(previousRules) ? previousRules : [])
+      .filter((rule) => rule?.id).map((rule) => [rule.id, JSON.stringify(rule)]));
+    const next = new Map((Array.isArray(nextRules) ? nextRules : [])
+      .filter((rule) => rule?.id).map((rule) => [rule.id, JSON.stringify(rule)]));
+    let added = 0;
+    let removed = 0;
+    let changed = 0;
+    let unchanged = 0;
+    for (const [id, value] of next) {
+      if (!previous.has(id)) added++;
+      else if (previous.get(id) === value) unchanged++;
+      else changed++;
+    }
+    for (const id of previous.keys()) if (!next.has(id)) removed++;
+    return { added, removed, changed, unchanged };
+  }
+
   function extractYaml(text) {
     const source = String(text || '');
     const match = source.match(/```(?:yaml|yml)?[^\S\r\n]*\r?\n([\s\S]*?)```/i);
@@ -644,7 +662,7 @@
   }
 
   const api = {
-    confidenceValue, filterAndSortHits, filterRules, crawlRenderSignature, popupResultSnapshot, agentPageSnapshot, faviconHashValues, bytesToBinaryString, mergeRules, planRuleMerge, diffTextLines, mergeConvertedRules,
+    confidenceValue, filterAndSortHits, filterRules, crawlRenderSignature, popupResultSnapshot, agentPageSnapshot, faviconHashValues, bytesToBinaryString, mergeRules, planRuleMerge, diffTextLines, mergeConvertedRules, ruleSetUpdateSummary,
     normalizeRuleSets, replaceActiveRuleSetRules, ruleSetOverrideInfo, extractYaml,
     extractJson, normalizeAiEvidence, normalizeAiTech, techsFromAiReply, ruleByTechName,
     sanitizeRuleDocs, sanitizeImportedRuleDocs, sanitizeRule, sanitizeMatcher,

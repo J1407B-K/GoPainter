@@ -207,6 +207,29 @@
     return { ok: true, state: next, name: target.name, revision: nextRevision };
   }
 
+  async function replaceSourceRuleSet({ id, name, rules }, beforeReplace) {
+    if (!id || !name || !Array.isArray(rules) || !rules.length) throw new Error('远程规则集无效');
+    const { state, revision } = await loadVersionedRuleState();
+    const previous = state.ruleSets.find((set) => set.id === id);
+    if (beforeReplace && previous?.rules?.length) await beforeReplace(previous.rules);
+    const replacement = { id, name, rules };
+    const ruleSets = previous
+      ? state.ruleSets.map((set) => set.id === id ? replacement : set)
+      : [...state.ruleSets, replacement];
+    const enabledRuleSetIds = state.enabledRuleSetIds.includes(id)
+      ? state.enabledRuleSetIds : [...state.enabledRuleSetIds, id];
+    const next = GoPainterUtils.normalizeRuleSets(
+      ruleSets, state.activeRuleSetId, [], enabledRuleSetIds, state.ruleSetOverrides
+    );
+    const nextRevision = await writeRuleState(next, revision);
+    return {
+      summary: GoPainterUtils.ruleSetUpdateSummary(previous?.rules || [], rules),
+      previousCount: previous?.rules?.length || 0,
+      ruleCount: rules.length,
+      revision: nextRevision,
+    };
+  }
+
   async function normalizeRules({ docsJSON }) {
     let rawDocs = docsJSON;
     try {
@@ -270,5 +293,6 @@
       classifyRuleSets,
       getProbes: probes,
     }),
+    replaceSourceRuleSet: (input, beforeReplace) => serializeMutation(() => replaceSourceRuleSet(input, beforeReplace)),
   });
 })();

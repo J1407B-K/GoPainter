@@ -2,6 +2,23 @@
 
 这是项目的长期性能档案。每一次重要性能改动、所用负载、取舍和复现命令都应记录在这里。它不是收集微基准的地方，而是让后续设计决策可以被复核的依据。
 
+## v0.6.9 —— Chromium 浏览器 E2E 正确性基线
+
+v0.6.9 在 CI 与发布检查中运行真实的 Chromium unpacked 扩展。它不同于下方的资源压测，
+是一项确定性的正确性测试：本地 fixture 提供已知的 title、meta、body、script、JavaScript
+运行时、DOM、favicon 和 SPA 路由信号，然后验证“采集 → 匹配 → session storage → popup”
+完整链路。
+
+发布基线通过 6 种初始 matcher、2 个 favicon hash、替换后的 SPA 结果（`e2e-spa`）和 popup
+渲染，并确认 SPA 新结果不再保留旧页面命中。测试不会访问真实第三方仓库：上游网络、限流和
+持续变化的规则数据会让 CI 变得不确定。第三方规则源的下载边界和消息路由改由确定性测试覆盖。
+
+使用 `make build && make test-browser-e2e` 复现（需要本机 Chrome）。成功结果的机器可读输出为：
+
+```json
+{"e2e":"passed","initialHits":6,"spaHit":"e2e-spa","faviconHashes":2,"popupRendered":true}
+```
+
 ## v0.6.8 —— Chromium 多标签页资源边界
 
 v0.6.8 用真实 Chromium，而不是只靠源码层的队列断言，完成多标签页资源加固验证。压测使用全新 profile，通过 CDP 加载 unpacked 扩展；每页提供 10 个刻意放慢且互不相同的 favicon 响应，并在运行期间轮询 extension service worker。它检查扫描 / favicon 的活动与等待队列、`storage.session` 用量、storage error、stale result commit、每 tab 孤儿 key，以及所有仍打开标签页的最终结果。

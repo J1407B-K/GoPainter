@@ -37,16 +37,16 @@ While you browse, GoPainter fingerprints the current site automatically and surf
 - **Rule health inspection** — checks regex validity and structural prefilter opportunities, with short/long anchor rankings and actionable invalid/no-anchor details
 - **Composable rule sets** — keep imports separated, enable any combination for matching, and review a YAML diff before replacing a conflicting rule
 - **nuclei template compatibility** — imports automatically extract the HTTP matchers subset, so the large community template library is directly usable
-- **Third-party rule sources** — Wappalyzer / EHole / nuclei-templates can be pulled and converted in one click; whether to download is your choice, and their complete libraries are not vendored into the repository
+- **Third-party rule sources** — refresh Wappalyzer / EHole / nuclei-templates manually or on a daily/weekly schedule, with bounded downloads, atomic per-source rule-set replacement, update summaries, and one-version rollback; source data is fetched by the user and is never bundled or redistributed by GoPainter
 - **Performance-focused runtime** — Go WASM + Google RE2 matching, bounded page/UI data paths, and indexed Agent rule search
 - **Hit evidence** — each fingerprint carries the specific keyword, regex, status code, or hash that matched
 - **Icon state indicator** — gray = no match, colored + badge = N matches
 - **Agent-assisted fingerprint research** — a bounded, streaming tool loop researches the current tab or a rule, shows its auditable tool trace, and returns an evidence-based task report
 - **Scan history & reports** — choose a 50–5,000 entry rolling window and export it as JSON/CSV
 
-## Current release: v0.6.8
+## Current release: v0.6.9
 
-v0.6.8 adds global scan and favicon-download queues, protects `storage.session` with bounded per-page snapshots and oldest-first eviction, and rejects explicit private/local favicon targets and unsafe redirects. It also makes JS probes return only primitive values and removes unused localization fallback data. See the current measurements and previous versions in the [performance record](BENCHMARK.md).
+v0.6.9 adds user-initiated third-party rule-source updates for Wappalyzer, EHole, and nuclei-templates: bounded streaming downloads, separate source rule sets, optional daily/weekly checks (off by default), change summaries, and one-version rollback. Third-party rule data is fetched by the user and remains unbundled and undistributed by GoPainter. Browser E2E now runs in CI and release checks. See the resource measurements and previous versions in the [performance record](BENCHMARK.md).
 
 ## Quick start
 
@@ -130,7 +130,7 @@ Example: `contains(body, "wp-content") && status == 200`
 
 ## Third-party rule sources
 
-The settings page can pull community fingerprint libraries in real time from your browser and convert them into rules:
+The settings page offers three fixed community sources. Refreshes use bounded streaming downloads and strict host allowlists, convert into a separate rule set per source, atomically replace the previous set, and retain one rollback version in IndexedDB. Optional daily or weekly checks are off by default and use Chrome alarms only after the user enables them; arbitrary source URLs are intentionally unsupported.
 
 | source | size | description |
 |---|---|---|
@@ -138,7 +138,7 @@ The settings page can pull community fingerprint libraries in real time from you
 | [EdgeSecurityTeam/EHole](https://github.com/EdgeSecurityTeam/EHole) | 958 | EHole fingerprints, strong domestic-system coverage |
 | [projectdiscovery/nuclei-templates](https://github.com/projectdiscovery/nuclei-templates) | hundreds | http/technologies recognition templates |
 
-Thanks to these communities for their long-term maintenance. The conversion logic lives in `wasm/engine/convert.go` and runs client-side at fetch time.
+Thanks to these communities for their long-term maintenance. The conversion logic lives in `wasm/engine/convert.go` and runs client-side at fetch time. A `304 Not Modified` response or unchanged content hash avoids rewriting the rule set.
 
 **Disclaimer**: this project is a format-conversion tool only; it bundles and distributes no third-party rule data. The content, licensing, and compliance of third-party sources are the responsibility of their maintainers; your pulling and use of them is likewise your own responsibility. Please respect each source's license and applicable law, and use this only for authorized security testing and research.
 
@@ -249,7 +249,7 @@ Rule semantics—including strict Agent candidate validation and required-probe 
 
 ## Project status
 
-The core browser workflow is implemented: automatic matching, evidence, composable rule sets and imports, Agent research and importable rule generation, crawling, history/report export, and bookmark organization. The next planned area is remote rule-source subscriptions and updates.
+The core browser workflow is implemented: automatic matching, evidence, composable rule sets and imports, third-party rule-source updates and rollback, Agent research and importable rule generation, crawling, history/report export, and bookmark organization. Browser E2E coverage now protects the complete capture → match → storage → popup path in CI; the next work should return to recognition quality and carefully scoped rule improvements.
 
 ## License
 

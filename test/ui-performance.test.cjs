@@ -49,7 +49,7 @@ test('extension surfaces share a persisted Chinese/English locale switch', () =>
   for (const key of ['设置', '规则（或单条 matcher）可以标', '当前 AI 无合理优化建议']) {
     assert.equal((entries.match(new RegExp(`'${key}':`, 'g')) || []).length, 1, `${key} must have one translation entry`);
   }
-  for (const chinese of ['支持 GoPainter 原生格式', '以下规则源由各自社区维护', '加载书签列表后勾选想整理的', '从起始 URL 递归抓取', '工具调用测试会发送两次']) {
+  for (const chinese of ['支持 GoPainter 原生格式', '以下固定来源由各自社区维护', '加载书签列表后勾选想整理的', '从起始 URL 递归抓取', '工具调用测试会发送两次']) {
     assert.match(i18n, new RegExp(chinese));
   }
   for (const file of ['popup.html', 'options.html', 'sidepanel.html']) {

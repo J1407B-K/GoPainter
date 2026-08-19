@@ -1,10 +1,10 @@
 {
   "manifest_version": 3,
   "name": "GoPainter",
-  "version": "0.6.8",
+  "version": "0.6.9",
   "description": "__MSG_extensionDescription__",
   "default_locale": "en",
-  "permissions": ["storage", "tabs", "webRequest", "bookmarks", "sidePanel", "scripting"],
+  "permissions": ["storage", "tabs", "webRequest", "bookmarks", "sidePanel", "scripting", "alarms"],
   "side_panel": {
     "default_path": "sidepanel.html"
   },

@@ -39,6 +39,7 @@ importScripts(
   'background/crawl.js',
   'background/page-host.js',
   'background/rules-host.js',
+  'background/source-host.js',
   'background/ai-host.js',
   'background/agent-host.js'
 );
@@ -50,6 +51,7 @@ const messageHosts = [
   GoPainterHistoryHost,
   GoPainterBookmarksHost,
   GoPainterCrawlHost,
+  GoPainterSourceHost,
 ];
 
 function registerMessageHandlers(hosts) {

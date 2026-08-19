@@ -91,3 +91,30 @@ test('the retired external-script storage is removed once during startup', () =>
   assert.match(migration, /chrome\.storage\.local\.remove\('userScripts'\)/);
   assert.match(migration, /storageCleanup:v0\.6\.5/);
 });
+
+test('third-party rule sources are bounded, scheduled, and rollback without duplicating rules in local storage', () => {
+  const sourceHost = read('background', 'source-host.js');
+  const rulesHost = read('background', 'rules-host.js');
+  const options = read('options.js');
+  const manifest = JSON.parse(read('manifest.json'));
+  assert.ok(manifest.permissions.includes('alarms'));
+  assert.match(sourceHost, /MAX_FILE_BYTES = 3 \* 1024 \* 1024/);
+  assert.match(sourceHost, /MAX_TOTAL_BYTES = 30 \* 1024 \* 1024/);
+  assert.match(sourceHost, /MAX_FILES = 2_000/);
+  assert.match(sourceHost, /MAX_RULES = 25_000/);
+  assert.match(sourceHost, /FETCH_CONCURRENCY = 4/);
+  assert.match(sourceHost, /FETCH_TIMEOUT_MS = 15_000/);
+  assert.match(sourceHost, /redirect: 'manual'/);
+  assert.match(sourceHost, /credentials: 'omit'/);
+  assert.match(sourceHost, /response\.body\.getReader\(\)/);
+  assert.match(sourceHost, /await reader\.cancel\(\)/);
+  assert.doesNotMatch(sourceHost, /arrayBuffer\(\)/);
+  assert.match(sourceHost, /indexedDB\.open\('gopainter-rule-source-backups'/);
+  assert.match(sourceHost, /chrome\.alarms\.onAlarm\.addListener/);
+  assert.match(sourceHost, /replaceSourceRuleSet/);
+  assert.match(rulesHost, /replaceSourceRuleSet: \(input, beforeReplace\) =>\s*serializeMutation/s);
+  assert.match(sourceHost, /autoUpdate: false/);
+  assert.match(sourceHost, /ALLOWED_HOSTS = new Set/);
+  assert.doesNotMatch(sourceHost, /rawURL:\s*msg|msg\.url|sourceURL/);
+  assert.doesNotMatch(options, /raw\.githubusercontent\.com|api\.github\.com/);
+});
