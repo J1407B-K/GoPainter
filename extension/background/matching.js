@@ -356,6 +356,7 @@ async function appendHashHit(features, result) {
         result.hits.push({
           id: `icon-${hash}`,
           name: hit.name,
+          source: 'hash',
           evidence: [{ type: 'icon_hash', detail: `mmh3 ${hash}（哈希库）` }],
         });
         seenNames.add(hit.name);
@@ -379,19 +380,26 @@ async function getCustomHashesJSON() {
 let rescanTimer = null;
 let probeCache = null; // 规则里的 js/dom 探测清单，规则变了就失效
 
+function invalidateRuleMatchingCaches() {
+  rulesGeneration++;
+  probeCache = null;
+  rulesJsonCache = null;
+  matchCache.clear();
+}
+
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== 'local') return;
   if (changes.customHashes) customHashesJsonCache = null;
   if (!changes.rules && !changes.customHashes) return;
-  if (changes.rules) {
-    rulesGeneration++;
-    probeCache = null;
-    rulesJsonCache = null;
-    matchCache.clear();
-  }
+  if (changes.rules) invalidateRuleMatchingCaches();
   clearTimeout(rescanTimer);
   rescanTimer = setTimeout(rescanAllTabs, 500); // 防抖，连续导入合并成一次
 });
+
+// Live rule editing needs deterministic invalidation before it asks the current
+// tab to collect newly introduced JS paths or DOM selectors. storage.onChanged
+// remains the fallback for every other mutation path.
+globalThis.invalidateRuleMatchingCaches = invalidateRuleMatchingCaches;
 
 async function rescanAllTabs() {
   const tabs = await chrome.tabs.query({});
@@ -415,16 +423,20 @@ async function rescanAllTabs() {
 }
 
 async function getProbeList() {
-  if (!probeCache) {
+  while (true) {
+    const generation = rulesGeneration;
+    if (probeCache?.generation === generation) return probeCache.plan;
     const { rules = [] } = await chrome.storage.local.get('rules');
     await ensureWasm();
     const planned = JSON.parse(globalThis.goPlanRequiredProbes(JSON.stringify(rules)));
     if (planned.error) throw new Error(planned.error);
     const paths = Array.isArray(planned.paths) ? planned.paths : [];
     const probes = Array.isArray(planned.probes) ? planned.probes : [];
-    probeCache = { paths, probes, byId: new Map(probes.map((p) => [p.id, p.sel])) };
+    if (generation !== rulesGeneration) continue;
+    const plan = { paths, probes, byId: new Map(probes.map((p) => [p.id, p.sel])) };
+    probeCache = { generation, plan };
+    return plan;
   }
-  return probeCache;
 }
 
 // 命中的 probe id 反查回选择器，给 AI 用（id 是黑盒，AI 看不懂）

@@ -242,14 +242,14 @@ async function cleanupChrome(child, profile) {
 }
 
 const E2E_RULES = [
-  { id: 'e2e-body', name: 'E2E body', matchers: [{ type: 'word', part: 'body', words: ['E2E_BODY_MARKER'] }] },
-  { id: 'e2e-title', name: 'E2E title', matchers: [{ type: 'word', part: 'title', words: ['E2E_TITLE_MARKER'] }] },
-  { id: 'e2e-meta', name: 'E2E meta', matchers: [{ type: 'word', part: 'meta', words: ['E2E_META_MARKER'] }] },
-  { id: 'e2e-script', name: 'E2E script', matchers: [{ type: 'word', part: 'script', words: ['/assets/e2e-signal.js'] }] },
-  { id: 'e2e-cookie', name: 'E2E cookie', matchers: [{ type: 'word', part: 'header', words: ['set-cookie: gopainter_e2e=COOKIE_MARKER'] }] },
-  { id: 'e2e-js', name: 'E2E JS', matchers: [{ type: 'js', js: [{ path: 'GoPainterE2E.version', pattern: '^1\\.0\\.0$' }] }] },
-  { id: 'e2e-dom', name: 'E2E DOM', matchers: [{ type: 'dom', dom: [{ sel: '#e2e-dom', text: 'E2E_DOM_MARKER' }] }] },
-  { id: 'e2e-spa', name: 'E2E SPA', matchers: [{ type: 'word', part: 'body', words: ['E2E_SPA_MARKER'] }] },
+  { id: 'e2e-body', name: 'E2E body', 'matchers-condition': 'or', matchers: [{ type: 'word', part: 'body', words: ['E2E_BODY_MARKER'] }] },
+  { id: 'e2e-title', name: 'E2E title', 'matchers-condition': 'or', matchers: [{ type: 'word', part: 'title', words: ['E2E_TITLE_MARKER'] }] },
+  { id: 'e2e-meta', name: 'E2E meta', 'matchers-condition': 'or', matchers: [{ type: 'word', part: 'meta', words: ['E2E_META_MARKER'] }] },
+  { id: 'e2e-script', name: 'E2E script', 'matchers-condition': 'or', matchers: [{ type: 'word', part: 'script', words: ['/assets/e2e-signal.js'] }] },
+  { id: 'e2e-cookie', name: 'E2E cookie', 'matchers-condition': 'or', matchers: [{ type: 'word', part: 'header', words: ['set-cookie: gopainter_e2e=COOKIE_MARKER'] }] },
+  { id: 'e2e-js', name: 'E2E JS', 'matchers-condition': 'or', matchers: [{ type: 'js', version: '\\1', js: [{ path: 'GoPainterE2E.version', pattern: '^(1\\.0\\.0)$' }] }] },
+  { id: 'e2e-dom', name: 'E2E DOM', 'matchers-condition': 'or', matchers: [{ type: 'dom', dom: [{ sel: '#e2e-dom', text: 'E2E_DOM_MARKER' }] }] },
+  { id: 'e2e-spa', name: 'E2E SPA', 'matchers-condition': 'or', matchers: [{ type: 'word', part: 'body', words: ['E2E_SPA_MARKER'] }] },
 ];
 const E2E_INITIAL_IDS = E2E_RULES.filter((rule) => rule.id !== 'e2e-spa').map((rule) => rule.id);
 
@@ -482,6 +482,8 @@ async function runBrowserE2E(baseURL, requestCounts) {
       || !(features.faviconHashes || []).length) {
       throw new Error('feature collection did not retain cookie, JS, DOM, and favicon evidence');
     }
+    const versionHit = state.popup.result.hits.find((hit) => hit.id === 'e2e-js');
+    if (versionHit?.version !== '1.0.0') throw new Error(`version extraction failed: ${JSON.stringify(versionHit)}`);
 
     await browser.call('Extensions.triggerAction', { id: extensionId, targetId: targets.tab.targetId });
     const popupTarget = await waitFor(browser, worker, async () => {
@@ -490,10 +492,45 @@ async function runBrowserE2E(baseURL, requestCounts) {
     }, 'extension popup target');
     const popup = await attachPage(browser, popupTarget.targetId);
     await waitFor(browser, worker, async () => {
-      const names = await evaluate(browser, popup.sessionId,
-        `Array.from(document.querySelectorAll('#hits .hit .name')).map((item) => item.textContent.trim())`);
-      return E2E_INITIAL_IDS.every((id) => names.includes(E2E_RULES.find((rule) => rule.id === id).name)) ? names : null;
+      const ids = await evaluate(browser, popup.sessionId,
+        `Array.from(document.querySelectorAll('#hits .hit')).map((item) => item.dataset.ruleId)`);
+      return E2E_INITIAL_IDS.every((id) => ids.includes(id)) ? ids : null;
     }, 'popup rendering');
+    const popupVersion = await evaluate(browser, popup.sessionId,
+      `document.querySelector('[data-rule-id="e2e-js"] .version')?.textContent.trim()`);
+    if (popupVersion !== '1.0.0') throw new Error(`popup did not render extracted version: ${popupVersion}`);
+
+    // Click an actual hit, edit its YAML, validate against the current page, and
+    // save through the same UI path a user invokes.
+    await evaluate(browser, popup.sessionId,
+      `document.querySelector('[data-rule-id="e2e-js"] .edit-rule-btn').click()`);
+    await waitFor(browser, worker, () => evaluate(browser, popup.sessionId,
+      `document.querySelector('#rule-area').style.display === 'block' && document.querySelector('#rule-yaml').value.includes('id: e2e-js')`), 'live rule editor');
+    await evaluate(browser, popup.sessionId, `(() => {
+      const editor = document.querySelector('#rule-yaml');
+      editor.value = editor.value.replace('name: E2E JS', 'name: E2E JS edited');
+      editor.dispatchEvent(new Event('input', { bubbles: true }));
+    })()`);
+    await waitFor(browser, worker, () => evaluate(browser, popup.sessionId,
+      `document.querySelector('#rule-validation').classList.contains('valid')`), 'live rule validation');
+    await evaluate(browser, popup.sessionId, `document.querySelector('#rule-save').click()`);
+    await waitFor(browser, worker, async () => {
+      const value = await evaluate(browser, worker, e2eStateExpression(baseURL));
+      return value?.popup?.result?.hits?.find((hit) => hit.id === 'e2e-js')?.name === 'E2E JS edited';
+    }, 'saved rule rematch');
+    await waitFor(browser, worker, () => evaluate(browser, popup.sessionId,
+      `document.querySelector('[data-rule-id="e2e-js"] .name')?.textContent.includes('E2E JS edited')`), 'live popup refresh');
+
+    const batchStart = await evaluate(browser, worker,
+      `GoPainterBatchHost.handlers.batchStart({ urls: ${JSON.stringify([`${baseURL}/e2e`, `${baseURL}/page?tab=batch-e2e`])} })`);
+    if (!batchStart?.ok || batchStart.total !== 2) throw new Error(`batch scan did not start: ${JSON.stringify(batchStart)}`);
+    const batchState = await waitFor(browser, worker, async () => {
+      const value = await evaluate(browser, worker, 'GoPainterBatchHost.handlers.batchStatus({})');
+      return !value.running && value.completed === 2 ? value : null;
+    }, 'batch scan completion');
+    if (batchState.results.length !== 2 || batchState.failed.length) {
+      throw new Error(`batch scan result mismatch: ${JSON.stringify(batchState)}`);
+    }
 
     await browser.call('Runtime.evaluate', {
       expression: `history.pushState({}, '', '/e2e?spa=1'); document.querySelector('#e2e-dom').textContent = 'E2E_SPA_MARKER E2E_DOM_MARKER';`,
@@ -509,6 +546,9 @@ async function runBrowserE2E(baseURL, requestCounts) {
       spaHit: 'e2e-spa',
       faviconHashes: features.faviconHashes.length,
       popupRendered: true,
+      version: versionHit.version,
+      liveRuleEdit: true,
+      batchResults: batchState.results.length,
     }));
   } finally {
     browser?.close();

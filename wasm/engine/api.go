@@ -2,6 +2,7 @@ package engine
 
 import (
 	"encoding/json"
+	"sort"
 	"strconv"
 )
 
@@ -14,7 +15,14 @@ func Match(rules []Rule, features Features) []Hit {
 	}
 	for _, r := range rules {
 		if ok, ev, conf := matchRule(r, c); ok {
-			hits = append(hits, Hit{ID: r.ID, Name: r.Name, Evidence: ev, Confidence: conf})
+			version := ""
+			for _, evidence := range ev {
+				if evidence.Version != "" {
+					version = evidence.Version
+					break
+				}
+			}
+			hits = append(hits, Hit{ID: r.ID, Name: r.Name, Version: version, Evidence: ev, Confidence: conf})
 		}
 	}
 	if rs == nil {
@@ -58,7 +66,13 @@ func ConvertWappalyzerJSON(techJSON string) ([]Rule, error) {
 		return nil, err
 	}
 	rules := make([]Rule, 0, len(techs))
-	for name, t := range techs {
+	names := make([]string, 0, len(techs))
+	for name := range techs {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		t := techs[name]
 		if r := convertWappTech(name, t); r != nil {
 			rules = append(rules, *r)
 		}

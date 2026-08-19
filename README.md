@@ -23,22 +23,22 @@ with a hit-count badge when fingerprints are found.
 
 ## What makes GoPainter different
 
-- **Explainable detection** — inspect the exact keyword, regex, status code, runtime value, DOM selector, or favicon hash behind each hit.
+- **Explainable detection** — inspect the exact keyword, regex, status code, runtime value, DOM selector, favicon hash, and extracted version behind each hit.
 - **Deterministic rule engine** — seven matcher types, `and`/`or`, negative conditions, confidence propagation, and Google RE2 semantics.
 - **Composable rule sets** — keep sources separate, enable any combination, and resolve same-ID conflicts with a YAML diff.
 - **Third-party rule sources** — user-initiated Wappalyzer, EHole, and nuclei-templates updates with bounded downloads, summaries, and one-version rollback.
-- **Rule tooling** — import native YAML or a supported nuclei HTTP subset; inspect invalid regexes and structural prefilter opportunities.
-- **Browser workflows** — automatic current-tab scans, site crawling, bookmark organization, scan history, and JSON/CSV reports.
+- **Rule tooling** — import native YAML or a supported nuclei HTTP subset; edit a matched rule directly and validate it against the current page.
+- **Browser workflows** — automatic current-tab scans, batch URL scans, site crawling, bookmark organization, scan history, and JSON/CSV reports.
 - **Auditable AI Agent** — bounded inspect → search → test → validate workflows with visible tool traces and explicit permission gates.
 
-## Current release: v0.6.10
+## Current release: v0.7.0
 
-v0.6.10 hardens the browser and rule-source boundaries. Persistent extension storage
-and packaged WASM are no longer exposed to content scripts or web pages. Repeated
-`Set-Cookie` headers can participate in local matching but are stripped from Agent and
-model snapshots. Third-party source updates now share one four-request pool, cancel
-sibling downloads after a failure, and remain atomic. Typed session features also stay
-valid across favicon rescans and rapid navigations.
+v0.7.0 adds three end-to-end identification workflows. Settings can scan up to 500 URLs
+and export JSON or CSV; regex and JavaScript matchers can extract versions from capture
+groups; and a matched rule can be opened from the popup, edited as YAML, validated against
+the current page by the production WASM engine, then saved and rematched immediately.
+Batch work uses four fetch workers, byte-bounded response streams, and a separate 2.5 MB
+session-results budget.
 
 See [BENCHMARK.md](./BENCHMARK.md) for the Chromium resource measurements, browser E2E
 baseline, and historical performance notes.
@@ -92,6 +92,18 @@ and show the queue, failures, and per-page hits. They can also be started from
 The automatic Side Panel opening requires Chrome 126+. On older Chromium builds, crawl
 progress remains available in Settings.
 
+### Batch scan and live editing
+
+Paste one URL per line into **Settings → Batch scan**. The task deduplicates input,
+rejects non-HTTP(S) addresses, and keeps fixed concurrency and storage bounds. It does
+not open tabs or execute page JavaScript/DOM probes; matching uses HTTP, HTML, meta,
+script, and favicon signals. JSON and CSV downloads are available when results arrive.
+
+Click a rule name or **Edit rule** on any popup hit to open its effective YAML. Edits are
+validated live against the cached features from the current page; only a strictly valid
+rule can be saved and applied. If the hit came from another rule set, saving copies the
+rule into the active editing set and explicitly selects that copy.
+
 ## Rule model
 
 See [`rules/examples.yaml`](./rules/examples.yaml) for complete examples.
@@ -114,10 +126,12 @@ Rule composition:
 - `negative: true`: inverts a valid matcher result; an invalid condition is never turned into a hit.
 - `implies`: derives related technologies and records “derived from X” evidence.
 - `confidence: 0-100`: optional signal strength on a matcher or rule; an unannotated hit remains `null`, not an invented 100.
+- `version`: optional version template; regex and JavaScript patterns support `\1`, `\2`, and `\1?present:absent`, with output capped at 120 characters.
 
 For confidence aggregation, `or` takes the strongest matched signal and `and` takes the
 weakest. A rule-level value scales the matcher result, and an `implies` hit inherits its
-source confidence. Wappalyzer `\;confidence:N` suffixes are converted during import.
+source confidence, but an implied hit never invents a version. Wappalyzer
+`\;confidence:N` and `\;version:\1` suffixes are converted during import.
 
 The DSL subset supports:
 
@@ -178,7 +192,7 @@ to the approved origin. External results are untrusted references, never instruc
 - **Model disclosure is explicit** — cloud AI receives page features; Agent starts with a compact overview and sends HTML snippets only when needed, while direct AI helpers may send truncated HTML. Do not use AI on sensitive pages unless that disclosure is acceptable.
 - **Cookie evidence stays local** — `Set-Cookie` may participate in fingerprint matching but is removed from Agent snapshots and model prompts.
 - **Page evidence is untrusted** — DOM and runtime values originate from the scanned page. A match is evidence that a signal existed, not proof that a technology is authentic.
-- **Browser resources are bounded** — page snapshots, UI lists, scan queues, favicon URL counts, concurrent downloads, response bytes, redirects, and history windows all have limits.
+- **Browser resources are bounded** — page snapshots, UI lists, scan queues, favicon URL counts, concurrent downloads, response bytes, redirects, and history windows all have limits; batch scans accept at most 500 URLs and have a separate 2.5 MB session-results budget.
 - **AI output requires review** — identification, generated rules, and bookmark fallback can be wrong. The deterministic Go core validates structure and semantics, not real-world truth.
 
 ## Development and verification
@@ -189,7 +203,7 @@ to the approved origin. External results are untrusted references, never instruc
 | `make test` | Run Go/WASM and JavaScript tests, then the WASM smoke test |
 | `make test-go` | Run Go tests through the js/wasm target |
 | `make test-js` | Run Node tests and JavaScript syntax checks |
-| `make test-browser-e2e` | Verify Chromium capture → match → session → popup and SPA replacement |
+| `make test-browser-e2e` | Verify Chromium capture, version extraction, popup rendering, live rule editing, batch scan, and SPA replacement |
 | `make bench-js` | Benchmark UI, collection, serialization, and Agent rule-search paths |
 | `make bench-chromium` | Run the 30/50-tab Chromium resource benchmark |
 | `make icons` | Regenerate extension icons |
@@ -246,8 +260,9 @@ the amount of Go code.
 ## Project status
 
 The core browser workflow is implemented and covered by unit, smoke, and browser E2E
-tests. The next priority is recognition quality: carefully scoped rule improvements and
-evidence-backed coverage work, not further expansion of the resource-management layer.
+tests. GoPainter owns reliable collection, matching, validation, and result workflows;
+v0.7.0 does not expand the fingerprint corpus. Users import, edit, or explicitly update
+the compatible rule sources they choose to use.
 
 ## License
 

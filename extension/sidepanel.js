@@ -25,7 +25,7 @@ function renderResults(resp) {
   resultsSignature = signature;
   const rows = [];
   for (const r of resp.results.slice(-RESULT_RENDER_LIMIT)) {
-    const names = (r.hits || []).map((h) => h.name).join('、');
+    const names = (r.hits || []).map(GoPainterUtils.hitLabel).join('、');
     rows.push(
       `<div class="crawl-item"><div class="t">${escapeHtml(r.title)}</div>` +
       `<div class="u">${escapeHtml(r.url)}（HTTP ${r.status}）</div>` +

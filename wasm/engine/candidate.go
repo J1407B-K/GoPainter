@@ -71,7 +71,7 @@ func validateRawRootNulls(root map[string]json.RawMessage) []ValidationIssue {
 
 func validateRawMatcherFields(matcher map[string]json.RawMessage, matcherType, base string) []ValidationIssue {
 	payloadFor := map[string]string{"word": "words", "regex": "regex", "status": "status", "icon_hash": "hash", "dsl": "dsl", "js": "js", "dom": "dom"}
-	allowed := map[string]bool{"type": true, "part": true, "condition": true, "negative": true, "confidence": true}
+	allowed := map[string]bool{"type": true, "part": true, "condition": true, "negative": true, "confidence": true, "version": true}
 	allowed[payloadFor[matcherType]] = true
 	var errors []ValidationIssue
 	for key := range matcher {
@@ -84,12 +84,12 @@ func validateRawMatcherFields(matcher map[string]json.RawMessage, matcherType, b
 
 func validateRawMatcherScalars(matcher map[string]json.RawMessage, base string) []ValidationIssue {
 	var errors []ValidationIssue
-	for _, field := range []string{"part", "condition", "negative", "confidence"} {
+	for _, field := range []string{"part", "condition", "negative", "confidence", "version"} {
 		if value, ok := matcher[field]; ok && isJSONNull(value) {
 			errors = append(errors, issue(base+"."+field, "invalid_null", "%s 不能是 null", field))
 		}
 	}
-	for _, field := range []string{"part", "condition"} {
+	for _, field := range []string{"part", "condition", "version"} {
 		if value, ok := matcher[field]; ok && !isJSONNull(value) {
 			var text string
 			if json.Unmarshal(value, &text) == nil && text == "" {
@@ -356,6 +356,9 @@ func validateMatcherStrict(m Matcher, index int, features Features) []Validation
 		errors = append(errors, issue(base+".condition", "invalid_enum", "condition 只能是 and 或 or"))
 	}
 	errors = append(errors, validateConfidence(base+".confidence", m.Confidence)...)
+	if m.Version != "" && !validNonEmptyString(m.Version, 500) {
+		errors = append(errors, issue(base+".version", "invalid_string", "version 必须是长度不超过 500 的非空模板"))
+	}
 
 	if matcherPayloadCount(m) != 1 {
 		errors = append(errors, issue(base, "invalid_payload", "matcher 必须且只能包含与 type 对应的一个非空载荷"))

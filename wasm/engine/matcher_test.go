@@ -222,6 +222,80 @@ func TestEvalMatcherJs(t *testing.T) {
 	}
 }
 
+func TestVersionExtraction(t *testing.T) {
+	f := baseFeatures()
+	f.Body = "WordPress 6.7.2"
+	hits := Match([]Rule{{
+		ID: "wordpress", Name: "WordPress", MatchersCondition: "or",
+		Matchers: []Matcher{{Type: "regex", Part: "body", Regex: []string{`WordPress ([\d.]+)`}, Version: `\1`}},
+	}}, *f)
+	if len(hits) != 1 || hits[0].Version != "6.7.2" || hits[0].Evidence[0].Version != "6.7.2" {
+		t.Fatalf("正则捕获版本失败: %+v", hits)
+	}
+
+	f.Js["React.version"] = "18.3.1"
+	hits = Match([]Rule{{
+		ID: "react", Name: "React", MatchersCondition: "or",
+		Matchers: []Matcher{{Type: "js", Js: []JsProbe{{Path: "React.version", Pattern: `^(\d+)\.`}}, Version: `\1?React :unknown`}},
+	}}, *f)
+	if len(hits) != 1 || hits[0].Version != "React" {
+		t.Fatalf("JS 条件版本模板失败: %+v", hits)
+	}
+
+	// An OR rule may contain an AND matcher that only matched its first item.
+	// That failed branch must not leak evidence or a bogus version into the hit.
+	hits = Match([]Rule{{
+		ID: "branch", Name: "Branch", MatchersCondition: "or",
+		Matchers: []Matcher{
+			{Type: "word", Condition: "and", Words: []string{"WordPress", "missing"}, Version: "bogus"},
+			{Type: "word", Words: []string{"WordPress"}, Version: "real"},
+		},
+	}}, *f)
+	if len(hits) != 1 || hits[0].Version != "real" || len(hits[0].Evidence) != 1 {
+		t.Fatalf("失败分支不应泄漏版本或证据: %+v", hits)
+	}
+
+	hits = Match([]Rule{{
+		ID: "negative", Name: "Negative", MatchersCondition: "or",
+		Matchers: []Matcher{{
+			Type: "word", Condition: "and", Negative: true,
+			Words: []string{"WordPress", "missing"}, Version: "bogus",
+		}},
+	}}, *f)
+	if len(hits) != 1 || hits[0].Version != "" || len(hits[0].Evidence) != 1 || hits[0].Evidence[0].Type != "word" {
+		t.Fatalf("negative 命中不应保留原条件的版本或证据: %+v", hits)
+	}
+
+	hits = Match([]Rule{{
+		ID: "source", Name: "Source", Implies: []string{"Derived"},
+		Matchers: []Matcher{{Type: "word", Words: []string{"WordPress"}, Version: "9.1"}},
+	}}, *f)
+	if len(hits) != 2 || hits[0].Version != "9.1" || hits[1].Version != "" {
+		t.Fatalf("implies 不应凭空继承版本: %+v", hits)
+	}
+}
+
+func TestExpandVersionTemplate(t *testing.T) {
+	cases := []struct {
+		template string
+		matches  []string
+		want     string
+	}{
+		{`\1.\2`, []string{"full", "6", "7"}, "6.7"},
+		{`\1?pro:free`, []string{"full", "yes"}, "pro"},
+		{`\1?pro:free`, []string{"full", ""}, "free"},
+		{`\1?\1:\2`, []string{"full", "enterprise", "community"}, "enterprise"},
+		{`\1?\1:\2`, []string{"full", "", "community"}, "community"},
+		{`v\9`, []string{"full"}, "v"},
+		{`v\999999999999999999999999999999999999`, []string{"full"}, "v"},
+	}
+	for _, tc := range cases {
+		if got := expandVersion(tc.template, tc.matches); got != tc.want {
+			t.Errorf("expandVersion(%q) = %q, want %q", tc.template, got, tc.want)
+		}
+	}
+}
+
 func TestEvalMatcherDom(t *testing.T) {
 	f := baseFeatures()
 	ok, _ := evalMatcher(Matcher{Type: "dom", Words: []string{".wp-block"}}, newMatchCtx(f))

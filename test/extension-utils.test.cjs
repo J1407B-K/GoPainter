@@ -4,7 +4,7 @@ const {
   confidenceValue, filterAndSortHits, filterRules, crawlRenderSignature, popupResultSnapshot, agentPageSnapshot, faviconHashValues, bytesToBinaryString, mergeRules, planRuleMerge, diffTextLines, mergeConvertedRules,
   normalizeRuleSets, replaceActiveRuleSetRules, ruleSetOverrideInfo, ruleSetUpdateSummary, extractYaml, sanitizeImportedRuleDocs,
   extractJson, normalizeAiEvidence, normalizeAiTech, techsFromAiReply, ruleByTechName, sanitizeRuleDocs,
-  scanHistoryEntry, mergeScanHistory, normalizeHistoryLimit, scanHistoryReport, scanHistoryCsv,
+  scanHistoryEntry, mergeScanHistory, normalizeHistoryLimit, scanHistoryReport, scanHistoryCsv, batchScanReport, batchScanCsv, hitLabel,
 } = require('../extension/shared-utils.js');
 
 test('ruleSetUpdateSummary distinguishes additions, removals, and changed rule bodies', () => {
@@ -203,11 +203,11 @@ test('extractYaml removes a YAML fence and leaves ordinary YAML alone', () => {
 
 test('scan history stores a compact report and replaces an older scan of the same URL', () => {
   const entry = scanHistoryEntry({ url: 'https://example.com', title: 'Example', status: 200, faviconHashes: [-8] }, {
-    hits: [{ id: 'nginx', name: 'Nginx', confidence: 90, evidence: [{ type: 'word', part: 'header', detail: 'server: nginx' }] }],
+    hits: [{ id: 'nginx', name: 'Nginx', version: '1.26.0', confidence: 90, evidence: [{ type: 'word', part: 'header', detail: 'server: nginx' }] }],
   }, 'page', 100);
   assert.deepEqual(entry, {
     url: 'https://example.com', title: 'Example', status: 200, faviconHashes: [-8], source: 'page', at: 100,
-    hits: [{ id: 'nginx', name: 'Nginx', confidence: 90, evidence: [{ matcher: 'word', location: 'header', matched: 'server: nginx' }] }],
+    hits: [{ id: 'nginx', name: 'Nginx', version: '1.26.0', confidence: 90, evidence: [{ matcher: 'word', location: 'header', matched: 'server: nginx' }] }],
   });
   const out = mergeScanHistory([{ url: 'https://example.com', at: 1 }, { url: 'https://old.example', at: 2 }], entry, 2);
   assert.deepEqual(out.map((item) => item.url), ['https://example.com', 'https://old.example']);
@@ -215,12 +215,30 @@ test('scan history stores a compact report and replaces an older scan of the sam
 
 test('scanHistoryCsv escapes commas, quotes and newlines for spreadsheet import', () => {
   const csv = scanHistoryCsv([{ at: 0, source: 'page', url: 'https://example.com/a,b', title: 'A "quoted" title', status: 200, faviconHashes: [0],
-    hits: [{ name: 'Nginx', confidence: 90, evidence: [{ type: 'word', part: 'header', detail: 'server: nginx\nnext' }] }],
+    hits: [{ name: 'Nginx', version: '1.26.0', confidence: 90, evidence: [{ type: 'word', part: 'header', detail: 'server: nginx\nnext' }] }],
   }]);
-  assert.match(csv, /^time,source,url,title,status,favicon_hash,fingerprint_id,fingerprint_name,confidence,matcher,location,matched,expression\r\n/);
+  assert.match(csv, /^time,source,url,title,status,favicon_hash,fingerprint_id,fingerprint_name,version,confidence,matcher,location,matched,expression\r\n/);
+  assert.match(csv, /Nginx,1\.26\.0,90/);
   assert.match(csv, /"https:\/\/example\.com\/a,b"/);
   assert.match(csv, /"A ""quoted"" title"/);
   assert.match(csv, /"server: nginx\nnext"/);
+});
+
+test('batch reports preserve requested/final URLs and extracted versions', () => {
+  const state = { total: 1, completed: 1, results: [{
+    url: 'https://example.com/start', finalUrl: 'https://example.com/final', title: 'Example', status: 200, totalHits: 1,
+    hits: [{ id: 'nginx', name: 'Nginx', version: '1.26.0', confidence: 90 }],
+  }], failed: [{ url: 'https://failed.example', error: 'timeout' }] };
+  const report = batchScanReport(state, 0);
+  assert.equal(report.results[0].finalUrl, 'https://example.com/final');
+  assert.equal(report.results[0].detections[0].version, '1.26.0');
+  const csv = batchScanCsv(state);
+  assert.match(csv, /^requested_url,final_url,title,status,total_hits,fingerprint_id,fingerprint_name,version,confidence,error\r\n/);
+  assert.match(csv, /nginx,Nginx,1\.26\.0,90,/);
+  assert.match(csv, /https:\/\/failed\.example,,,,,,,,,timeout/);
+  assert.equal(hitLabel(state.results[0].hits[0]), 'Nginx 1.26.0');
+  assert.equal(batchScanReport(null).results.length, 0);
+  assert.match(batchScanCsv(null), /^requested_url,/);
 });
 
 test('scanHistoryReport separates actual matches from optional rule expressions', () => {
@@ -308,6 +326,8 @@ test('sanitizeRuleDocs fixes AI output shapes that would drop the whole rule', (
   assert.equal(single.length, 1);
   assert.deepEqual(single[0].matchers[0].words, ['wp-content']);
   assert.equal(single[0].matchers[0].confidence, 80); // 0-1 → 0-100
+  const versioned = sanitizeRuleDocs([{ id: 'versioned', name: 'Versioned', matchers: [{ type: 'regex', regex: ['v([\\d.]+)'], version: '\\1' }] }]);
+  assert.equal(versioned[0].matchers[0].version, '\\1');
 
   // 规则级浮点 confidence → 0-100 整数
   const rc = sanitizeRuleDocs([{ id: 'a', name: 'A', confidence: 0.92, matchers: [{ type: 'word', words: ['x'] }] }]);

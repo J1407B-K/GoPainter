@@ -93,11 +93,16 @@
       border: none; background: none; cursor: pointer; color: var(--muted);
       font-size: 16px; padding: 2px 6px; margin-top: 0;
     }
-    .rule-modal pre {
+    .rule-modal pre, .rule-modal textarea {
       margin: 0 0 12px; padding: 12px; flex: 1; overflow: auto;
       background: #f8f9fb; border: 1px solid var(--border); border-radius: 8px;
       font-family: var(--mono); font-size: 12px; white-space: pre-wrap; word-break: break-word;
     }
+    .rule-modal textarea { width: 100%; min-height: 360px; resize: vertical; white-space: pre; word-break: normal; }
+    .rule-modal textarea:focus { outline: none; border-color: var(--accent); }
+    #rule-modal-validation { min-height: 20px; margin: -4px 0 8px; font-size: 11px; }
+    #rule-modal-validation.valid { color: #16a34a; }
+    #rule-modal-validation.invalid { color: #dc2626; }
 
     /* 书签选择 */
     #bm-panel { display: none; margin-top: 10px; }
@@ -174,9 +179,10 @@
       cursor: pointer; padding: 0 4px; font-size: 13px;
     }
 
-    /* 爬取 */
+    /* 批量扫描 / 爬取 */
     code { font-family: var(--mono); background: #f1f2f6; padding: 1px 4px; border-radius: 4px; font-size: 11px; }
-    #crawl-results { max-height: 320px; overflow: auto; margin-top: 8px; }
+    #batch-urls { min-height: 150px; resize: vertical; font-family: var(--mono); }
+    #batch-results, #crawl-results { max-height: 320px; overflow: auto; margin-top: 8px; }
     .crawl-item { padding: 6px 10px; border-radius: 6px; font-size: 12px; }
     .crawl-item:nth-child(odd) { background: #fafbfc; }
     .crawl-item .u { font-family: var(--mono); color: var(--muted); word-break: break-all; }
@@ -261,6 +267,7 @@
       <a href="#hashes-section">favicon 哈希库</a>
       <a href="#bookmarks-section">书签分类</a>
       <a href="#history-section">扫描历史</a>
+      <a href="#batch-section">批量扫描</a>
       <a href="#crawl-section">站点爬取</a>
       <a href="#ai-section">AI 与 Agent</a>
     </nav>
@@ -330,8 +337,12 @@
           <span class="t" id="rule-modal-title">规则详情</span>
           <button class="rule-modal-close" id="rule-modal-close" title="关闭">✕</button>
         </div>
-        <pre id="rule-modal-body"></pre>
-        <button id="rule-copy" class="primary">复制 YAML</button>
+        <textarea id="rule-modal-body" spellcheck="false" aria-label="规则 YAML"></textarea>
+        <div id="rule-modal-validation" class="muted"></div>
+        <div class="history-actions">
+          <button id="rule-modal-save" class="primary">保存并生效</button>
+          <button id="rule-copy">复制 YAML</button>
+        </div>
       </div>
     </div>
 
@@ -468,7 +479,7 @@
 
     <div class="card" id="history-section">
       <h2>扫描历史与报告</h2>
-      <p class="muted">保留页面/爬取扫描的摘要：URL、标题、状态码、favicon 哈希和命中证据。不保存页面 HTML、响应头或 API Key。</p>
+      <p class="muted">保留页面/批量/爬取扫描的摘要：URL、标题、状态码、favicon 哈希和命中证据。不保存页面 HTML、响应头或 API Key。</p>
       <label for="history-limit">历史保留上限（滚动窗口）</label>
       <div class="history-limit">
         <input type="range" id="history-limit" min="50" max="5000" step="50" value="300">
@@ -482,6 +493,22 @@
       </div>
       <div id="history-stats" class="muted"></div>
       <div id="history-list"></div>
+    </div>
+
+    <div class="card" id="batch-section">
+      <h2>批量 URL 扫描</h2>
+      <p class="muted">每行一个 http/https URL，自动去重；最多 500 个，并发上限 4。页面响应体只读取前 200 KB，结果以紧凑摘要保存在当前浏览器会话。批量扫描不会打开标签页或执行页面 JS/DOM。</p>
+      <label for="batch-urls">目标 URL</label>
+      <textarea id="batch-urls" placeholder="https://example.com/&#10;https://example.org/"></textarea>
+      <div class="history-actions">
+        <button id="batch-start" class="primary">开始批量扫描</button>
+        <button id="batch-stop" class="danger">停止</button>
+        <button id="batch-export-json">导出 JSON</button>
+        <button id="batch-export-csv">导出 CSV</button>
+        <button id="batch-clear">清空结果</button>
+      </div>
+      <div id="batch-status" class="muted" style="margin-top: 8px;">尚未扫描</div>
+      <div id="batch-results"></div>
     </div>
 
     <div class="card" id="crawl-section">

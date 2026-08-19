@@ -38,6 +38,7 @@ importScripts(
   'background/legacy-ai.js',
   'background/bookmarks.js',
   'background/crawl.js',
+  'background/batch.js',
   'background/page-host.js',
   'background/rules-host.js',
   'background/source-host.js',
@@ -52,6 +53,7 @@ const messageHosts = [
   GoPainterHistoryHost,
   GoPainterBookmarksHost,
   GoPainterCrawlHost,
+  GoPainterBatchHost,
   GoPainterSourceHost,
 ];
 

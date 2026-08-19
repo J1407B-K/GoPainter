@@ -54,6 +54,8 @@ type Matcher struct {
 	Dom []DomProbe `json:"dom,omitempty"`
 	// 这条 matcher 命中的可信度 0-100；没写就是未知，不自动伪造成 100
 	Confidence *int `json:"confidence,omitempty"`
+	// 命中后如何从正则捕获组提取版本；兼容 Wappalyzer 的 \\1 / \\1?a:b 模板。
+	Version string `json:"version,omitempty"`
 }
 
 // 页面特征，JS 侧采集完传进来
@@ -79,11 +81,13 @@ type Evidence struct {
 	Part    string `json:"part,omitempty"`
 	Detail  string `json:"detail"`
 	Pattern string `json:"pattern,omitempty"`
+	Version string `json:"version,omitempty"`
 }
 
 type Hit struct {
 	ID       string     `json:"id"`
 	Name     string     `json:"name"`
+	Version  string     `json:"version,omitempty"`
 	Evidence []Evidence `json:"evidence"`
 	// 0-100，由规则里的 confidence 合成；没配置信度则为 null
 	Confidence *int `json:"confidence"`
@@ -534,7 +538,7 @@ func evalWordMatcher(m *Matcher, c *matchCtx, part string, st *triState, ev *[]E
 			ok := word == "" || c.bodyWordHits[strings.ToLower(word)]
 			st.add(boolResult(ok), m.Condition)
 			if ok {
-				*ev = append(*ev, Evidence{Type: "word", Part: part, Detail: word})
+				*ev = append(*ev, Evidence{Type: "word", Part: part, Detail: word, Version: expandVersion(m.Version, nil)})
 			}
 		}
 		return
@@ -544,7 +548,7 @@ func evalWordMatcher(m *Matcher, c *matchCtx, part string, st *triState, ev *[]E
 		ok := strings.Contains(cmpText, strings.ToLower(word))
 		st.add(boolResult(ok), m.Condition)
 		if ok {
-			*ev = append(*ev, Evidence{Type: "word", Part: part, Detail: word})
+			*ev = append(*ev, Evidence{Type: "word", Part: part, Detail: word, Version: expandVersion(m.Version, nil)})
 		}
 	}
 }
@@ -568,19 +572,31 @@ func evalRegexMatcher(m *Matcher, c *matchCtx, part string, st *triState, ev *[]
 			st.add(evalMiss, m.Condition)
 			continue
 		}
-		ok := re.MatchString(text)
+		var matches []string
+		ok := false
+		if m.Version == "" {
+			ok = re.MatchString(text)
+		} else {
+			matches = re.FindStringSubmatch(text)
+			ok = matches != nil
+		}
 		st.add(boolResult(ok), m.Condition)
 		if !ok {
 			continue
 		}
-		detail := re.FindString(text)
+		detail := ""
+		if matches != nil {
+			detail = matches[0]
+		} else {
+			detail = re.FindString(text)
+		}
 		if len(detail) > 120 {
 			detail = detail[:120] + "…"
 		}
 		if detail == "" {
 			detail = "（零宽匹配）"
 		}
-		*ev = append(*ev, Evidence{Type: "regex", Part: part, Detail: detail, Pattern: pattern})
+		*ev = append(*ev, Evidence{Type: "regex", Part: part, Detail: detail, Pattern: pattern, Version: expandVersion(m.Version, matches)})
 	}
 }
 
@@ -589,7 +605,7 @@ func evalStatusMatcher(m *Matcher, f *Features, st *triState, ev *[]Evidence) {
 		ok := f.Status == status
 		st.add(boolResult(ok), m.Condition)
 		if ok {
-			*ev = append(*ev, Evidence{Type: "status", Detail: fmt.Sprintf("状态码 %d", status)})
+			*ev = append(*ev, Evidence{Type: "status", Detail: fmt.Sprintf("状态码 %d", status), Version: expandVersion(m.Version, nil)})
 		}
 	}
 }
@@ -600,7 +616,7 @@ func evalIconHashMatcher(m *Matcher, f *Features, st *triState, ev *[]Evidence) 
 		ok := slices.Contains(f.FaviconHashes, hash)
 		st.add(boolResult(ok), m.Condition)
 		if ok {
-			*ev = append(*ev, Evidence{Type: "icon_hash", Detail: fmt.Sprintf("mmh3 %d", hash)})
+			*ev = append(*ev, Evidence{Type: "icon_hash", Detail: fmt.Sprintf("mmh3 %d", hash), Version: expandVersion(m.Version, nil)})
 		}
 	}
 }
@@ -615,7 +631,7 @@ func evalDSLMatcher(m *Matcher, c *matchCtx, st *triState, ev *[]Evidence) {
 		}
 		st.add(boolResult(ok), m.Condition)
 		if ok {
-			*ev = append(*ev, Evidence{Type: "dsl", Detail: expression})
+			*ev = append(*ev, Evidence{Type: "dsl", Detail: expression, Version: expandVersion(m.Version, nil)})
 		}
 	}
 }
@@ -629,7 +645,7 @@ func evalJSMatcher(m *Matcher, f *Features, st *triState, ev *[]Evidence) {
 		}
 		if probe.Pattern == "" {
 			st.add(evalHit, m.Condition)
-			*ev = append(*ev, Evidence{Type: "js", Detail: jsProbeDetail(probe.Path, value)})
+			*ev = append(*ev, Evidence{Type: "js", Detail: jsProbeDetail(probe.Path, value), Version: expandVersion(m.Version, nil)})
 			continue
 		}
 		re, err := compileRegex(probe.Pattern)
@@ -637,10 +653,17 @@ func evalJSMatcher(m *Matcher, f *Features, st *triState, ev *[]Evidence) {
 			st.add(evalInvalid, m.Condition)
 			continue
 		}
-		ok := re.MatchString(value)
+		var matches []string
+		ok := false
+		if m.Version == "" {
+			ok = re.MatchString(value)
+		} else {
+			matches = re.FindStringSubmatch(value)
+			ok = matches != nil
+		}
 		st.add(boolResult(ok), m.Condition)
 		if ok {
-			*ev = append(*ev, Evidence{Type: "js", Detail: jsProbeDetail(probe.Path, value)})
+			*ev = append(*ev, Evidence{Type: "js", Detail: jsProbeDetail(probe.Path, value), Version: expandVersion(m.Version, matches)})
 		}
 	}
 }
@@ -651,14 +674,14 @@ func evalDOMMatcher(m *Matcher, f *Features, st *triState, ev *[]Evidence) {
 		ok := f.DomHits[probeID(DomProbe{Sel: selector})]
 		st.add(boolResult(ok), m.Condition)
 		if ok {
-			*ev = append(*ev, Evidence{Type: "dom", Detail: selector})
+			*ev = append(*ev, Evidence{Type: "dom", Detail: selector, Version: expandVersion(m.Version, nil)})
 		}
 	}
 	for _, probe := range m.Dom {
 		ok := f.DomHits[probeID(probe)]
 		st.add(boolResult(ok), m.Condition)
 		if ok {
-			*ev = append(*ev, Evidence{Type: "dom", Detail: probe.Sel})
+			*ev = append(*ev, Evidence{Type: "dom", Detail: probe.Sel, Version: expandVersion(m.Version, nil)})
 		}
 	}
 }
@@ -691,12 +714,17 @@ func evalMatcherState(m *Matcher, c *matchCtx, part string, ev *[]Evidence) eval
 // 之前 evalMatcher 内部自建 ev、返回后再被 matchRule 拷贝一次，命中多的规则集里
 // 这两次切片分配按命中数线性累积；共享切片把命中路径的分配砍半。
 func evalMatcherInto(m Matcher, c *matchCtx, ev *[]Evidence) bool {
+	evidenceStart := len(*ev)
 	part := m.Part
 	if part == "" {
 		part = "body"
 	}
 	state := evalMatcherState(&m, c, part, ev)
 	if m.Negative {
+		// Evidence collected while evaluating the original condition cannot
+		// support its negation. In particular, a partially satisfied AND must
+		// not donate a captured version when the absence check succeeds.
+		*ev = (*ev)[:evidenceStart]
 		switch state {
 		case evalHit:
 			return false
@@ -727,6 +755,74 @@ func jsProbeDetail(path, val string) string {
 		detail += " = " + val
 	}
 	return detail
+}
+
+// expandVersion implements the version-template subset used by Wappalyzer rules:
+// \\1 substitutes a capture group; \\1?a:b chooses a/b depending on whether that
+// capture is non-empty. Output is bounded before it crosses the WASM boundary.
+func expandVersionRaw(template string, matches []string) string {
+	var out strings.Builder
+	for i := 0; i < len(template); {
+		if template[i] != '\\' || i+1 >= len(template) || template[i+1] < '0' || template[i+1] > '9' {
+			out.WriteByte(template[i])
+			i++
+			continue
+		}
+		j := i + 1
+		group := 0
+		groupValid := true
+		maxInt := int(^uint(0) >> 1)
+		for j < len(template) && template[j] >= '0' && template[j] <= '9' {
+			digit := int(template[j] - '0')
+			if groupValid {
+				if group > (maxInt-digit)/10 {
+					groupValid = false
+				} else {
+					group = group*10 + digit
+				}
+			}
+			j++
+		}
+		capture := ""
+		if groupValid && group < len(matches) {
+			capture = matches[group]
+		}
+		if j < len(template) && template[j] == '?' {
+			colon := strings.IndexByte(template[j+1:], ':')
+			if colon >= 0 {
+				colon += j + 1
+				branch := template[colon+1:]
+				if capture != "" {
+					branch = template[j+1 : colon]
+				}
+				// Wappalyzer conditionals consume the rest of the template; either
+				// branch may itself contain capture substitutions such as \1?\1:\2.
+				out.WriteString(expandVersionRaw(branch, matches))
+				return out.String()
+			}
+		}
+		out.WriteString(capture)
+		i = j
+	}
+	return out.String()
+}
+
+func expandVersion(template string, matches []string) string {
+	if template == "" {
+		return ""
+	}
+	out := expandVersionRaw(template, matches)
+	clean := strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return -1
+		}
+		return r
+	}, strings.TrimSpace(out))
+	runes := []rune(clean)
+	if len(runes) > 120 {
+		clean = string(runes[:120])
+	}
+	return clean
 }
 
 // probeID 把 dom probe 算成稳定 id：sel/text/attrs 全参与，同一内容在任何侧
@@ -778,7 +874,13 @@ func matchRule(r Rule, c *matchCtx) (bool, []Evidence, *int) {
 	hit := false
 	have := false
 	for i := range r.Matchers {
+		evidenceStart := len(ev)
 		ok := evalMatcherInto(r.Matchers[i], c, &ev)
+		if !ok {
+			// A partially satisfied AND matcher is not evidence for a rule that
+			// ultimately matched through another branch. It must not donate a version.
+			ev = ev[:evidenceStart]
+		}
 		if !have {
 			hit = ok
 			have = true

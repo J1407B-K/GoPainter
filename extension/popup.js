@@ -10,6 +10,7 @@ const ruleArea = document.getElementById('rule-area');
 const ruleModeLabel = document.getElementById('rule-mode-label');
 const ruleNameInput = document.getElementById('rule-name-input');
 const ruleYaml = document.getElementById('rule-yaml');
+const ruleValidation = document.getElementById('rule-validation');
 const ruleGenerate = document.getElementById('rule-generate');
 const ruleSave = document.getElementById('rule-save');
 const ruleDiscard = document.getElementById('rule-discard');
@@ -54,6 +55,10 @@ let aiTechs = [];
 let aiMergedHits = [];
 let ruleMode = null;
 let optimizeRuleId = null;
+let editRuleRevision = null;
+let ruleValidationTimer = null;
+let ruleValidationSerial = 0;
+let editRuleContext = null;
 let pendingAgentRuleYaml = '';
 let pendingAgentRuleId = '';
 let ruleSummariesPromise = null;
@@ -330,11 +335,19 @@ function render({ features, result }) {
 function renderHit(hit) {
   const card = document.createElement('div');
   card.className = 'hit';
+  card.dataset.ruleId = hit.id || '';
 
   const head = document.createElement('div');
   head.className = 'head';
   head.innerHTML = `<span class="name"></span><span class="tail"><span class="id"></span></span>`;
-  head.querySelector('.name').textContent = hit.name || hit.id;
+  const nameEl = head.querySelector('.name');
+  nameEl.textContent = hit.name || hit.id;
+  if (hit.version) {
+    const version = document.createElement('span');
+    version.className = 'version';
+    version.textContent = ` ${hit.version}`;
+    nameEl.appendChild(version);
+  }
   const idEl = head.querySelector('.id');
   if (hit.source === 'ai') {
     // AI 合并命中：紫色左边框 + AI 徽章，不显示伪 id
@@ -372,15 +385,35 @@ function renderHit(hit) {
     card.appendChild(box);
   }
 
-  // 仅对当前页实际命中的已有规则开放优化：让 AI 用本页的额外特征补强 matcher。
+  const actions = document.createElement('div');
+  actions.className = 'hit-actions';
+  const derivedOnly = hit.evidence?.length > 0
+    && hit.evidence.every((item) => item.type === 'implies');
+  // Hash-database and implied detections are results, not editable rule objects.
+  if (hit.source !== 'ai' && hit.source !== 'hash' && !derivedOnly) {
+    const edit = document.createElement('button');
+    edit.className = 'opt-btn edit-rule-btn';
+    edit.textContent = t('编辑规则', 'Edit rule');
+    edit.addEventListener('click', (event) => {
+      event.stopPropagation();
+      openRuleEditor(hit);
+    });
+    actions.appendChild(edit);
+    head.classList.add('editable');
+    head.title = t('点击编辑此规则', 'Click to edit this rule');
+    head.addEventListener('click', () => openRuleEditor(hit));
+  }
+
+  // 仅对当前编辑集里的已有规则开放 AI 优化。
   const rule = cachedRule(hit.name) || cachedRule(hit.id);
   if (rule) {
     const btn = document.createElement('button');
     btn.className = 'opt-btn';
     btn.textContent = t('优化此规则', 'Optimize this rule');
     btn.addEventListener('click', () => optimizeRule(rule));
-    card.appendChild(btn);
+    actions.appendChild(btn);
   }
+  if (actions.childElementCount) card.appendChild(actions);
   return card;
 }
 
@@ -756,17 +789,169 @@ document.getElementById('settings-btn').addEventListener('click', () => {
 
 // --- AI 规则：新建 / 基于当前命中页面优化已有规则 ---
 
+function validationIssueText(issue) {
+  if (GoPainterI18n?.locale !== 'en') return `${issue.path || '$'}：${issue.message || issue.code || '规则无效'}`;
+  if (issue.code === 'runtime_error') return `${issue.path || '$'}: ${issue.message || 'Validation failed'}`;
+  const labels = {
+    invalid_json: 'Invalid YAML or rule structure', invalid_null: 'Null is not allowed', unsupported_field: 'Unsupported field',
+    invalid_string: 'Invalid or oversized string', invalid_enum: 'Unsupported value', invalid_list: 'Invalid list',
+    invalid_payload: 'Matcher payload does not match its type', invalid_regex: 'Invalid RE2 expression',
+    invalid_dsl: 'Invalid DSL expression', out_of_range: 'Value is out of range', too_many_items: 'Too many items',
+    invalid_map: 'Invalid map', id_changed: 'Rule ID cannot be changed while editing',
+  };
+  return `${issue.path || '$'}: ${labels[issue.code] || 'Invalid rule'}`;
+}
+
+function showRuleValidation(response, pending = false) {
+  if (pending) {
+    ruleValidation.className = 'pending';
+    ruleValidation.textContent = t('正在校验…', 'Validating…');
+    ruleSave.disabled = true;
+    return;
+  }
+  if (!response?.valid) {
+    ruleValidation.className = 'invalid';
+    const issues = response?.errors || [];
+    ruleValidation.textContent = issues.length ? issues.slice(0, 3).map(validationIssueText).join(' · ') : t('规则无效', 'Invalid rule');
+    ruleSave.disabled = true;
+    return;
+  }
+  ruleValidation.className = 'valid';
+  const matched = response.currentPageHits?.length > 0;
+  ruleValidation.textContent = matched
+    ? t('规则有效 · 当前页面命中', 'Valid rule · matches the current page')
+    : response.runtimeCoverage?.complete
+      ? t('规则有效 · 当前页面未命中', 'Valid rule · does not match the current page')
+      : t('规则有效 · JS/DOM 探针将在保存后重新采集', 'Valid rule · JS/DOM probes will be recollected after saving');
+  ruleSave.disabled = false;
+}
+
+async function validateRuleEditor() {
+  const serial = ++ruleValidationSerial;
+  const yaml = ruleYaml.value.trim();
+  if (!yaml) {
+    showRuleValidation({ valid: false, errors: [{ path: '$', code: 'invalid_json', message: 'YAML 不能为空' }] });
+    return null;
+  }
+  showRuleValidation(null, true);
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: 'validateRuleDraft', yaml, tabId: currentTabId,
+      expectedId: ruleMode === 'edit' || ruleMode === 'optimize' ? optimizeRuleId : undefined,
+    });
+    if (serial !== ruleValidationSerial) return null;
+    if (!response?.ok) throw new Error(response?.error || '规则校验失败');
+    showRuleValidation(response);
+    return response;
+  } catch (error) {
+    if (serial !== ruleValidationSerial) return null;
+    const message = GoPainterI18n?.locale === 'en'
+      ? GoPainterI18n.translate(error.message) : error.message;
+    showRuleValidation({ valid: false, errors: [{ path: '$', code: 'runtime_error', message }] });
+    return null;
+  }
+}
+
+function scheduleRuleValidation(delay = 220) {
+  clearTimeout(ruleValidationTimer);
+  ruleValidationTimer = setTimeout(validateRuleEditor, delay);
+}
+
+ruleYaml.addEventListener('input', () => {
+  showRuleValidation(null, true);
+  scheduleRuleValidation();
+});
+
+function updateEditRuleCopy() {
+  const hit = editRuleContext?.hit;
+  if (!hit) return;
+  const response = editRuleContext.response;
+  if (!response) {
+    ruleModeLabel.textContent = t(`编辑规则：${hit.name || hit.id}`, `Edit rule: ${hit.name || hit.id}`);
+  } else {
+    ruleModeLabel.textContent = response.copiesToEditSet
+      ? t(`编辑规则：${hit.name || hit.id} · 保存到「${response.editRuleSetName}」`, `Edit rule: ${hit.name || hit.id} · save to “${response.editRuleSetName}”`)
+      : t(`编辑规则：${hit.name || hit.id} · 「${response.editRuleSetName}」`, `Edit rule: ${hit.name || hit.id} · “${response.editRuleSetName}”`);
+  }
+  ruleSave.textContent = t('✅ 保存并生效', '✅ Save and apply');
+}
+
+async function openRuleEditor(hit) {
+  ruleMode = 'edit';
+  optimizeRuleId = hit.id;
+  editRuleRevision = null;
+  editRuleContext = { hit, response: null };
+  updateEditRuleCopy();
+  ruleNameInput.style.display = 'none';
+  ruleGenerate.style.display = 'none';
+  ruleYaml.value = '';
+  ruleSave.disabled = true;
+  ruleArea.style.display = 'block';
+  showRuleValidation(null, true);
+  ruleArea.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  try {
+    const response = await chrome.runtime.sendMessage({ type: 'getRuleForEditing', ruleId: hit.id });
+    if (!response?.ok) throw new Error(response?.error || '读取规则失败');
+    if (ruleMode !== 'edit' || optimizeRuleId !== hit.id || editRuleContext?.hit?.id !== hit.id) return;
+    editRuleRevision = response.revision;
+    editRuleContext.response = response;
+    ruleYaml.value = response.yaml;
+    updateEditRuleCopy();
+    scheduleRuleValidation(0);
+    ruleYaml.focus();
+  } catch (error) {
+    const message = GoPainterI18n?.locale === 'en'
+      ? GoPainterI18n.translate(error.message) : error.message;
+    showRuleValidation({ valid: false, errors: [{ path: '$', code: 'runtime_error', message }] });
+  }
+}
+
+async function refreshPopupAfterRuleSave(previousAt, previousName, savedRule) {
+  for (let attempt = 0; attempt < 40; attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    const data = await chrome.runtime.sendMessage({ type: 'getPopupResult', tabId: currentTabId }).catch(() => null);
+    if (!data) continue;
+    const savedHit = data.result?.hits?.find((hit) => hit.id === savedRule?.id);
+    const renamed = previousName !== savedRule?.name && savedHit?.name === savedRule?.name;
+    if (data.at === previousAt && !renamed) continue;
+    currentData = data;
+    render(data);
+    return;
+  }
+}
+
 // 新建模式：填技术名后点「生成」，或从 AI 候选一键触发
 ruleGenerate.addEventListener('click', async () => {
   const name = ruleNameInput.value.trim();
   await generateRule(name);
 });
 
-// 保存：两条流都走 addRule；同 id 内容变化时先展示 diff，由用户决定是否覆盖。
+// 编辑命中规则走严格校验 + revision 保存；AI 新建/优化仍走带冲突确认的导入流。
 ruleSave.addEventListener('click', async () => {
   ruleSave.disabled = true;
   try {
-    const resp = await addRuleWithResolution({ type: 'addRule', yaml: ruleYaml.textContent });
+    if (ruleMode === 'edit') {
+      const previousAt = currentData?.at;
+      const previousName = currentData?.result?.hits?.find((hit) => hit.id === optimizeRuleId)?.name;
+      const resp = await chrome.runtime.sendMessage({
+        type: 'saveRuleDraft', yaml: ruleYaml.value, tabId: currentTabId,
+        expectedId: optimizeRuleId, expectedRevision: editRuleRevision,
+      });
+      if (!resp?.ok) throw new Error(resp?.error || '保存规则失败');
+      if (!resp.valid) {
+        showRuleValidation(resp);
+        return;
+      }
+      editRuleRevision = resp.revision;
+      editRuleContext = null;
+      ruleArea.style.display = 'none';
+      rulesCache = [];
+      rulesLookup.clear();
+      showAiMessage(t(`规则已保存到「${resp.ruleSetName}」并重新匹配当前页面`, `Rule saved to “${resp.ruleSetName}”; the current page is being rematched`));
+      refreshPopupAfterRuleSave(previousAt, previousName, resp.rule).catch(() => {});
+      return;
+    }
+    const resp = await addRuleWithResolution({ type: 'addRule', yaml: ruleYaml.value });
     if (resp.cancelled) {
       showAiMessage('已取消规则入库');
       return;
@@ -790,62 +975,75 @@ ruleSave.addEventListener('click', async () => {
       }
     }
   } catch (e) {
-    showAiMessage(`入库失败：${e.message}`);
+    showAiMessage(t(`入库失败：${e.message}`, `Save failed: ${GoPainterI18n.translate(e.message)}`));
   } finally {
-    ruleSave.disabled = false;
+    ruleSave.disabled = !ruleValidation.classList.contains('valid');
   }
 });
 
 ruleDiscard.addEventListener('click', () => {
+  clearTimeout(ruleValidationTimer);
+  ruleValidationSerial++;
   ruleArea.style.display = 'none';
   ruleNameInput.style.display = 'none';
   ruleGenerate.style.display = 'none';
+  editRuleContext = null;
 });
 
 function openRuleCreate(prefill) {
   ruleMode = 'create';
+  editRuleContext = null;
   optimizeRuleId = null;
   ruleModeLabel.textContent = '新建规则';
   ruleNameInput.value = prefill || '';
   ruleNameInput.style.display = 'block';
   ruleGenerate.style.display = 'block';
-  ruleYaml.textContent = '';
+  ruleYaml.value = '';
+  ruleValidation.className = 'pending';
+  ruleValidation.textContent = '';
   ruleSave.textContent = '✅ 保存规则';
+  ruleSave.disabled = true;
   ruleArea.style.display = 'block';
 }
 
 async function generateRule(name) {
   ruleSave.disabled = true;
   ruleGenerate.disabled = true;
-  ruleYaml.textContent = '生成中…';
+  ruleYaml.value = '生成中…';
   try {
     const resp = await chrome.runtime.sendMessage({ type: 'aiCreateRule', tabId: currentTabId, name });
     if (!resp.ok) throw new Error(resp.error);
-    ruleYaml.textContent = resp.yaml;
+    ruleYaml.value = resp.yaml;
+    scheduleRuleValidation(0);
   } catch (e) {
-    ruleYaml.textContent = '';
+    ruleYaml.value = '';
     showAiMessage(`生成失败：${e.message}`);
   } finally {
-    ruleSave.disabled = false;
     ruleGenerate.disabled = false;
   }
 }
 
 async function optimizeRule(rule) {
   ruleMode = 'optimize';
+  editRuleContext = null;
   optimizeRuleId = rule.id;
   ruleModeLabel.textContent = `优化规则：${rule.name}`;
   ruleNameInput.style.display = 'none';
   ruleGenerate.style.display = 'none';
-  ruleYaml.textContent = '优化中…';
+  ruleYaml.value = '优化中…';
+  ruleValidation.className = 'pending';
+  ruleValidation.textContent = '';
   ruleSave.textContent = '✅ 覆盖入库';
+  ruleSave.disabled = true;
   ruleArea.style.display = 'block';
   try {
     const resp = await chrome.runtime.sendMessage({ type: 'aiOptimizeRule', tabId: currentTabId, ruleId: rule.id });
     if (!resp.ok) throw new Error(resp.error);
-    ruleYaml.textContent = resp.yaml;
+    ruleYaml.value = resp.yaml;
+    scheduleRuleValidation(0);
   } catch (e) {
-    ruleYaml.textContent = '';
+    ruleYaml.value = '';
+    ruleSave.disabled = true;
     showAiMessage(`优化失败：${e.message}`);
   }
 }
@@ -1090,6 +1288,10 @@ function showAiMessage(text) {
 
 window.addEventListener('gopainter:localechange', () => {
   if (currentData) render(currentData);
+  if (ruleMode === 'edit' && editRuleContext && ruleArea.style.display !== 'none') {
+    updateEditRuleCopy();
+    scheduleRuleValidation(0);
+  }
 });
 
 init();

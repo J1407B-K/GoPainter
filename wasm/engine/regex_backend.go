@@ -5,4 +5,5 @@ package engine
 type regexMatcher interface {
 	MatchString(string) bool
 	FindString(string) string
+	FindStringSubmatch(string) []string
 }

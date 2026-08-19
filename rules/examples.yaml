@@ -4,6 +4,7 @@
 # condition 控制多条件组合（and/or，默认 or），negative 取反
 # matchers-condition 控制规则内多个 matcher 的组合
 # confidence: 0-100，可选，标在 matcher 或规则上表示信号强度（不写则输出 null，弱指纹给低分）
+# version 可引用 regex / js pattern 捕获组，例如 "\\1" 或 "\\1?存在:缺失"
 
 - id: wordpress
   name: WordPress
@@ -44,10 +45,11 @@
 - id: nginx-server
   name: Nginx
   matchers:
-    - type: word
+    - type: regex
       part: header
-      words:
-        - "server: nginx"
+      version: "\\1"
+      regex:
+        - "server: nginx(?:/([0-9.]+))?"
 
 - id: gitea
   name: Gitea

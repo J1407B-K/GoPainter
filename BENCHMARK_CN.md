@@ -6,26 +6,29 @@
 有界资源行为，以及历史性能测量。每项结果都标明负载和复现命令；负载不同的数据不应
 直接横向比较。
 
-最新的浏览器正确性实测版本是 v0.6.10。多标签页资源数据仍保留 v0.6.8 基线，因为
-v0.6.10 没有改变对应负载或资源上限。旧版本数据折叠保留，用于追溯设计取舍与检查性能回归。
+最新浏览器正确性套件面向 v0.7.0。多标签页资源数据仍保留 v0.6.8 基线，因为
+v0.7.0 没有改变对应负载或资源上限。旧版本数据折叠保留，用于追溯设计取舍与检查性能回归。
 
 ## 当前浏览器验证与资源基线
 
-### 1. 浏览器 E2E 正确性：v0.6.10
+### 1. 浏览器 E2E 正确性：v0.7.0
 
-v0.6.10 运行真实的 Chromium unpacked 扩展。它不同于下方的资源压测，
+v0.7.0 套件运行真实的 Chromium unpacked 扩展。它不同于下方的资源压测，
 是一项确定性的正确性测试：本地 fixture 提供已知的 title、meta、body、script、响应 Cookie、
 JavaScript 运行时、DOM、favicon 和 SPA 路由信号，然后验证“采集 → 匹配 → session storage
 → popup”完整链路。
 
-发布基线通过 7 类初始指纹信号、2 个 favicon hash、替换后的 SPA 结果（`e2e-spa`）和 popup
-渲染，并确认 SPA 新结果不再保留旧页面命中。测试不会访问真实第三方仓库：上游网络、限流和
-持续变化的规则数据会让 CI 变得不确定。第三方规则源的下载边界和消息路由改由确定性测试覆盖。
+它检查 7 类初始指纹信号、2 个 favicon hash、从 JavaScript 捕获的 `1.0.0` 版本和 popup
+渲染；随后从 popup 打开真实命中规则，修改 YAML，等待生产 WASM 实时校验，保存并确认重新
+匹配；最后完成两条 URL 的批量扫描，并用 SPA 独占结果 `e2e-spa` 替换旧页面命中。
 
-成功结果的机器可读输出为：
+测试不会访问真实第三方仓库：上游网络、限流和持续变化的规则数据会让 CI 变得不确定。
+规则源下载边界和消息路由改由确定性测试覆盖。
+
+成功运行会输出：
 
 ```json
-{"e2e":"passed","initialHits":7,"spaHit":"e2e-spa","faviconHashes":2,"popupRendered":true}
+{"e2e":"passed","initialHits":7,"spaHit":"e2e-spa","faviconHashes":2,"popupRendered":true,"version":"1.0.0","liveRuleEdit":true,"batchResults":2}
 ```
 
 ### 2. 多标签页资源边界：v0.6.8

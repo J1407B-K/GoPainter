@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "GoPainter",
-  "version": "0.6.10",
+  "version": "0.7.0",
   "description": "__MSG_extensionDescription__",
   "default_locale": "en",
   "permissions": ["storage", "tabs", "webRequest", "bookmarks", "sidePanel", "scripting", "alarms"],

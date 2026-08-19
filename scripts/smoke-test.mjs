@@ -239,8 +239,10 @@ pass &&= !!wpRule
   && wpRule.matchers.some((m) => m.part === 'body')
   && !wapp.rules.some((r) => r.id === 'bad-tech' || r.id === 'empty');
 // 转换出来的规则得能直接用
-const wappMatch = JSON.parse(globalThis.goMatch(JSON.stringify(wapp.rules), JSON.stringify(features)));
-pass &&= wappMatch.hits.some((h) => h.id === 'wordpress');
+const wappMatch = JSON.parse(globalThis.goMatch(
+  JSON.stringify(wapp.rules), JSON.stringify({ ...features, meta: ex.meta })
+));
+pass &&= wappMatch.hits.some((h) => h.id === 'wordpress' && h.version === '6.5');
 
 // goConvertEHole：keyword/faviconhash 分组转换
 const ehole = JSON.parse(globalThis.goConvertEHole(JSON.stringify([

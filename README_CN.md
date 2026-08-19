@@ -21,20 +21,20 @@ GoPainter 从 HTTP、HTML、DOM、JavaScript 运行时和 favicon 信号识别�
 
 ## GoPainter 有什么不同
 
-- **可解释识别**：查看每个命中对应的关键词、正则、状态码、运行时值、DOM 选择器或 favicon 哈希。
+- **可解释识别**：查看每个命中对应的关键词、正则、状态码、运行时值、DOM 选择器、favicon 哈希和提取出的版本号。
 - **确定性规则引擎**：七种 matcher、`and`/`or`、negative、置信度传播和 Google RE2 语义。
 - **规则集组合**：不同来源分集管理，可任意组合启用；同 ID 冲突通过 YAML diff 明确选择。
 - **第三方规则源**：由用户主动更新 Wappalyzer、EHole 和 nuclei-templates；下载有界，提供变化摘要和单版本回滚。
-- **规则工具**：导入原生 YAML 或支持的 nuclei HTTP 子集，检查无效正则和结构上的预筛机会。
-- **浏览器工作流**：当前标签自动识别、站点爬取、书签整理、扫描历史及 JSON/CSV 报告。
+- **规则工具**：导入原生 YAML 或支持的 nuclei HTTP 子集；命中后可直接编辑，并用当前页面实时校验。
+- **浏览器工作流**：当前标签自动识别、批量 URL 扫描、站点爬取、书签整理、扫描历史及 JSON/CSV 报告。
 - **可审计 AI Agent**：受限的“检查 → 搜索 → 测试 → 验证”流程，展示工具记录，并对敏感操作明确授权。
 
-## 当前版本：v0.6.10
+## 当前版本：v0.7.0
 
-v0.6.10 加固浏览器与第三方规则源边界：持久 storage 和打包 WASM 不再向 content script
-或网页开放；重复的 `Set-Cookie` 可参与本地匹配，但会从 Agent 与模型快照中移除；所有第三方
-规则源更新共享一个四请求池，单文件失败会取消同批下载，并继续保持原子替换。Session 中的
-类型化页面特征也能安全经过 favicon 重扫与快速导航。
+v0.7.0 增加三条直接面向识别工作的链路：设置页可批量扫描最多 500 个 URL，并导出
+JSON/CSV；regex 与 JavaScript matcher 可从捕获组提取版本；popup 中点击命中规则即可编辑
+YAML，用生产 WASM 对当前页面实时校验，保存后立即重新匹配。批量扫描固定为 4 路并发，
+页面响应按字节流截断，session 结果使用独立的 2.5 MB 预算。
 
 Chromium 资源测量、浏览器 E2E 基线和历史性能记录见 [BENCHMARK_CN.md](./BENCHMARK_CN.md)。
 
@@ -84,6 +84,16 @@ Edge 和 Brave 也可以在各自的扩展页面使用相同方式加载。
 
 自动打开 Side Panel 需要 Chrome 126+；旧版 Chromium 仍可在设置页查看爬取进度。
 
+### 批量扫描与实时编辑
+
+在 **设置 → 批量扫描** 中粘贴 URL 列表即可启动任务。每行一个 URL；任务会去重、拒绝
+非 HTTP(S) 地址，并保持固定并发与存储边界。它不会打开标签页或执行页面 JS/DOM，匹配
+范围是 HTTP、HTML、meta、script 和 favicon 信号。完成后可以下载 JSON 或 CSV。
+
+在 popup 的命中结果中点击规则名称或 **编辑规则**，即可查看有效规则 YAML。输入时会用
+当前页面的缓存特征实时校验；只有严格校验通过的规则才能保存并应用。如果命中来自另一个
+规则集，保存时会复制到当前编辑集，并显式选择这个版本。
+
 ## 规则模型
 
 完整示例见 [`rules/examples.yaml`](./rules/examples.yaml)。
@@ -106,9 +116,11 @@ Edge 和 Brave 也可以在各自的扩展页面使用相同方式加载。
 - `negative: true`：反转有效匹配结果；无效条件绝不会被反转成命中。
 - `implies`：推导关联技术，并记录“由 X 推导”的证据。
 - `confidence: 0-100`：可选的 matcher 或规则信号强度；未标注时保持 `null`，不会编造成 100。
+- `version`：可选版本模板；regex 与 JavaScript pattern 支持 `\1`、`\2` 和 `\1?存在:缺失`，结果最长 120 个字符。
 
 置信度合成时，`or` 取最强命中信号，`and` 取最弱信号；规则级置信度作为缩放系数，
-`implies` 命中继承来源置信度。Wappalyzer 的 `\;confidence:N` 后缀会在导入时转换。
+`implies` 命中继承来源置信度，但不会凭空生成版本。Wappalyzer 的 `\;confidence:N` 与
+`\;version:\1` 后缀会在导入时转换。
 
 DSL 子集支持：
 
@@ -163,7 +175,7 @@ origin 生效。外部结果只是不可信参考资料，不是可以执行的�
 - **没有 GoPainter 服务端**：API Key 只保存在扩展本地存储中，请求直接发送到你配置的 endpoint。
 - **模型数据披露明确**：云端 AI 会收到页面特征；Agent 先发送紧凑概览，仅在需要时发送 HTML 片段，直接 AI 辅助功能可能发送截断后的 HTML。除非可以接受交给对应服务商处理，否则不要在敏感页面启用 AI。
 - **页面证据不可信**：DOM 和运行时值来自被测页面。命中只能说明某个信号存在，不能证明对应技术真实可信。
-- **浏览器资源有边界**：页面快照、UI 列表、扫描队列、favicon URL 数量、下载并发、响应字节、重定向和历史窗口均设有上限。
+- **浏览器资源有边界**：页面快照、UI 列表、扫描队列、favicon URL 数量、下载并发、响应字节、重定向和历史窗口均设有上限；批量扫描最多接收 500 个 URL，并为结果单独保留 2.5 MB session 预算。
 - **AI 结果需要复核**：AI 识别、生成规则和书签兜底都可能出错。确定性 Go Core 校验的是结构与语义，不是现实世界中的真实性。
 
 ## 开发与验证
@@ -174,7 +186,7 @@ origin 生效。外部结果只是不可信参考资料，不是可以执行的�
 | `make test` | 运行 Go/WASM 与 JavaScript 测试，再运行 WASM 冒烟测试 |
 | `make test-go` | 通过 js/wasm target 运行 Go 测试 |
 | `make test-js` | 运行 Node 测试和 JavaScript 语法检查 |
-| `make test-browser-e2e` | 验证 Chromium“采集 → 匹配 → session → popup”及 SPA 结果替换 |
+| `make test-browser-e2e` | 验证 Chromium 采集、版本提取、popup、实时规则编辑、批量扫描及 SPA 结果替换 |
 | `make bench-js` | 测量 UI、采集、序列化和 Agent 规则搜索路径 |
 | `make bench-chromium` | 运行 30/50 标签页 Chromium 资源压测 |
 | `make icons` | 重新生成扩展图标 |
@@ -227,8 +239,9 @@ popup / sidepanel ─ 用户交互               probe 规划、爬取调度
 
 ## 项目状态
 
-浏览器核心工作流已经实现，并由单元测试、冒烟测试和浏览器 E2E 覆盖。下一阶段优先提升
-识别质量：做范围明确的规则改进和有证据的覆盖补充，而不是继续扩张资源治理层。
+浏览器核心工作流已经实现，并由单元测试、冒烟测试和浏览器 E2E 覆盖。GoPainter 负责
+可靠采集、匹配、校验和结果工作流；v0.7.0 不扩充指纹规则内容。实际使用的规则由使用者
+导入、编辑，或主动从兼容来源更新。
 
 ## License
 

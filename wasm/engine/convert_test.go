@@ -7,23 +7,22 @@ import (
 )
 
 func TestSplitWappMeta(t *testing.T) {
-	p, conf := splitWappMeta(`pattern\;confidence:50`)
-	if p != "pattern" || conf == nil || *conf != 50 {
-		t.Errorf("应切出 pattern + 50: %q %v", p, conf)
+	p, conf, version := splitWappMeta(`pattern\;confidence:50`)
+	if p != "pattern" || conf == nil || *conf != 50 || version != "" {
+		t.Errorf("应切出 pattern + 50: %q %v %q", p, conf, version)
 	}
-	p, conf = splitWappMeta(`plain`)
-	if p != "plain" || conf != nil {
-		t.Errorf("无后缀应 conf=nil: %q %v", p, conf)
+	p, conf, version = splitWappMeta(`plain`)
+	if p != "plain" || conf != nil || version != "" {
+		t.Errorf("无后缀应无元数据: %q %v %q", p, conf, version)
 	}
-	// version 不是 confidence，conf 应为 nil
-	p, conf = splitWappMeta(`x\;version:1`)
-	if p != "x" || conf != nil {
-		t.Errorf("version 不应被当 confidence: %q %v", p, conf)
+	p, conf, version = splitWappMeta(`x\;version:\1`)
+	if p != "x" || conf != nil || version != `\1` {
+		t.Errorf("version 应独立保留: %q %v %q", p, conf, version)
 	}
 	// confidence 后还有别的后缀也捡到
-	p, conf = splitWappMeta(`y\;confidence:95\;version:2`)
-	if p != "y" || conf == nil || *conf != 95 {
-		t.Errorf("应捡到 95: %q %v", p, conf)
+	p, conf, version = splitWappMeta(`y\;confidence:95\;version:\2`)
+	if p != "y" || conf == nil || *conf != 95 || version != `\2` {
+		t.Errorf("应同时捡到 confidence/version: %q %v %q", p, conf, version)
 	}
 }
 
@@ -224,7 +223,7 @@ func TestConvertEHoleBadJSON(t *testing.T) {
 func TestConvertWappTech(t *testing.T) {
 	tech := wappTech{
 		Headers:  map[string]any{"Server": "nginx"},
-		Meta:     map[string]any{"generator": "^WordPress"},
+		Meta:     map[string]any{"generator": `^WordPress ([\d.]+)\;version:\1`},
 		HTML:     []any{"wp-content", `x\;confidence:50`},
 		Js:       map[string]any{"React": "^18"},
 		Dom:      map[string]any{".wp-block": map[string]any{"text": "Hello"}},
@@ -250,10 +249,13 @@ func TestConvertWappTech(t *testing.T) {
 	hasConf50 := false
 	hasJsProbe := false
 	hasDom := false
+	hasVersion := false
 	for _, m := range r.Matchers {
 		switch {
 		case m.Type == "regex" && m.Part == "header":
 			hasHeaderRegex = true
+		case m.Type == "regex" && m.Part == "meta" && m.Version == `\1`:
+			hasVersion = true
 		case m.Type == "word" && m.Part == "body" && len(m.Words) == 1 && m.Words[0] == "wp-content":
 			hasBodyWord = true
 		case m.Type == "word" && m.Confidence != nil && *m.Confidence == 50:
@@ -279,6 +281,28 @@ func TestConvertWappTech(t *testing.T) {
 	if !hasDom {
 		t.Error("应产出 dom 条件 matcher")
 	}
+	if !hasVersion {
+		t.Error("\\;version 应保留为 matcher 版本模板")
+	}
+}
+
+func TestConvertWappalyzerDeterministicOrder(t *testing.T) {
+	rules, err := ConvertWappalyzerJSON(`{
+		"Zulu": {"html": "zulu"},
+		"Alpha": {"headers": {"Z-Header": "z", "A-Header": "a"}, "js": {"Zulu.path": "", "Alpha.path": ""}}
+	}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rules) != 2 || rules[0].ID != "alpha" || rules[1].ID != "zulu" {
+		t.Fatalf("技术输出应按名称稳定排序: %+v", rules)
+	}
+	alpha := rules[0]
+	if len(alpha.Matchers) != 2 || len(alpha.Matchers[0].Regex) != 2 ||
+		!strings.Contains(alpha.Matchers[0].Regex[0], "a-header") ||
+		len(alpha.Matchers[1].Js) != 2 || alpha.Matchers[1].Js[0].Path != "Alpha.path" {
+		t.Fatalf("技术内部 map 字段应稳定排序: %+v", alpha.Matchers)
+	}
 }
 
 func TestConvertWappTechNoMatchers(t *testing.T) {
@@ -297,28 +321,32 @@ func TestConvertWappTechDomUninformative(t *testing.T) {
 	}
 }
 
-func TestAppendWordMatchersByConf(t *testing.T) {
-	out := appendWordMatchersByConf(nil, "body", []string{"a", "b", "c"}, []*int{ip(50), nil, ip(50)})
-	if len(out) != 2 {
-		t.Fatalf("应按置信度分 2 组: %+v", out)
+func TestAppendWordMatchersByMeta(t *testing.T) {
+	out := appendWordMatchersByMeta(nil, "body", []string{"a", "b", "c"}, []wappPatternMeta{
+		{confidence: ip(50), version: "1"}, {}, {confidence: ip(50), version: "2"},
+	})
+	if len(out) != 3 {
+		t.Fatalf("应按置信度和版本分 3 组: %+v", out)
 	}
-	// 遍历顺序：先遇到 conf=50（a、c），后遇到 nil（b），所以 50 组在前
-	if out[0].Confidence == nil || *out[0].Confidence != 50 || len(out[0].Words) != 2 {
+	if out[0].Confidence == nil || *out[0].Confidence != 50 || out[0].Version != "1" || len(out[0].Words) != 1 {
 		t.Errorf("conf=50 组不对: %+v", out[0])
 	}
 	if out[1].Confidence != nil || len(out[1].Words) != 1 || out[1].Words[0] != "b" {
 		t.Errorf("无置信度组不对: %+v", out[1])
 	}
+	if out[2].Version != "2" || out[2].Words[0] != "c" {
+		t.Errorf("不同版本不能并组: %+v", out[2])
+	}
 }
 
 func TestConfKey(t *testing.T) {
-	if v := confKey(nil, 0); v != -1 {
-		t.Errorf("越界应 -1: %d", v)
+	if v := confKey(nil); v != -1 {
+		t.Errorf("nil 应 -1: %d", v)
 	}
-	if v := confKey([]*int{ip(30)}, 0); v != 30 {
+	if v := confKey(ip(30)); v != 30 {
 		t.Errorf("正常应返回值: %d", v)
 	}
-	if v := confKey([]*int{ip(999)}, 0); v != -1 {
+	if v := confKey(ip(999)); v != -1 {
 		t.Errorf("越界置信度应 -1: %d", v)
 	}
 	if v := confFromKey(-1); v != nil {

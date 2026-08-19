@@ -141,14 +141,63 @@ document.getElementById('rule-filter').addEventListener('input', () => {
 const ruleModal = document.getElementById('rule-modal');
 const ruleModalTitle = document.getElementById('rule-modal-title');
 const ruleModalBody = document.getElementById('rule-modal-body');
-let currentRuleYaml = '';
+let currentRuleId = '';
+let currentRuleName = '';
+let ruleModalValidationTimer = null;
+let ruleModalValidationSerial = 0;
+
+function optionValidationText(response) {
+  if (response?.valid) return GoPainterI18n?.locale === 'en' ? 'Valid rule' : '规则有效';
+  const issue = response?.errors?.[0];
+  if (!issue) return GoPainterI18n?.locale === 'en' ? 'Invalid rule' : '规则无效';
+  return GoPainterI18n?.locale === 'en'
+    ? `${issue.path || '$'}: ${issue.code || 'invalid rule'}`
+    : `${issue.path || '$'}：${issue.message || issue.code}`;
+}
+
+async function validateOptionRule() {
+  const serial = ++ruleModalValidationSerial;
+  const status = document.getElementById('rule-modal-validation');
+  const save = document.getElementById('rule-modal-save');
+  status.className = 'muted';
+  status.textContent = GoPainterI18n?.locale === 'en' ? 'Validating…' : '正在校验…';
+  save.disabled = true;
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: 'validateRuleDraft', yaml: ruleModalBody.value, expectedId: currentRuleId,
+    });
+    if (serial !== ruleModalValidationSerial) return null;
+    status.className = response?.valid ? 'valid' : 'invalid';
+    status.textContent = response?.ok ? optionValidationText(response) : (response?.error || optionValidationText());
+    save.disabled = !response?.valid;
+    return response;
+  } catch (error) {
+    if (serial !== ruleModalValidationSerial) return null;
+    status.className = 'invalid';
+    status.textContent = error.message;
+    save.disabled = true;
+    return null;
+  }
+}
 
 function openRuleDetail(rule) {
-  ruleModalTitle.textContent = `${rule.name}（${rule.id}）`;
-  currentRuleYaml = jsyaml.dump(rule);
-  ruleModalBody.textContent = currentRuleYaml;
+  currentRuleName = rule.name;
+  currentRuleId = rule.id;
+  ruleModalTitle.textContent = GoPainterI18n?.locale === 'en'
+    ? `${currentRuleName} (${currentRuleId})` : `${currentRuleName}（${currentRuleId}）`;
+  ruleModalValidationSerial++;
+  ruleModalBody.value = jsyaml.dump(GoPainterUtils.sanitizeRule(rule) || rule, { noRefs: true, lineWidth: -1 });
+  document.getElementById('rule-modal-validation').textContent = '';
+  document.getElementById('rule-modal-save').disabled = true;
   ruleModal.classList.add('open');
+  clearTimeout(ruleModalValidationTimer);
+  ruleModalValidationTimer = setTimeout(validateOptionRule, 0);
 }
+
+ruleModalBody.addEventListener('input', () => {
+  clearTimeout(ruleModalValidationTimer);
+  ruleModalValidationTimer = setTimeout(validateOptionRule, 220);
+});
 
 document.getElementById('rule-list').addEventListener('click', (e) => {
   const el = e.target.closest('.rule-item');
@@ -160,12 +209,18 @@ document.getElementById('rule-list').addEventListener('click', (e) => {
   });
 });
 
-document.getElementById('rule-modal-close').addEventListener('click', () => ruleModal.classList.remove('open'));
+function closeRuleDetail() {
+  clearTimeout(ruleModalValidationTimer);
+  ruleModalValidationSerial++;
+  ruleModal.classList.remove('open');
+}
+
+document.getElementById('rule-modal-close').addEventListener('click', closeRuleDetail);
 ruleModal.addEventListener('click', (e) => {
-  if (e.target === ruleModal) ruleModal.classList.remove('open'); // 点遮罩关闭
+  if (e.target === ruleModal) closeRuleDetail(); // 点遮罩关闭
 });
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') ruleModal.classList.remove('open');
+  if (e.key === 'Escape') closeRuleDetail();
 });
 
 const conflictModal = document.getElementById('rule-conflict-modal');
@@ -239,10 +294,37 @@ async function resolveIncomingRules(existingRules, incomingRules) {
 
 document.getElementById('rule-copy').addEventListener('click', async () => {
   try {
-    await navigator.clipboard.writeText(currentRuleYaml);
+    await navigator.clipboard.writeText(ruleModalBody.value);
     showMsg('规则 YAML 已复制');
   } catch {
     showMsg('复制失败，请手动选择复制', true);
+  }
+});
+
+document.getElementById('rule-modal-save').addEventListener('click', async () => {
+  const button = document.getElementById('rule-modal-save');
+  button.disabled = true;
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: 'saveRuleDraft', yaml: ruleModalBody.value, expectedId: currentRuleId, expectedRevision: ruleSetRevision,
+    });
+    if (!response?.ok) throw new Error(response?.error || '保存规则失败');
+    if (!response.valid) {
+      document.getElementById('rule-modal-validation').className = 'invalid';
+      document.getElementById('rule-modal-validation').textContent = optionValidationText(response);
+      return;
+    }
+    ruleSetRevision = response.revision;
+    ruleSetState = null;
+    closeRuleDetail();
+    await refreshRuleList();
+    showMsg(`规则 ${currentRuleId} 已保存并生效`);
+  } catch (error) {
+    showMsg(error.message, true);
+  } finally {
+    if (ruleModal.classList.contains('open')) {
+      button.disabled = !document.getElementById('rule-modal-validation').classList.contains('valid');
+    }
   }
 });
 
@@ -674,10 +756,11 @@ async function refreshScanHistory() {
     top.append(time, title);
     const url = document.createElement('div');
     url.className = 'url';
-    url.textContent = `${item.source === 'crawl' ? '爬取' : '页面'} · ${item.url}（HTTP ${item.status || '—'}）`;
+    const sourceName = item.source === 'crawl' ? '爬取' : item.source === 'batch' ? '批量' : '页面';
+    url.textContent = `${sourceName} · ${item.url}（HTTP ${item.status || '—'}）`;
     const hits = document.createElement('div');
     hits.className = 'hits';
-    const names = (item.hits || []).map((hit) => hit.name || hit.id).filter(Boolean);
+    const names = (item.hits || []).map(GoPainterUtils.hitLabel).filter(Boolean);
     hits.textContent = names.length ? `🎯 ${names.join('、')}` : '— 未识别';
     row.append(top, url, hits);
     list.appendChild(row);
@@ -725,6 +808,103 @@ document.getElementById('history-clear').addEventListener('click', async () => {
 });
 
 scheduleIdle(refreshScanHistory);
+
+// --- 批量 URL 扫描 ---
+
+let batchTimer = null;
+let batchSignature = '';
+let batchState = null;
+
+function batchStatusText(state) {
+  if (state.running) return `批量扫描中：${state.completed || 0} / ${state.total || 0}，等待 ${state.pending || 0}，失败 ${state.failed?.length || 0}`;
+  if (state.interrupted) return `批量扫描被系统中断：已完成 ${state.completed || 0} / ${state.total || 0}`;
+  if (state.error) return `批量扫描异常：${state.error}`;
+  if (!state.total) return '尚未扫描';
+  const stopped = state.stopped ? '（已停止）' : '';
+  return `批量扫描完成${stopped}：成功 ${state.results?.length || 0}，失败 ${state.failed?.length || 0}，无效 ${state.invalid || 0}，重复 ${state.duplicate || 0}`;
+}
+
+function batchResultRow(result, failed = false) {
+  const row = document.createElement('div');
+  row.className = `crawl-item${failed ? ' failed' : ''}`;
+  const title = document.createElement('div');
+  title.className = 't';
+  title.textContent = failed ? result.error : (result.title || result.finalUrl || result.url);
+  const url = document.createElement('div');
+  url.className = 'u';
+  url.textContent = result.url;
+  const hits = document.createElement('div');
+  hits.className = 'hits';
+  hits.textContent = failed ? '抓取失败' : ((result.hits || []).map(GoPainterUtils.hitLabel).join('、') || '— 未识别');
+  row.append(title, url, hits);
+  return row;
+}
+
+function renderBatch(state) {
+  batchState = state;
+  document.getElementById('batch-start').disabled = !!state.running;
+  document.getElementById('batch-stop').disabled = !state.running;
+  document.getElementById('batch-status').textContent = batchStatusText(state);
+  const signature = GoPainterUtils.batchRenderSignature(state);
+  if (signature === batchSignature) return;
+  batchSignature = signature;
+  const list = document.getElementById('batch-results');
+  list.replaceChildren(
+    ...(state.results || []).slice(-LIST_RENDER_LIMIT).map((item) => batchResultRow(item)),
+    ...(state.failed || []).slice(-50).map((item) => batchResultRow(item, true)),
+  );
+}
+
+async function pollBatch() {
+  const state = await chrome.runtime.sendMessage({ type: 'batchStatus' });
+  if (!state?.ok) return;
+  renderBatch(state);
+  if (state.running && !batchTimer) {
+    batchTimer = setInterval(pollBatch, 500);
+  } else if (!state.running && batchTimer) {
+    clearInterval(batchTimer);
+    batchTimer = null;
+  }
+}
+
+document.getElementById('batch-start').addEventListener('click', async () => {
+  const urls = document.getElementById('batch-urls').value.split(/\r?\n/).map((url) => url.trim()).filter(Boolean);
+  const response = await chrome.runtime.sendMessage({ type: 'batchStart', urls });
+  if (!response?.ok) {
+    showMsg(response?.error || '启动批量扫描失败', true);
+    return;
+  }
+  batchSignature = '';
+  await pollBatch();
+  showMsg(`已开始扫描 ${response.total} 个 URL`);
+});
+
+document.getElementById('batch-stop').addEventListener('click', async () => {
+  await chrome.runtime.sendMessage({ type: 'batchStop' });
+  await pollBatch();
+});
+
+document.getElementById('batch-clear').addEventListener('click', async () => {
+  const response = await chrome.runtime.sendMessage({ type: 'batchClear' });
+  if (!response?.ok) {
+    showMsg(response?.error || '清空批量扫描结果失败', true);
+    return;
+  }
+  batchSignature = '';
+  await pollBatch();
+});
+
+document.getElementById('batch-export-json').addEventListener('click', async () => {
+  await pollBatch();
+  downloadReport('gopainter-batch-report.json', JSON.stringify(GoPainterUtils.batchScanReport(batchState), null, 2), 'application/json');
+});
+
+document.getElementById('batch-export-csv').addEventListener('click', async () => {
+  await pollBatch();
+  downloadReport('gopainter-batch-report.csv', `\uFEFF${GoPainterUtils.batchScanCsv(batchState)}`, 'text/csv;charset=utf-8');
+});
+
+scheduleIdle(pollBatch);
 
 // --- 书签整理：勾选哪些就处理哪些，没勾的一律不动 ---
 
@@ -838,7 +1018,7 @@ function crawlResultRow(result) {
   row.innerHTML = `<div class="t"></div><div class="u"></div><div class="hits"></div>`;
   row.querySelector('.t').textContent = result.title;
   row.querySelector('.u').textContent = `${result.url}（HTTP ${result.status}）`;
-  const names = (result.hits || []).map((hit) => hit.name).join('、');
+  const names = (result.hits || []).map(GoPainterUtils.hitLabel).join('、');
   row.querySelector('.hits').textContent = names ? `🎯 ${names}` : '— 未识别';
   return row;
 }
@@ -1151,7 +1331,19 @@ refreshRuleList();
 scheduleIdle(loadAiConfig);
 scheduleIdle(loadConfConfig);
 scheduleIdle(loadRuleSources);
-window.addEventListener('gopainter:localechange', () => loadRuleSources().catch(() => {}));
+window.addEventListener('gopainter:localechange', () => {
+  loadRuleSources().catch(() => {});
+  refreshScanHistory().catch(() => {});
+  if (batchState) {
+    batchSignature = '';
+    renderBatch(batchState);
+  }
+  if (ruleModal.classList.contains('open')) {
+    ruleModalTitle.textContent = GoPainterI18n?.locale === 'en'
+      ? `${currentRuleName} (${currentRuleId})` : `${currentRuleName}（${currentRuleId}）`;
+    validateOptionRule().catch(() => {});
+  }
+});
 
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== 'local') return;

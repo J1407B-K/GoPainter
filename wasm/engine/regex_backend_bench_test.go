@@ -2,6 +2,7 @@ package engine
 
 import (
 	stdregexp "regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -107,6 +108,9 @@ func TestRegexBackendParity(t *testing.T) {
 			}
 			if got.FindString(text) != want.FindString(text) {
 				t.Errorf("pattern=%q text=%q: FindString backend=%q stdlib=%q", pattern, text, got.FindString(text), want.FindString(text))
+			}
+			if !slices.Equal(got.FindStringSubmatch(text), want.FindStringSubmatch(text)) {
+				t.Errorf("pattern=%q text=%q: FindStringSubmatch backend=%q stdlib=%q", pattern, text, got.FindStringSubmatch(text), want.FindStringSubmatch(text))
 			}
 		}
 	}

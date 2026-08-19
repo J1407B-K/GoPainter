@@ -7,30 +7,34 @@ three kinds of evidence separate: browser E2E correctness, bounded resource beha
 and historical performance measurements. Each result states its workload and command;
 numbers from different sections should not be compared unless their workloads match.
 
-The latest browser-correctness run is v0.6.10. The multi-tab resource measurements
-remain the v0.6.8 baseline because v0.6.10 does not change their workload or limits.
+The latest browser-correctness suite targets v0.7.0. The multi-tab resource measurements
+remain the v0.6.8 baseline because v0.7.0 does not change that workload or its limits.
 Older results remain available below for design history and regression context.
 
 ## Current browser validation and resource baseline
 
-### 1. Browser E2E correctness: v0.6.10
+### 1. Browser E2E correctness: v0.7.0
 
-v0.6.10 runs the real unpacked extension in Chromium.
+The v0.7.0 suite runs the real unpacked extension in Chromium.
 Unlike the resource benchmark below, this is a deterministic correctness test: a local
 fixture supplies known title, meta, body, script, response-cookie, JavaScript-runtime,
 DOM, favicon, and SPA-route signals, then the test verifies the complete capture → match
 → session storage → popup path.
 
-The release baseline passes with 7 initial fingerprint signals, 2 favicon hashes, a replaced
-SPA result (`e2e-spa`), and a rendered popup. It also proves that the SPA result no longer
-contains the old page hit. No real third-party repository is contacted: upstream network
-availability, rate limits, and mutable rule data would make CI nondeterministic. Third-party
-rule-source download bounds and routing are covered by deterministic tests instead.
+It checks 7 initial fingerprint signals, 2 favicon hashes, extracted JavaScript version
+`1.0.0`, and a rendered popup. The test then opens the matched rule from that popup,
+changes its YAML, waits for live production-WASM validation, saves it, and verifies the
+rematched result. It also completes a two-URL batch scan and replaces the old page result
+with the SPA-only `e2e-spa` hit.
 
-The machine-readable successful result is:
+No real third-party repository is contacted: upstream availability, rate limits, and
+mutable rule data would make CI nondeterministic. Source-download bounds and routing are
+covered by deterministic tests instead.
+
+A successful run prints:
 
 ```json
-{"e2e":"passed","initialHits":7,"spaHit":"e2e-spa","faviconHashes":2,"popupRendered":true}
+{"e2e":"passed","initialHits":7,"spaHit":"e2e-spa","faviconHashes":2,"popupRendered":true,"version":"1.0.0","liveRuleEdit":true,"batchResults":2}
 ```
 
 ### 2. Multi-tab resource bounds: v0.6.8

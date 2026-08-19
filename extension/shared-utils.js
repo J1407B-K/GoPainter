@@ -62,10 +62,26 @@
       lastFailed.url || '', lastFailed.error || ''].join('|');
   }
 
+  function hitLabel(hit = {}) {
+    const name = String(hit.name || hit.id || '');
+    const version = String(hit.version || '').trim();
+    return version ? `${name} ${version}` : name;
+  }
+
+  function batchRenderSignature(resp = {}) {
+    if (!resp || typeof resp !== 'object') resp = {};
+    const results = Array.isArray(resp.results) ? resp.results : [];
+    const failed = Array.isArray(resp.failed) ? resp.failed : [];
+    const last = results[results.length - 1] || {};
+    return [resp.running ? 1 : 0, resp.completed || 0, resp.total || 0, results.length, failed.length,
+      last.url || '', last.status || '', last.totalHits || 0].join('|');
+  }
+
   function popupResultSnapshot(features = {}, result = {}, at = Date.now()) {
     const hits = (result.hits || []).slice(0, 100).map((hit) => ({
       id: hit.id,
       name: hit.name,
+      ...(hit.version ? { version: String(hit.version).slice(0, 120) } : {}),
       confidence: hit.confidence,
       source: hit.source,
       evidence: (hit.evidence || []).slice(0, 6).map((item) => ({
@@ -518,6 +534,7 @@
     if (m.negative) out.negative = !!m.negative;
     const conf = normalizeConfidence(m.confidence);
     if (conf != null) out.confidence = conf;
+    if (m.version != null && String(m.version).trim()) out.version = String(m.version).slice(0, 500);
     out[payload.field] = payload.value;
     return out;
   }
@@ -587,6 +604,7 @@
       hits: (result.hits || []).map((hit) => ({
         id: String(hit.id || ''),
         name: String(hit.name || hit.id || ''),
+        ...(hit.version ? { version: String(hit.version).slice(0, 120) } : {}),
         confidence: confidenceValue(hit),
         evidence: Array.isArray(hit.evidence) ? hit.evidence.map(reportEvidence) : [],
       })),
@@ -638,6 +656,7 @@
         detections: (item.hits || []).map((hit) => ({
           id: hit.id || '',
           name: hit.name || hit.id || '',
+          version: hit.version || '',
           confidence: hit.confidence ?? null,
           evidence: (hit.evidence || []).map(reportEvidence),
         })),
@@ -648,18 +667,18 @@
   function scanHistoryCsv(history = []) {
     const header = [
       'time', 'source', 'url', 'title', 'status', 'favicon_hash',
-      'fingerprint_id', 'fingerprint_name', 'confidence', 'matcher', 'location', 'matched', 'expression',
+      'fingerprint_id', 'fingerprint_name', 'version', 'confidence', 'matcher', 'location', 'matched', 'expression',
     ];
     const rows = [];
     for (const item of history) {
       const base = [new Date(item.at).toISOString(), item.source, item.url, item.title, item.status, (item.faviconHashes || []).join(' ')];
       const hits = item.hits || [];
       if (!hits.length) {
-        rows.push([...base, '', '', '', '', '', '', ''].map(csvCell).join(','));
+        rows.push([...base, '', '', '', '', '', '', '', ''].map(csvCell).join(','));
         continue;
       }
       for (const hit of hits) {
-        const hitColumns = [hit.id || '', hit.name || hit.id || '', hit.confidence ?? ''];
+        const hitColumns = [hit.id || '', hit.name || hit.id || '', hit.version || '', hit.confidence ?? ''];
         const evidence = (hit.evidence || []).map(reportEvidence);
         if (!evidence.length) {
           rows.push([...base, ...hitColumns, '', '', '', ''].map(csvCell).join(','));
@@ -676,12 +695,65 @@
     return [header.join(','), ...rows].join('\r\n');
   }
 
+  function batchScanReport(state = {}, generatedAt = Date.now()) {
+    if (!state || typeof state !== 'object') state = {};
+    return {
+      schemaVersion: 1,
+      generatedAt: new Date(generatedAt).toISOString(),
+      startedAt: state.startedAt ? new Date(state.startedAt).toISOString() : null,
+      finishedAt: state.finishedAt ? new Date(state.finishedAt).toISOString() : null,
+      total: Number(state.total) || 0,
+      completed: Number(state.completed) || 0,
+      invalid: Number(state.invalid) || 0,
+      duplicate: Number(state.duplicate) || 0,
+      stopped: Boolean(state.stopped),
+      storageErrors: Number(state.storageErrors) || 0,
+      error: state.error || '',
+      results: (state.results || []).map((item) => ({
+        requestedUrl: item.url || '',
+        finalUrl: item.finalUrl || item.url || '',
+        title: item.title || '',
+        status: item.status || 0,
+        totalHits: Number(item.totalHits) || 0,
+        detections: (item.hits || []).map((hit) => ({
+          id: hit.id || '', name: hit.name || hit.id || '', version: hit.version || '', confidence: hit.confidence ?? null,
+        })),
+      })),
+      failures: (state.failed || []).map((item) => ({ url: item.url || '', error: item.error || '' })),
+    };
+  }
+
+  function batchScanCsv(state = {}) {
+    if (!state || typeof state !== 'object') state = {};
+    const header = [
+      'requested_url', 'final_url', 'title', 'status', 'total_hits',
+      'fingerprint_id', 'fingerprint_name', 'version', 'confidence', 'error',
+    ];
+    const rows = [];
+    for (const item of state.results || []) {
+      const base = [item.url || '', item.finalUrl || item.url || '', item.title || '', item.status || 0, item.totalHits || 0];
+      if (!item.hits?.length) {
+        rows.push([...base, '', '', '', '', ''].map(csvCell).join(','));
+        continue;
+      }
+      for (const hit of item.hits) {
+        rows.push([
+          ...base, hit.id || '', hit.name || hit.id || '', hit.version || '', hit.confidence ?? '', '',
+        ].map(csvCell).join(','));
+      }
+    }
+    for (const failure of state.failed || []) {
+      rows.push([failure.url || '', '', '', '', '', '', '', '', '', failure.error || ''].map(csvCell).join(','));
+    }
+    return [header.join(','), ...rows].join('\r\n');
+  }
+
   const api = {
-    confidenceValue, filterAndSortHits, filterRules, crawlRenderSignature, popupResultSnapshot, agentPageSnapshot, faviconHashValues, bytesToBinaryString, mergeRules, planRuleMerge, diffTextLines, mergeConvertedRules, ruleSetUpdateSummary,
+    confidenceValue, filterAndSortHits, filterRules, crawlRenderSignature, hitLabel, batchRenderSignature, popupResultSnapshot, agentPageSnapshot, faviconHashValues, bytesToBinaryString, mergeRules, planRuleMerge, diffTextLines, mergeConvertedRules, ruleSetUpdateSummary,
     normalizeRuleSets, replaceActiveRuleSetRules, ruleSetOverrideInfo, extractYaml,
     extractJson, normalizeAiEvidence, normalizeAiTech, techsFromAiReply, ruleByTechName,
     sanitizeRuleDocs, sanitizeImportedRuleDocs, sanitizeRule, sanitizeMatcher,
-    scanHistoryEntry, mergeScanHistory, normalizeHistoryLimit, scanHistoryReport, scanHistoryCsv,
+    scanHistoryEntry, mergeScanHistory, normalizeHistoryLimit, scanHistoryReport, scanHistoryCsv, batchScanReport, batchScanCsv,
   };
   globalThis.GoPainterUtils = Object.freeze(api);
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

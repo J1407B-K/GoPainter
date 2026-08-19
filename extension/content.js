@@ -167,6 +167,14 @@
 
   report();
 
+  // A live rule edit may introduce probes that were not part of the original
+  // page snapshot. Only the extension can send this runtime message.
+  chrome.runtime.onMessage.addListener((message) => {
+    if (message?.type !== 'gopainter:recollect') return false;
+    report().catch(() => {});
+    return false;
+  });
+
   // SPA 换页：URL 变了但浏览器不刷新，得手动再扫。
   // 路由事件由 route-hook.js（main world）hook 后 postMessage 过来
   let lastUrl = location.href;

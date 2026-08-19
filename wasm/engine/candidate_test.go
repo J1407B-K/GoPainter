@@ -2,6 +2,7 @@ package engine
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -73,6 +74,38 @@ func TestValidateCandidateRejectsInvalidRegexAndNull(t *testing.T) {
 	result = ValidateCandidate(raw, Features{})
 	if result.Valid || !hasIssue(result, "confidence", "invalid_null") || !hasIssue(result, "matchers[0].js[0].pattern", "invalid_null") {
 		t.Fatalf("explicit null should be rejected: %+v", result.Errors)
+	}
+}
+
+func TestValidateCandidateVersionTemplate(t *testing.T) {
+	rule := validCandidate()
+	rule["matchers"] = []any{map[string]any{
+		"type": "regex", "regex": []string{`React ([\d.]+)`}, "version": `\1`,
+	}}
+	result := ValidateCandidate(candidateJSON(rule), Features{Body: "React 18.3.1"})
+	if !result.Valid || len(result.CurrentPageHits) != 1 || result.CurrentPageHits[0].Version != "18.3.1" {
+		t.Fatalf("valid version template should extract a version: valid=%v hits=%+v errors=%+v", result.Valid, result.CurrentPageHits, result.Errors)
+	}
+
+	for _, test := range []struct {
+		name    string
+		version any
+		code    string
+	}{
+		{name: "null", version: nil, code: "invalid_null"},
+		{name: "empty", version: "", code: "invalid_enum"},
+		{name: "too long", version: strings.Repeat("x", 501), code: "invalid_string"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			candidate := validCandidate()
+			candidate["matchers"] = []any{map[string]any{
+				"type": "regex", "regex": []string{"React"}, "version": test.version,
+			}}
+			validation := ValidateCandidate(candidateJSON(candidate), Features{})
+			if validation.Valid || !hasIssue(validation, "matchers[0].version", test.code) {
+				t.Fatalf("invalid version template should be rejected: %+v", validation.Errors)
+			}
+		})
 	}
 }
 

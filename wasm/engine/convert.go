@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"unicode"
@@ -28,24 +29,41 @@ type wappTech struct {
 }
 
 // wappalyzer 的模式带 "\;version:\1" / "\;confidence:50" 这种后缀。
-// 版本提取我们不支持，切掉；confidence 捡起来填到 matcher 上
-var wappConfRe = regexp.MustCompile(`\\;confidence:(\d+)`)
+// pattern、confidence 和 version 必须一起流过转换器，不能在分组时串到别的模式。
+type wappPatternMeta struct {
+	confidence *int
+	version    string
+}
 
-func splitWappMeta(p string) (string, *int) {
-	i := strings.Index(p, "\\;")
-	if i < 0 {
-		return p, nil
+func sortedWappKeys(values map[string]any) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
 	}
+	sort.Strings(keys)
+	return keys
+}
+
+func splitWappMeta(p string) (string, *int, string) {
+	parts := strings.Split(p, "\\;")
 	var conf *int
-	if m := wappConfRe.FindStringSubmatch(p[i:]); m != nil {
-		v, _ := strconv.Atoi(m[1])
-		conf = &v
+	version := ""
+	for _, tag := range parts[1:] {
+		if value, ok := strings.CutPrefix(tag, "confidence:"); ok {
+			if parsed, err := strconv.Atoi(value); err == nil {
+				v := parsed
+				conf = &v
+			}
+		}
+		if value, ok := strings.CutPrefix(tag, "version:"); ok {
+			version = value
+		}
 	}
-	return p[:i], conf
+	return parts[0], conf, version
 }
 
 func cleanWappPattern(p string) string {
-	c, _ := splitWappMeta(p)
+	c, _, _ := splitWappMeta(p)
 	return c
 }
 
@@ -157,24 +175,20 @@ func compilable(patterns []string) []string {
 	return out
 }
 
-// 成对版：丢模式的同时把它的 confidence 也丢了，保持两个切片对齐
-func compilablePair(patterns []string, confs []*int) ([]string, []*int) {
+// 丢坏模式时元数据同步丢弃，保持 version/confidence 与 pattern 对齐。
+func compilableMeta(patterns []string, metas []wappPatternMeta) ([]string, []wappPatternMeta) {
 	outP := patterns[:0]
-	outC := confs[:0]
+	outM := metas[:0]
 	for i, p := range patterns {
 		if _, err := safeCompile(tamePattern(p)); err == nil {
 			outP = append(outP, tamePattern(p))
-			outC = append(outC, confs[i])
+			outM = append(outM, metas[i])
 		}
 	}
-	return outP, outC
+	return outP, outM
 }
 
-func confKey(confs []*int, i int) int {
-	if i >= len(confs) {
-		return -1
-	}
-	c := confs[i]
+func confKey(c *int) int {
 	if c == nil || *c < 0 || *c > 100 {
 		return -1
 	}
@@ -189,66 +203,75 @@ func confFromKey(c int) *int {
 	return &v
 }
 
-func appendWordMatchersByConf(out []Matcher, part string, words []string, confs []*int) []Matcher {
-	byConf := make(map[int][]string)
-	var order []int
+type matcherMetaKey struct {
+	confidence int
+	version    string
+}
+
+func metaKey(meta wappPatternMeta) matcherMetaKey {
+	return matcherMetaKey{confidence: confKey(meta.confidence), version: meta.version}
+}
+
+func appendWordMatchersByMeta(out []Matcher, part string, words []string, metas []wappPatternMeta) []Matcher {
+	grouped := make(map[matcherMetaKey][]string)
+	var order []matcherMetaKey
 	for i, w := range words {
-		c := confKey(confs, i)
-		if _, ok := byConf[c]; !ok {
-			order = append(order, c)
+		key := metaKey(metas[i])
+		if _, ok := grouped[key]; !ok {
+			order = append(order, key)
 		}
-		byConf[c] = append(byConf[c], w)
+		grouped[key] = append(grouped[key], w)
 	}
-	for _, c := range order {
-		out = append(out, Matcher{Type: "word", Part: part, Words: byConf[c], Confidence: confFromKey(c)})
+	for _, key := range order {
+		out = append(out, Matcher{Type: "word", Part: part, Words: grouped[key], Confidence: confFromKey(key.confidence), Version: key.version})
 	}
 	return out
 }
 
-func appendRegexMatchersByConf(out []Matcher, part string, regexes []string, confs []*int) []Matcher {
-	byConf := make(map[int][]string)
-	var order []int
+func appendRegexMatchersByMeta(out []Matcher, part string, regexes []string, metas []wappPatternMeta) []Matcher {
+	grouped := make(map[matcherMetaKey][]string)
+	var order []matcherMetaKey
 	for i, r := range regexes {
-		c := confKey(confs, i)
-		if _, ok := byConf[c]; !ok {
-			order = append(order, c)
+		key := metaKey(metas[i])
+		if _, ok := grouped[key]; !ok {
+			order = append(order, key)
 		}
-		byConf[c] = append(byConf[c], r)
+		grouped[key] = append(grouped[key], r)
 	}
-	for _, c := range order {
-		out = append(out, Matcher{Type: "regex", Part: part, Regex: byConf[c], Confidence: confFromKey(c)})
+	for _, key := range order {
+		out = append(out, Matcher{Type: "regex", Part: part, Regex: grouped[key], Confidence: confFromKey(key.confidence), Version: key.version})
 	}
 	return out
 }
 
-func appendJsMatchersByConf(out []Matcher, probes []JsProbe, confs []*int) []Matcher {
-	byConf := make(map[int][]JsProbe)
-	var order []int
+func appendJsMatchersByMeta(out []Matcher, probes []JsProbe, metas []wappPatternMeta) []Matcher {
+	grouped := make(map[matcherMetaKey][]JsProbe)
+	var order []matcherMetaKey
 	for i, p := range probes {
-		c := confKey(confs, i)
-		if _, ok := byConf[c]; !ok {
-			order = append(order, c)
+		key := metaKey(metas[i])
+		if _, ok := grouped[key]; !ok {
+			order = append(order, key)
 		}
-		byConf[c] = append(byConf[c], p)
+		grouped[key] = append(grouped[key], p)
 	}
-	for _, c := range order {
-		out = append(out, Matcher{Type: "js", Js: byConf[c], Confidence: confFromKey(c)})
+	for _, key := range order {
+		out = append(out, Matcher{Type: "js", Js: grouped[key], Confidence: confFromKey(key.confidence), Version: key.version})
 	}
 	return out
 }
 
-func appendDomMatchersByConf(out []Matcher, probes []DomProbe, confs []*int) []Matcher {
-	byConf := make(map[int][]DomProbe)
-	var order []int
+func appendDomMatchersByMeta(out []Matcher, probes []DomProbe, metas []wappPatternMeta) []Matcher {
+	grouped := make(map[matcherMetaKey][]DomProbe)
+	var order []matcherMetaKey
 	for i, p := range probes {
-		c := confKey(confs, i)
-		if _, ok := byConf[c]; !ok {
-			order = append(order, c)
+		key := metaKey(metas[i])
+		if _, ok := grouped[key]; !ok {
+			order = append(order, key)
 		}
-		byConf[c] = append(byConf[c], p)
+		grouped[key] = append(grouped[key], p)
 	}
-	for _, c := range order {
-		out = append(out, Matcher{Type: "dom", Dom: byConf[c], Confidence: confFromKey(c)})
+	for _, key := range order {
+		out = append(out, Matcher{Type: "dom", Dom: grouped[key], Confidence: confFromKey(key.confidence), Version: key.version})
 	}
 	return out
 }
@@ -293,74 +316,73 @@ func plainLiteral(p string) (string, bool) {
 }
 
 // 模式列表拆成"纯字符串"和"真正则"两组，各做一个 matcher。
-// confs 与 patterns 平行（\;confidence:N 解析来的），跟着各自的模式走
-func splitPatterns(patterns []string, confs []*int, part string) []Matcher {
+// metas 与 patterns 平行，跟着各自的模式走。
+func splitPatterns(patterns []string, metas []wappPatternMeta, part string) []Matcher {
 	var words, regexes []string
-	var wordConfs, regexConfs []*int
+	var wordMetas, regexMetas []wappPatternMeta
 	for i, p := range patterns {
-		var conf *int
-		if i < len(confs) {
-			conf = confs[i]
-		}
 		if lit, ok := plainLiteral(p); ok {
 			words = append(words, lit)
-			wordConfs = append(wordConfs, conf)
+			wordMetas = append(wordMetas, metas[i])
 		} else {
 			regexes = append(regexes, p)
-			regexConfs = append(regexConfs, conf)
+			regexMetas = append(regexMetas, metas[i])
 		}
 	}
 	var out []Matcher
 	if len(words) > 0 {
-		out = appendWordMatchersByConf(out, part, words, wordConfs)
+		out = appendWordMatchersByMeta(out, part, words, wordMetas)
 	}
-	if regexes, regexConfs = compilablePair(regexes, regexConfs); len(regexes) > 0 {
-		out = appendRegexMatchersByConf(out, part, regexes, regexConfs)
+	if regexes, regexMetas = compilableMeta(regexes, regexMetas); len(regexes) > 0 {
+		out = appendRegexMatchersByMeta(out, part, regexes, regexMetas)
 	}
 	return out
 }
 
 func convertWappHeaders(t wappTech) []Matcher {
 	var patterns []string
-	var confs []*int
-	for k, v := range t.Headers {
+	var metas []wappPatternMeta
+	for _, k := range sortedWappKeys(t.Headers) {
+		v := t.Headers[k]
 		for _, p := range wappPatterns(v) {
-			clean, conf := splitWappMeta(p)
+			clean, conf, version := splitWappMeta(p)
 			patterns = append(patterns, headerPattern(k, clean))
-			confs = append(confs, conf)
+			metas = append(metas, wappPatternMeta{confidence: conf, version: version})
 		}
 	}
-	for k, v := range t.Cookies {
+	for _, k := range sortedWappKeys(t.Cookies) {
+		v := t.Cookies[k]
 		// cookie 在响应头里是 set-cookie: name=...（书签/爬取链路拿不到 set-cookie，尽力而为）
 		ps := wappPatterns(v)
 		if len(ps) == 0 {
 			patterns = append(patterns, headerPattern("set-cookie", regexp.QuoteMeta(k)+`=`))
-			confs = append(confs, nil)
+			metas = append(metas, wappPatternMeta{})
 		}
 		for _, p := range ps {
-			clean, conf := splitWappMeta(p)
+			clean, conf, version := splitWappMeta(p)
 			patterns = append(patterns, headerPattern("set-cookie", regexp.QuoteMeta(k)+`=`+clean))
-			confs = append(confs, conf)
+			metas = append(metas, wappPatternMeta{confidence: conf, version: version})
 		}
 	}
-	if patterns, confs = compilablePair(patterns, confs); len(patterns) > 0 {
-		return appendRegexMatchersByConf(nil, "header", patterns, confs)
+	if patterns, metas = compilableMeta(patterns, metas); len(patterns) > 0 {
+		return appendRegexMatchersByMeta(nil, "header", patterns, metas)
 	}
 	return nil
 }
 
 func convertWappMeta(t wappTech) []Matcher {
 	var patterns []string
-	var confs []*int
-	for k, v := range t.Meta {
+	var metas []wappPatternMeta
+	for _, k := range sortedWappKeys(t.Meta) {
+		v := t.Meta[k]
 		for _, p := range wappPatterns(v) {
-			clean, conf := splitWappMeta(p)
+			clean, conf, version := splitWappMeta(p)
 			patterns = append(patterns, headerPattern(k, clean))
-			confs = append(confs, conf)
+			metas = append(metas, wappPatternMeta{confidence: conf, version: version})
 		}
 	}
-	if patterns, confs = compilablePair(patterns, confs); len(patterns) > 0 {
-		return appendRegexMatchersByConf(nil, "meta", patterns, confs)
+	if patterns, metas = compilableMeta(patterns, metas); len(patterns) > 0 {
+		return appendRegexMatchersByMeta(nil, "meta", patterns, metas)
 	}
 	return nil
 }
@@ -376,16 +398,16 @@ func convertWappPatternParts(t wappTech) []Matcher {
 		{t.URL, "url"},
 	} {
 		var ps []string
-		var confs []*int
+		var metas []wappPatternMeta
 		for _, p := range wappPatterns(part.field) {
-			clean, conf := splitWappMeta(p)
+			clean, conf, version := splitWappMeta(p)
 			if clean != "" {
 				ps = append(ps, clean)
-				confs = append(confs, conf)
+				metas = append(metas, wappPatternMeta{confidence: conf, version: version})
 			}
 		}
-		if ps, confs = compilablePair(ps, confs); len(ps) > 0 {
-			matchers = append(matchers, splitPatterns(ps, confs, part.part)...)
+		if ps, metas = compilableMeta(ps, metas); len(ps) > 0 {
+			matchers = append(matchers, splitPatterns(ps, metas, part.part)...)
 		}
 	}
 	return matchers
@@ -394,21 +416,23 @@ func convertWappPatternParts(t wappTech) []Matcher {
 func convertWappJS(t wappTech) []Matcher {
 	// js 全局变量：path 存在即命中，模式非空则值也要匹配
 	var probes []JsProbe
-	var probeConfs []*int
-	for path, v := range t.Js {
+	var probeMetas []wappPatternMeta
+	for _, path := range sortedWappKeys(t.Js) {
+		v := t.Js[path]
 		pattern := ""
 		var conf *int
+		version := ""
 		if ps := wappPatterns(v); len(ps) > 0 {
-			pattern, conf = splitWappMeta(ps[0])
+			pattern, conf, version = splitWappMeta(ps[0])
 			if _, err := safeCompile(pattern); err != nil {
 				pattern = ""
 			}
 		}
 		probes = append(probes, JsProbe{Path: path, Pattern: tamePattern(pattern)})
-		probeConfs = append(probeConfs, conf)
+		probeMetas = append(probeMetas, wappPatternMeta{confidence: conf, version: version})
 	}
 	if len(probes) > 0 {
-		return appendJsMatchersByConf(nil, probes, probeConfs)
+		return appendJsMatchersByMeta(nil, probes, probeMetas)
 	}
 	return nil
 }
@@ -422,21 +446,22 @@ func convertWappDOM(t wappTech) []Matcher {
 	//	text/attributes → 保留完整条件（content.js 能评估）
 	//	properties      → content script 摸不到页面挂在 DOM 上的 expando，丢
 	var domProbes []DomProbe
-	var domConfs []*int
+	var domMetas []wappPatternMeta
 	for _, s := range wappPatterns(t.Dom) {
-		clean, conf := splitWappMeta(s)
+		clean, conf, version := splitWappMeta(s)
 		if informativeSelector(clean) {
 			domProbes = append(domProbes, DomProbe{Sel: clean})
-			domConfs = append(domConfs, conf)
+			domMetas = append(domMetas, wappPatternMeta{confidence: conf, version: version})
 		}
 	}
 	if domMap, ok := t.Dom.(map[string]any); ok {
-		for sel, cond := range domMap {
+		for _, sel := range sortedWappKeys(domMap) {
+			cond := domMap[sel]
 			condMap, _ := cond.(map[string]any)
 			if condMap == nil { // 没条件，退化成 exists
 				if informativeSelector(sel) {
 					domProbes = append(domProbes, DomProbe{Sel: sel})
-					domConfs = append(domConfs, nil)
+					domMetas = append(domMetas, wappPatternMeta{})
 				}
 				continue
 			}
@@ -445,17 +470,22 @@ func convertWappDOM(t wappTech) []Matcher {
 			}
 			p := DomProbe{Sel: sel}
 			var conf *int
+			version := ""
 			if ps := wappPatterns(condMap["text"]); len(ps) > 0 {
-				p.Text, conf = splitWappMeta(ps[0])
+				p.Text, conf, version = splitWappMeta(ps[0])
 			}
 			if attrs, ok := condMap["attributes"].(map[string]any); ok {
 				p.Attrs = make(map[string]string, len(attrs))
-				for k, v := range attrs {
+				for _, k := range sortedWappKeys(attrs) {
+					v := attrs[k]
 					if ps := wappPatterns(v); len(ps) > 0 {
-						c, cc := splitWappMeta(ps[0])
+						c, cc, vv := splitWappMeta(ps[0])
 						p.Attrs[k] = c
 						if conf == nil {
 							conf = cc
+						}
+						if version == "" {
+							version = vv
 						}
 					}
 				}
@@ -464,11 +494,11 @@ func convertWappDOM(t wappTech) []Matcher {
 				continue // 裸存在 + 无信息量
 			}
 			domProbes = append(domProbes, p)
-			domConfs = append(domConfs, conf)
+			domMetas = append(domMetas, wappPatternMeta{confidence: conf, version: version})
 		}
 	}
 	if len(domProbes) > 0 {
-		return appendDomMatchersByConf(nil, domProbes, domConfs)
+		return appendDomMatchersByMeta(nil, domProbes, domMetas)
 	}
 	return nil
 }

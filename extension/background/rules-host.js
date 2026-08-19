@@ -57,6 +57,126 @@
     return output.rules;
   }
 
+  function singleRuleDocument(yaml) {
+    const docs = [];
+    jsyaml.loadAll(String(yaml || ''), (doc) => {
+      if (doc !== undefined && doc !== null) docs.push(doc);
+    });
+    if (docs.length !== 1 || Array.isArray(docs[0]) || typeof docs[0] !== 'object') {
+      throw new Error('编辑器必须包含且只能包含一条规则');
+    }
+    return docs[0];
+  }
+
+  async function pageFeatures(tabId) {
+    if (!Number.isInteger(tabId)) return {};
+    const key = `result:${tabId}`;
+    const stored = await chrome.storage.session.get(key);
+    return stored[key]?.features || {};
+  }
+
+  async function validateDraft(yaml, tabId) {
+    const document = singleRuleDocument(yaml);
+    await ensureWasm();
+    const validation = JSON.parse(globalThis.goValidateCandidate(
+      JSON.stringify(document), JSON.stringify(await pageFeatures(tabId))
+    ));
+    if (validation.error) throw new Error(validation.error);
+    return validation;
+  }
+
+  function effectiveRuleSource(state, ruleId) {
+    const enabled = new Set(state.enabledRuleSetIds);
+    const explicit = state.ruleSetOverrides[ruleId];
+    if (explicit && enabled.has(explicit)) return state.ruleSets.find((set) => set.id === explicit) || null;
+    let owner = null;
+    for (const set of state.ruleSets) {
+      if (enabled.has(set.id) && set.rules.some((rule) => rule?.id === ruleId)) owner = set;
+    }
+    return owner;
+  }
+
+  async function ruleForEditing({ ruleId: rawRuleId }) {
+    const ruleId = String(rawRuleId || '').trim();
+    const { state, revision } = await loadVersionedRuleState();
+    const rule = state.rules.find((item) => item?.id === ruleId);
+    if (!rule) throw new Error(`规则 ${ruleId} 不存在`);
+    // Converted Go rules include explicit zero-value fields for matcher defaults.
+    // The strict editor intentionally rejects those ambiguous empty scalars, so
+    // present the equivalent canonical rule shape to every editing surface.
+    const editableRule = GoPainterUtils.sanitizeRule(rule);
+    if (!editableRule) throw new Error(`规则 ${ruleId} 无法编辑`);
+    const active = state.ruleSets.find((set) => set.id === state.activeRuleSetId);
+    const source = effectiveRuleSource(state, ruleId);
+    return {
+      ok: true,
+      ruleId,
+      yaml: jsyaml.dump(editableRule, { noRefs: true, lineWidth: -1 }),
+      revision,
+      sourceRuleSetId: source?.id || '',
+      sourceRuleSetName: source?.name || '',
+      editRuleSetId: active?.id || '',
+      editRuleSetName: active?.name || '',
+      copiesToEditSet: source?.id !== active?.id,
+    };
+  }
+
+  async function validateRuleDraft({ yaml, tabId, expectedId }) {
+    const validation = await validateDraft(yaml, tabId);
+    if (validation.valid && expectedId && validation.rule?.id !== expectedId) {
+      return {
+        ok: true,
+        valid: false,
+        errors: [{ path: 'id', code: 'id_changed', message: `编辑规则必须保留原 id：${expectedId}` }],
+      };
+    }
+    return { ok: true, ...validation };
+  }
+
+  async function saveRuleDraft({ yaml, tabId, expectedId, expectedRevision }) {
+    const validation = await validateDraft(yaml, tabId);
+    if (!validation.valid) return { ok: true, ...validation };
+    const rule = GoPainterUtils.sanitizeRule(validation.rule);
+    if (!rule) throw new Error('规则规范化失败');
+    if (expectedId && rule.id !== expectedId) throw new Error(`编辑规则必须保留原 id：${expectedId}`);
+
+    const { state, revision } = await loadVersionedRuleState();
+    if (!Number.isSafeInteger(expectedRevision) || expectedRevision !== revision) {
+      throw new Error('规则状态已更新，请重新打开编辑器后重试');
+    }
+    const active = state.ruleSets.find((set) => set.id === state.activeRuleSetId);
+    if (!active) throw new Error('当前编辑集不存在');
+    const rules = active.rules.slice();
+    const index = rules.findIndex((item) => item?.id === rule.id);
+    if (index >= 0) rules[index] = rule;
+    else rules.push(rule);
+    const enabledRuleSetIds = state.enabledRuleSetIds.includes(active.id)
+      ? state.enabledRuleSetIds : [...state.enabledRuleSetIds, active.id];
+    const ruleSetOverrides = { ...state.ruleSetOverrides, [rule.id]: active.id };
+    const next = GoPainterUtils.normalizeRuleSets(
+      state.ruleSets.map((set) => set.id === active.id ? { ...set, rules } : set),
+      active.id,
+      [],
+      enabledRuleSetIds,
+      ruleSetOverrides
+    );
+    const nextRevision = await writeRuleState(next, revision);
+    globalThis.invalidateRuleMatchingCaches?.();
+    if (Number.isInteger(tabId)) {
+      chrome.tabs?.sendMessage(tabId, { type: 'gopainter:recollect' }).catch(() => {});
+    }
+    return {
+      ok: true,
+      valid: true,
+      rule,
+      currentPageHits: validation.currentPageHits || [],
+      runtimeCoverage: validation.runtimeCoverage,
+      revision: nextRevision,
+      ruleSetName: active.name,
+      copied: index < 0,
+    };
+  }
+
   async function overview() {
     const state = await loadRuleState();
     return {
@@ -280,6 +400,9 @@
     handlers: Object.freeze({
       getRuleSetOverview: overview,
       getActiveRuleSummaries: activeSummaries,
+      getRuleForEditing: ruleForEditing,
+      validateRuleDraft,
+      saveRuleDraft: (msg) => serializeMutation(() => saveRuleDraft(msg)),
       setActiveRuleSet: (msg) => serializeMutation(() => setActive(msg)),
       setEnabledRuleSets: (msg) => serializeMutation(() => setEnabled(msg)),
       setRuleSetOverride: (msg) => serializeMutation(() => setOverride(msg)),

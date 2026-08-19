@@ -18,7 +18,8 @@ function loadRouter(pageHandlers, extraHosts = []) {
     GoPainterHistoryHost: extraHosts[2] || emptyHost,
     GoPainterBookmarksHost: extraHosts[3] || emptyHost,
     GoPainterCrawlHost: extraHosts[4] || emptyHost,
-    GoPainterSourceHost: extraHosts[5] || emptyHost,
+    GoPainterBatchHost: extraHosts[5] || emptyHost,
+    GoPainterSourceHost: extraHosts[6] || emptyHost,
   };
   context.globalThis = context;
   vm.runInNewContext(source, context, { filename: 'background.js' });
