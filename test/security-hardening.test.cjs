@@ -51,6 +51,8 @@ test('favicon hashing has byte, URL, and stream-read bounds', () => {
   assert.match(browserState, /SESSION_PAGE_STORAGE_BUDGET_BYTES = 6_500_000/);
   assert.match(browserState, /SESSION_PAGE_BODY_CHARS = 80_000/);
   assert.match(browserState, /scripts: compactStringList\(features\.scripts, 100, 2_000\)/);
+  assert.match(browserState, /faviconHashes: compactInt32List\(features\.faviconHashes, 64\)/);
+  assert.match(browserState, /domHits: compactBooleanObject\(features\.domHits, 200, 300\)/);
   assert.match(browserState, /\^\(\?:result\|popup\|agent\):/);
   assert.match(browserState, /evict\.push\(\.\.\.keys\)/);
   assert.match(browserState, /function currentTabPageFeatureVersion/);
@@ -60,10 +62,32 @@ test('favicon hashing has byte, URL, and stream-read bounds', () => {
 
 test('main-frame response state records both early and completed webRequest events', () => {
   const browserState = read('background', 'browser-state.js');
+  assert.match(browserState, /chrome\.webRequest\.onBeforeRequest\.addListener\(\s*beginMainFrameNavigation/s);
   assert.match(browserState, /function recordMainFrameResponse\(details\)/);
   assert.match(browserState, /chrome\.webRequest\.onHeadersReceived\.addListener\(\s*recordMainFrameResponse/s);
   assert.match(browserState, /chrome\.webRequest\.onCompleted\.addListener\(\s*recordMainFrameResponse/s);
-  assert.match(browserState, /\['responseHeaders'\]/);
+  assert.equal((browserState.match(/\['responseHeaders', 'extraHeaders'\]/g) || []).length, 2);
+  assert.match(browserState, /Object\.prototype\.hasOwnProperty\.call\(headers, name\)/);
+  assert.match(browserState, /`\$\{headers\[name\]\}\\n\$\{name\}: \$\{value\}`/);
+  assert.match(browserState, /currentRequestId !== details\.requestId/);
+  assert.doesNotMatch(browserState, /chrome\.tabs\.onUpdated\.addListener/);
+});
+
+test('matching bridge rejects malformed Go output before caching it', () => {
+  const matching = read('background', 'matching.js');
+  assert.match(matching, /if \(!Array\.isArray\(out\?\.hits\)\)/);
+  assert.match(matching, /typeof out\?\.error === 'string'/);
+  assert.match(matching, /matchCache\.set\(featuresJSON, \{ hits: out\.hits\.slice\(\) \}\)/);
+});
+
+test('persistent storage and packaged WASM are not exposed to content scripts or web pages', () => {
+  const background = read('background.js');
+  const storageAccess = read('background', 'storage-access.js');
+  const manifest = JSON.parse(read('manifest.json'));
+  assert.match(background, /background\/storage-access\.js/);
+  assert.match(storageAccess, /chrome\.storage\.local\.setAccessLevel/);
+  assert.match(storageAccess, /accessLevel: 'TRUSTED_CONTEXTS'/);
+  assert.equal(manifest.web_accessible_resources, undefined);
 });
 
 test('rule writes are serialized and extension-privileged string execution is absent', () => {
@@ -104,6 +128,10 @@ test('third-party rule sources are bounded, scheduled, and rollback without dupl
   assert.match(sourceHost, /MAX_RULES = 25_000/);
   assert.match(sourceHost, /FETCH_CONCURRENCY = 4/);
   assert.match(sourceHost, /FETCH_TIMEOUT_MS = 15_000/);
+  assert.match(sourceHost, /function serializeSourceOperation\(operation\)/);
+  assert.match(sourceHost, /const controller = new AbortController\(\)/);
+  assert.match(sourceHost, /controller\.abort\(\);\s+await patchMeta/s);
+  assert.match(sourceHost, /return serializeSourceOperation\(\(\) => performRollback\(sourceId\)\)/);
   assert.match(sourceHost, /redirect: 'manual'/);
   assert.match(sourceHost, /credentials: 'omit'/);
   assert.match(sourceHost, /response\.body\.getReader\(\)/);

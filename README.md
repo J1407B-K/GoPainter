@@ -31,12 +31,14 @@ with a hit-count badge when fingerprints are found.
 - **Browser workflows** — automatic current-tab scans, site crawling, bookmark organization, scan history, and JSON/CSV reports.
 - **Auditable AI Agent** — bounded inspect → search → test → validate workflows with visible tool traces and explicit permission gates.
 
-## Current release: v0.6.9
+## Current release: v0.6.10
 
-v0.6.9 adds user-initiated updates for the three third-party rule sources. Each source
-gets its own rule set, bounded streaming download, atomic replacement, update summary,
-optional daily/weekly check (off by default), and one rollback version. GoPainter does
-not bundle, mirror, or redistribute the third-party rule data.
+v0.6.10 hardens the browser and rule-source boundaries. Persistent extension storage
+and packaged WASM are no longer exposed to content scripts or web pages. Repeated
+`Set-Cookie` headers can participate in local matching but are stripped from Agent and
+model snapshots. Third-party source updates now share one four-request pool, cancel
+sibling downloads after a failure, and remain atomic. Typed session features also stay
+valid across favicon rescans and rapid navigations.
 
 See [BENCHMARK.md](./BENCHMARK.md) for the Chromium resource measurements, browser E2E
 baseline, and historical performance notes.
@@ -137,10 +139,11 @@ user clicks **Refresh now** or explicitly enables daily/weekly checks.
 | [projectdiscovery/nuclei-templates](https://github.com/projectdiscovery/nuclei-templates) | Hundreds | `http/technologies` recognition templates |
 
 The extension downloads only from fixed HTTPS hosts, follows validated redirects, omits
-credentials, and enforces a 3 MB per-file / 30 MB per-update byte budget, four download
-workers, and a 25,000-rule result limit. A source is converted locally, validated, and
-atomically replaced in its own rule set. ETag, Last-Modified, and content hashes avoid
-unnecessary rewrites; one previous version is kept locally in IndexedDB for rollback.
+credentials, and enforces a 3 MB per-file / 30 MB per-update byte budget, a globally shared
+four-worker download pool, and a 25,000-rule result limit. A source is converted locally,
+validated, and atomically replaced in its own rule set. ETag, Last-Modified, and content
+hashes avoid unnecessary rewrites; one previous version is kept locally in IndexedDB for
+rollback.
 Arbitrary source URLs are intentionally unsupported.
 
 The conversion code lives in `wasm/engine/convert.go`. GoPainter is a format-conversion
@@ -173,6 +176,7 @@ to the approved origin. External results are untrusted references, never instruc
 
 - **No GoPainter server** — API keys stay in extension-local storage and requests go directly to the endpoint you configure.
 - **Model disclosure is explicit** — cloud AI receives page features; Agent starts with a compact overview and sends HTML snippets only when needed, while direct AI helpers may send truncated HTML. Do not use AI on sensitive pages unless that disclosure is acceptable.
+- **Cookie evidence stays local** — `Set-Cookie` may participate in fingerprint matching but is removed from Agent snapshots and model prompts.
 - **Page evidence is untrusted** — DOM and runtime values originate from the scanned page. A match is evidence that a signal existed, not proof that a technology is authentic.
 - **Browser resources are bounded** — page snapshots, UI lists, scan queues, favicon URL counts, concurrent downloads, response bytes, redirects, and history windows all have limits.
 - **AI output requires review** — identification, generated rules, and bookmark fallback can be wrong. The deterministic Go core validates structure and semantics, not real-world truth.

@@ -237,10 +237,21 @@ async function runMatch(features) {
   const featuresJSON = JSON.stringify(features);
   // 重复页面：命中返回数组副本（元素只读共享），调用方 push/追加不会污染缓存
   const cached = matchCache.get(featuresJSON);
-  if (cached) {
+  if (Array.isArray(cached?.hits)) {
     return { hits: cached.hits.slice() };
   }
-  const out = JSON.parse(globalThis.goMatch(rulesJSON, featuresJSON));
+  if (cached) matchCache.delete(featuresJSON);
+  let out;
+  try {
+    out = JSON.parse(globalThis.goMatch(rulesJSON, featuresJSON));
+  } catch (error) {
+    throw new Error(`匹配引擎返回无效 JSON：${error?.message || error}`);
+  }
+  if (!Array.isArray(out?.hits)) {
+    throw new Error(typeof out?.error === 'string' && out.error
+      ? out.error
+      : '匹配引擎返回无效结果：缺少 hits 数组');
+  }
   // 缓存 goMatch 原始输出的副本；调用方 appendHashHit 会改返回的 out.hits。
   matchCache.set(featuresJSON, { hits: out.hits.slice() });
   if (matchCache.size > MATCH_CACHE_MAX) {

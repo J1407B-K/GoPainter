@@ -6,28 +6,29 @@
 有界资源行为，以及历史性能测量。每项结果都标明负载和复现命令；负载不同的数据不应
 直接横向比较。
 
-当前最新的实测基线是 v0.6.8。旧版本数据折叠保留，用于追溯设计取舍与检查性能回归。
+最新的浏览器正确性实测版本是 v0.6.10。多标签页资源数据仍保留 v0.6.8 基线，因为
+v0.6.10 没有改变对应负载或资源上限。旧版本数据折叠保留，用于追溯设计取舍与检查性能回归。
 
-## 当前实测基线：v0.6.8
+## 当前浏览器验证与资源基线
 
-### 1. 浏览器 E2E 正确性
+### 1. 浏览器 E2E 正确性：v0.6.10
 
-v0.6.8 运行真实的 Chromium unpacked 扩展。它不同于下方的资源压测，
-是一项确定性的正确性测试：本地 fixture 提供已知的 title、meta、body、script、JavaScript
-运行时、DOM、favicon 和 SPA 路由信号，然后验证“采集 → 匹配 → session storage → popup”
-完整链路。
+v0.6.10 运行真实的 Chromium unpacked 扩展。它不同于下方的资源压测，
+是一项确定性的正确性测试：本地 fixture 提供已知的 title、meta、body、script、响应 Cookie、
+JavaScript 运行时、DOM、favicon 和 SPA 路由信号，然后验证“采集 → 匹配 → session storage
+→ popup”完整链路。
 
-发布基线通过 6 种初始 matcher、2 个 favicon hash、替换后的 SPA 结果（`e2e-spa`）和 popup
+发布基线通过 7 类初始指纹信号、2 个 favicon hash、替换后的 SPA 结果（`e2e-spa`）和 popup
 渲染，并确认 SPA 新结果不再保留旧页面命中。测试不会访问真实第三方仓库：上游网络、限流和
 持续变化的规则数据会让 CI 变得不确定。第三方规则源的下载边界和消息路由改由确定性测试覆盖。
 
 成功结果的机器可读输出为：
 
 ```json
-{"e2e":"passed","initialHits":6,"spaHit":"e2e-spa","faviconHashes":2,"popupRendered":true}
+{"e2e":"passed","initialHits":7,"spaHit":"e2e-spa","faviconHashes":2,"popupRendered":true}
 ```
 
-### 2. 多标签页资源边界
+### 2. 多标签页资源边界：v0.6.8
 
 v0.6.8 用真实 Chromium，而不是只靠源码层的队列断言，完成多标签页资源加固验证。压测使用全新 profile，通过 CDP 加载 unpacked 扩展；每页提供 10 个刻意放慢且互不相同的 favicon 响应，并在运行期间轮询 extension service worker。它检查扫描 / favicon 的活动与等待队列、`storage.session` 用量、storage error、stale result commit、每 tab 孤儿 key，以及所有仍打开标签页的最终结果。
 

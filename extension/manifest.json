@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "GoPainter",
-  "version": "0.6.9",
+  "version": "0.6.10",
   "description": "__MSG_extensionDescription__",
   "default_locale": "en",
   "permissions": ["storage", "tabs", "webRequest", "bookmarks", "sidePanel", "scripting", "alarms"],
@@ -42,8 +42,5 @@
   "options_page": "options.html",
   "content_security_policy": {
     "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
-  },
-  "web_accessible_resources": [
-    { "resources": ["wasm/*"], "matches": ["<all_urls>"] }
-  ]
+  }
 }

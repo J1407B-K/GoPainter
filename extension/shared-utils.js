@@ -93,10 +93,25 @@
     return out;
   }
 
+  function limitedAgentHeaders(value, limit = 50, valueLimit = 500) {
+    const out = {};
+    let count = 0;
+    for (const [key, item] of Object.entries(value || {})) {
+      const name = String(key).slice(0, 200);
+      // Cookie response values may contain authenticated session material. They
+      // participate in local fingerprint matching but must never enter an AI
+      // tool result or model prompt.
+      if (name.toLowerCase() === 'set-cookie') continue;
+      out[name] = String(item ?? '').slice(0, valueLimit);
+      if (++count >= limit) break;
+    }
+    return out;
+  }
+
   function agentPageSnapshot(features = {}, at = Date.now()) {
     return {
       url: features.url || '', title: features.title || '', status: features.status ?? null,
-      headers: limitedObject(features.headers, 50), meta: limitedObject(features.meta, 100),
+      headers: limitedAgentHeaders(features.headers), meta: limitedObject(features.meta, 100),
       scripts: (features.scripts || []).slice(0, 100).map((value) => String(value).slice(0, 500)),
       faviconHashes: (features.faviconHashes || []).slice(0, 20),
       js: limitedObject(features.js, 100),

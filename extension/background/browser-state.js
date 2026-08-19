@@ -1,16 +1,47 @@
 // Browser event state: response headers and action icon/badge.
 
-// tabId -> { status, headers }，只记主框架
+// tabId -> { status, headers }，只记当前主框架请求
 const responseCache = new Map();
+const mainFrameRequestIds = new Map();
+
+function beginMainFrameNavigation(details) {
+  if (details.type !== 'main_frame' || details.tabId < 0) return;
+  // Redirects keep the same requestId. Count a navigation once, while a
+  // same-URL reload gets a new requestId and therefore invalidates old work.
+  if (mainFrameRequestIds.get(details.tabId) === details.requestId) return;
+  mainFrameRequestIds.set(details.tabId, details.requestId);
+  responseCache.delete(details.tabId);
+  tabNavigationVersions.set(details.tabId, currentNavigationVersion(details.tabId) + 1);
+  markTabPageFeatureVersion(details.tabId);
+  clearTabIcons(details.tabId);
+  updateIcon(details.tabId, 0).catch(() => {});
+}
 
 function recordMainFrameResponse(details) {
-  if (details.type !== 'main_frame') return;
+  if (details.type !== 'main_frame' || details.tabId < 0) return;
+  // An older request may complete after a newer navigation has started. Its
+  // headers must not become the new document's fingerprint input.
+  if (!mainFrameRequestIds.has(details.tabId)) beginMainFrameNavigation(details);
+  const currentRequestId = mainFrameRequestIds.get(details.tabId);
+  if (currentRequestId && currentRequestId !== details.requestId) return;
   const headers = {};
   for (const h of details.responseHeaders || []) {
-    headers[h.name.toLowerCase()] = h.value || '';
+    const name = h.name.toLowerCase();
+    const value = h.value || '';
+    // Set-Cookie and a few other headers may legally repeat. Preserve every
+    // field as a complete header line so line-anchored fingerprint regexes can
+    // match any occurrence instead of only the last one Chrome reports.
+    headers[name] = Object.prototype.hasOwnProperty.call(headers, name)
+      ? `${headers[name]}\n${name}: ${value}`
+      : value;
   }
   responseCache.set(details.tabId, { status: details.statusCode, headers });
 }
+
+chrome.webRequest.onBeforeRequest.addListener(
+  beginMainFrameNavigation,
+  { urls: ['http://*/*', 'https://*/*'], types: ['main_frame'] }
+);
 
 // onHeadersReceived provides early data. onCompleted records the final
 // successful response too: it is a useful MV3 fallback when a worker is
@@ -19,17 +50,23 @@ function recordMainFrameResponse(details) {
 chrome.webRequest.onHeadersReceived.addListener(
   recordMainFrameResponse,
   { urls: ['http://*/*', 'https://*/*'] },
-  ['responseHeaders']
+  // Chrome hides Set-Cookie unless extraHeaders is requested. Wappalyzer cookie
+  // fingerprints are converted to set-cookie matchers, so omitting this causes
+  // deterministic false negatives.
+  ['responseHeaders', 'extraHeaders']
 );
 
 chrome.webRequest.onCompleted.addListener(
   recordMainFrameResponse,
   { urls: ['http://*/*', 'https://*/*'] },
-  ['responseHeaders']
+  // Keep this in sync with onHeadersReceived: the completed event replaces the
+  // cached header snapshot and must not erase Set-Cookie from the earlier event.
+  ['responseHeaders', 'extraHeaders']
 );
 
 chrome.tabs.onRemoved.addListener((tabId) => {
   responseCache.delete(tabId);
+  mainFrameRequestIds.delete(tabId);
   clearTabIcons(tabId);
   iconJobs.delete(tabId);
   tabNavigationVersions.delete(tabId);
@@ -64,10 +101,33 @@ function compactStringList(values, count, length) {
   return (Array.isArray(values) ? values : []).slice(0, count).map((value) => compactString(value, length));
 }
 
+function compactInt32List(values, count) {
+  const out = [];
+  for (const value of (Array.isArray(values) ? values : []).slice(0, count)) {
+    // Heal snapshots written by v0.6.8 builds which stringified hash values.
+    const normalized = typeof value === 'string' && /^-?\d+$/.test(value) ? Number(value) : value;
+    if (Number.isInteger(normalized) && normalized >= -2_147_483_648 && normalized <= 2_147_483_647) {
+      out.push(normalized);
+    }
+  }
+  return out;
+}
+
 function compactObject(values, count, keyLength, valueLength) {
   const out = {};
   for (const [key, value] of Object.entries(values || {}).slice(0, count)) {
     out[compactString(key, keyLength)] = compactString(value, valueLength);
+  }
+  return out;
+}
+
+function compactBooleanObject(values, count, keyLength) {
+  const out = {};
+  for (const [key, value] of Object.entries(values || {}).slice(0, count)) {
+    // The string cases migrate session entries produced by the old generic
+    // object compactor; all newly written values remain actual booleans.
+    const normalized = value === 'true' ? true : value === 'false' ? false : value;
+    if (typeof normalized === 'boolean') out[compactString(key, keyLength)] = normalized;
   }
   return out;
 }
@@ -84,9 +144,9 @@ function compactSessionFeatures(features = {}) {
     scripts: compactStringList(features.scripts, 100, 2_000),
     links: compactStringList(features.links, 200, 2_000),
     favicons: compactStringList(features.favicons, 64, 2_000),
-    faviconHashes: compactStringList(features.faviconHashes, 64, 200),
+    faviconHashes: compactInt32List(features.faviconHashes, 64),
     js: compactObject(features.js, 200, 300, 1_000),
-    domHits: compactObject(features.domHits, 200, 300, 20),
+    domHits: compactBooleanObject(features.domHits, 200, 300),
   };
 }
 
@@ -161,8 +221,8 @@ const ICONS = (state) => ({
 });
 
 const iconJobs = new Map(); // tabId -> { pendingHitCount, running }
-// 同 URL 刷新时只比较 URL 不够：旧文档和新文档的地址相同。每次 loading
-// 增加版本号，让所有已开始的异步任务都能识别自己是否已过期。
+// 同 URL 刷新时只比较 URL 不够：旧文档和新文档的地址相同。每个新的
+// main-frame requestId 增加版本号，让已开始的异步任务识别自己是否过期。
 const tabNavigationVersions = new Map();
 // This advances for every content-script report as well as browser navigation,
 // so favicon work for a prior SPA route can be cancelled before it commits.
@@ -230,18 +290,6 @@ function updateIcon(tabId, hitCount) {
   });
 }
 
-chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
-  if (changeInfo.status === 'loading') {
-    // 每次导航都是一张新页面；不能把上一页网络包里的 icon 带进来参与匹配。
-    responseCache.delete(tabId);
-    tabNavigationVersions.set(tabId, currentNavigationVersion(tabId) + 1);
-    markTabPageFeatureVersion(tabId);
-    clearTabIcons(tabId);
-    // 这里必须同步排队：异步读取旧缓存后再置灰，可能反过来覆盖新页面的命中。
-    updateIcon(tabId, 0).catch(() => {});
-  }
-});
-
 // 网络包里的 icon：页面加载过程中所有带 icon/favicon 字样的图片请求都收。
 const tabIcons = new Map(); // tabId -> { seen:Set, pending:Set, timer }
 
@@ -285,6 +333,9 @@ async function flushIcons(tabId) {
   const data = await chrome.storage.session.get(key);
   const stored = data[key];
   if (!stored) return; // 页面还没上报特征，pageFeatures 流程会带上这些 icon
+  // Normalize both current and pre-fix session snapshots before sending them
+  // back through Go's strict Features decoder.
+  stored.features = compactSessionFeatures(stored.features);
   if (!(await isCurrentTabPage(tabId, stored.features?.url, navigationVersion))) return;
 
   const newHashes = await hashIcons(urls, isStale);

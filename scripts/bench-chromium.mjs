@@ -72,8 +72,10 @@ class CDP {
 }
 
 async function listenFixture() {
+  const requestCounts = new Map();
   const server = createServer((request, response) => {
     const url = new URL(request.url, 'http://fixture.invalid');
+    requestCounts.set(url.pathname, (requestCounts.get(url.pathname) || 0) + 1);
     if (url.pathname === '/icon') {
       // Long enough for the sampler to observe real in-flight extension fetches.
       const body = Buffer.alloc(1024, Number(url.searchParams.get('icon')) || 1);
@@ -95,6 +97,10 @@ async function listenFixture() {
       response.writeHead(200, {
         'content-type': 'text/html; charset=utf-8',
         'cache-control': 'no-store',
+        'set-cookie': [
+          'gopainter_e2e=COOKIE_MARKER; Path=/; SameSite=Lax',
+          'unrelated_e2e=1; Path=/; SameSite=Lax',
+        ],
       });
       response.end(`<!doctype html><html><head><title>E2E_TITLE_MARKER</title>
         <meta name="generator" content="E2E_META_MARKER">
@@ -120,7 +126,7 @@ async function listenFixture() {
   const { port } = server.address();
   // The explicit localhost/private-address guard must stay active during this
   // test. Chrome maps this fixture-only hostname to the local server at launch.
-  return { server, baseURL: `http://bench.gopainter.test:${port}` };
+  return { server, baseURL: `http://bench.gopainter.test:${port}`, requestCounts };
 }
 
 async function json(url) {
@@ -240,6 +246,7 @@ const E2E_RULES = [
   { id: 'e2e-title', name: 'E2E title', matchers: [{ type: 'word', part: 'title', words: ['E2E_TITLE_MARKER'] }] },
   { id: 'e2e-meta', name: 'E2E meta', matchers: [{ type: 'word', part: 'meta', words: ['E2E_META_MARKER'] }] },
   { id: 'e2e-script', name: 'E2E script', matchers: [{ type: 'word', part: 'script', words: ['/assets/e2e-signal.js'] }] },
+  { id: 'e2e-cookie', name: 'E2E cookie', matchers: [{ type: 'word', part: 'header', words: ['set-cookie: gopainter_e2e=COOKIE_MARKER'] }] },
   { id: 'e2e-js', name: 'E2E JS', matchers: [{ type: 'js', js: [{ path: 'GoPainterE2E.version', pattern: '^1\\.0\\.0$' }] }] },
   { id: 'e2e-dom', name: 'E2E DOM', matchers: [{ type: 'dom', dom: [{ sel: '#e2e-dom', text: 'E2E_DOM_MARKER' }] }] },
   { id: 'e2e-spa', name: 'E2E SPA', matchers: [{ type: 'word', part: 'body', words: ['E2E_SPA_MARKER'] }] },
@@ -270,8 +277,63 @@ function e2eDebugExpression(baseURL) {
         popup: stored[\`popup:\${tab.id}\`],
       })),
       queue: GoPainterPageHost.queueStats(),
+      wasm: { pending: Boolean(wasmReady), goMatch: typeof globalThis.goMatch },
+      network: tabs.map((tab) => ({ tabId: tab.id, response: responseCache.get(tab.id) || null })),
+      versions: tabs.map((tab) => ({
+        tabId: tab.id,
+        navigation: currentNavigationVersion(tab.id),
+        pageFeature: currentTabPageFeatureVersion(tab.id),
+      })),
     };
   })()`;
+}
+
+function runtimeEventDiagnostics(events) {
+  return events.filter((event) => ['Runtime.exceptionThrown', 'Runtime.consoleAPICalled', 'Log.entryAdded'].includes(event.method))
+    .slice(-20)
+    .map((event) => {
+      if (event.method === 'Runtime.exceptionThrown') {
+        const detail = event.params.exceptionDetails;
+        return { method: event.method, text: detail.exception?.description || detail.text || '' };
+      }
+      if (event.method === 'Runtime.consoleAPICalled') {
+        return {
+          method: event.method,
+          type: event.params.type,
+          text: event.params.args.map((arg) => String(arg.value ?? arg.description ?? '')).join(' '),
+        };
+      }
+      return { method: event.method, level: event.params.entry.level, text: event.params.entry.text };
+    });
+}
+
+async function diagnosticContentRoundTrip(browser, worker, tabId) {
+  return evaluate(browser, worker, `(async () => {
+    const injected = await chrome.scripting.executeScript({
+      target: { tabId: ${JSON.stringify(tabId)}, frameIds: [0] },
+      world: 'ISOLATED',
+      func: async () => {
+        const features = {
+          url: location.href,
+          title: document.title || '',
+          body: document.documentElement?.outerHTML.slice(0, 200000) || '',
+          favicon: document.querySelector('link[rel~="icon"]')?.href || '',
+          js: {},
+          domHits: {},
+        };
+        try {
+          const response = await Promise.race([
+            chrome.runtime.sendMessage({ type: 'pageFeatures', features }),
+            new Promise((resolve) => setTimeout(() => resolve({ diagnosticTimeout: true }), 5000)),
+          ]);
+          return { runtimeId: chrome.runtime.id, href: location.href, response };
+        } catch (error) {
+          return { runtimeId: chrome.runtime.id, href: location.href, error: String(error?.message || error) };
+        }
+      },
+    });
+    return injected[0]?.result || null;
+  })()`);
 }
 
 async function waitFor(browser, sessionId, predicate, label, timeout = 15_000) {
@@ -284,7 +346,22 @@ async function waitFor(browser, sessionId, predicate, label, timeout = 15_000) {
   throw new Error(`Timed out waiting for ${label}`);
 }
 
-async function runBrowserE2E(baseURL) {
+async function navigatePage(browser, sessionId, url, label) {
+  let lastError = '';
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const navigation = await browser.call('Page.navigate', { url }, sessionId);
+    if (!navigation.errorText) {
+      await waitFor(browser, sessionId, () => evaluate(browser, sessionId,
+        `document.readyState === 'complete' && location.href === ${JSON.stringify(url)}`), label);
+      return;
+    }
+    lastError = navigation.errorText;
+    await delay(150);
+  }
+  throw new Error(`${label} failed after 3 attempts: ${lastError || 'unknown navigation error'}`);
+}
+
+async function runBrowserE2E(baseURL, requestCounts) {
   const profile = await mkdtemp(join(tmpdir(), 'gopainter-browser-e2e-'));
   const port = 40_000 + Math.floor(Math.random() * 10_000);
   const child = spawn(chromePath, [
@@ -292,6 +369,7 @@ async function runBrowserE2E(baseURL) {
     `--user-data-dir=${profile}`,
     '--enable-unsafe-extension-debugging',
     '--host-resolver-rules=MAP bench.gopainter.test 127.0.0.1',
+    '--no-proxy-server',
     '--headless=new', '--no-first-run', '--no-default-browser-check', '--disable-background-networking',
     '--disable-dev-shm-usage', '--enable-logging=stderr', 'about:blank',
   ], { stdio: ['ignore', 'pipe', 'pipe'] });
@@ -326,6 +404,23 @@ async function runBrowserE2E(baseURL) {
       `chrome.storage.local.set({ rules: ${JSON.stringify(E2E_RULES)} })`);
     const seeded = await evaluate(browser, worker, 'chrome.storage.local.get("rules")');
     if (seeded?.rules?.length !== E2E_RULES.length) throw new Error('failed to seed E2E rules in extension storage');
+    let lastProbePlan = null;
+    try {
+      await waitFor(browser, worker, async () => {
+        lastProbePlan = await evaluate(browser, worker, `(async () => {
+          try {
+            const plan = await getProbeList();
+            return { ok: true, paths: plan.paths, probes: plan.probes };
+          } catch (error) {
+            return { ok: false, error: String(error?.message || error) };
+          }
+        })()`);
+        return lastProbePlan.ok && lastProbePlan.paths.includes('GoPainterE2E.version')
+          && lastProbePlan.probes.some((probe) => probe.sel === '#e2e-dom');
+      }, 'seeded E2E probe plan');
+    } catch (error) {
+      throw new Error(`${error.message}; last state: ${JSON.stringify(lastProbePlan)}`);
+    }
     await browser.call('Target.closeTarget', { targetId: warmup.targetId });
     // Open the test document through the extension's normal tabs API.
     const e2eTab = await evaluate(browser, worker, `chrome.tabs.create({ url: ${JSON.stringify(`${baseURL}/e2e`)} })`);
@@ -338,12 +433,20 @@ async function runBrowserE2E(baseURL) {
     }, 'E2E tab target');
     const page = await attachPage(browser, targets.page.targetId);
     await browser.call('Page.enable', {}, page.sessionId);
-    // Do one controlled navigation after the extension is fully initialized.
-    // chrome.tabs.create begins its first request before it resolves; a reload
-    // makes the main-frame webRequest observation deterministic on Chromium.
-    await waitFor(browser, page.sessionId, () => evaluate(browser, page.sessionId,
-      'document.readyState === "complete"'), 'initial E2E document load');
-    await browser.call('Page.reload', { ignoreCache: true }, page.sessionId);
+    await browser.call('Runtime.enable', {}, page.sessionId);
+    // chrome.tabs.create begins its first request before it resolves and may
+    // transiently land on Chrome's error document. Navigate to the fixture URL
+    // explicitly after the extension and probe plan are ready; Page.navigate
+    // also exposes network failures through errorText instead of hiding them.
+    const fixtureRequestsBefore = requestCounts.get('/e2e') || 0;
+    try {
+      await navigatePage(browser, page.sessionId, `${baseURL}/e2e`, 'controlled E2E navigation');
+    } catch (error) {
+      const received = (requestCounts.get('/e2e') || 0) - fixtureRequestsBefore;
+      throw new Error(`${error.message}; local fixture received ${received} controlled request(s)`);
+    }
+    const controlledRequests = (requestCounts.get('/e2e') || 0) - fixtureRequestsBefore;
+    if (controlledRequests < 1) throw new Error('controlled E2E navigation did not reach the local fixture');
     let lastInitialState = null;
     let state;
     try {
@@ -353,14 +456,31 @@ async function runBrowserE2E(baseURL) {
         return value?.result && value?.popup && E2E_INITIAL_IDS.every((id) => value.hitIds.includes(id)) ? value : null;
       }, 'initial page result');
     } catch (error) {
+      const pageState = await evaluate(browser, page.sessionId, `({
+        href: location.href,
+        title: document.title,
+        body: document.body?.innerText.slice(0, 1000) || '',
+      })`).catch((diagnosticError) => ({ error: String(diagnosticError.message || diagnosticError) }));
+      // Read the original extension state before the diagnostic round trip,
+      // which intentionally submits a minimal feature payload.
       const debug = await evaluate(browser, worker, e2eDebugExpression(baseURL)).catch(() => lastInitialState);
-      console.error(`E2E initial-result diagnostics: ${JSON.stringify(debug)}`);
+      const roundTrip = await diagnosticContentRoundTrip(browser, worker, e2eTab.id).catch((diagnosticError) => ({
+        error: String(diagnosticError.message || diagnosticError),
+      }));
+      console.error(`E2E initial-result diagnostics: ${JSON.stringify({
+        ...debug,
+        pageState,
+        diagnosticContentRoundTrip: roundTrip,
+        runtimeEvents: runtimeEventDiagnostics(browser.events),
+        chromeLog: chromeLogText.slice(-4000),
+      })}`);
       throw error;
     }
     const features = state.result.features;
-    if (features.js?.['GoPainterE2E.version'] !== '1.0.0' || !Object.keys(features.domHits || {}).length
+    if (!features.headers?.['set-cookie']?.includes('gopainter_e2e=COOKIE_MARKER')
+      || features.js?.['GoPainterE2E.version'] !== '1.0.0' || !Object.keys(features.domHits || {}).length
       || !(features.faviconHashes || []).length) {
-      throw new Error('feature collection did not retain JS, DOM, and favicon evidence');
+      throw new Error('feature collection did not retain cookie, JS, DOM, and favicon evidence');
     }
 
     await browser.call('Extensions.triggerAction', { id: extensionId, targetId: targets.tab.targetId });
@@ -404,6 +524,7 @@ async function runScenario(baseURL, scenario) {
     `--user-data-dir=${profile}`,
     '--enable-unsafe-extension-debugging',
     '--host-resolver-rules=MAP bench.gopainter.test 127.0.0.1',
+    '--no-proxy-server',
     '--headless=new', '--no-first-run', '--no-default-browser-check', '--disable-background-networking',
     '--disable-dev-shm-usage', '--enable-logging=stderr', '--v=1', 'about:blank',
   ], { stdio: ['ignore', 'pipe', 'pipe'] });
@@ -502,7 +623,7 @@ if (!existsSync(join(extensionPath, 'wasm', 'matcher.wasm'))) throw new Error('M
 const fixture = await listenFixture();
 try {
   if (process.argv.includes('--e2e')) {
-    await runBrowserE2E(fixture.baseURL);
+    await runBrowserE2E(fixture.baseURL, fixture.requestCounts);
     console.log('✅ Chromium browser E2E passed');
   } else {
     for (const scenario of scenarios) await runScenario(fixture.baseURL, scenario);

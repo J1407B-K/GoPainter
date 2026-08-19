@@ -51,10 +51,12 @@ test('large UI collections are filtered and compacted without returning the full
   assert.equal(snapshot.features.faviconHashes.length, 20);
   const agent = agentPageSnapshot({
     url: 'https://example.test', body: 'x'.repeat(200_000),
+    headers: { server: 'fixture', 'set-cookie': 'session=DO_NOT_EXPORT' },
     meta: Object.fromEntries(Array.from({ length: 200 }, (_, i) => [`m${i}`, 'x'.repeat(1000)])),
     js: Object.fromEntries(Array.from({ length: 200 }, (_, i) => [`j${i}`, 'x'.repeat(1000)])),
   }, 123);
   assert.equal(agent.body, undefined);
+  assert.deepEqual(agent.headers, { server: 'fixture' });
   assert.equal(Object.keys(agent.meta).length, 100);
   assert.equal(Object.keys(agent.js).length, 100);
   assert.equal(agent.meta.m0.length, 500);

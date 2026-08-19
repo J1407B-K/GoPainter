@@ -4,6 +4,7 @@
 
 importScripts(
   'shared-utils.js',
+  'background/storage-access.js',
   'wasm/wasm_exec.js',
   'lib/js-yaml.min.js',
   'agent/tools/registry.js',

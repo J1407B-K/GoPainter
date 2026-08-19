@@ -7,20 +7,21 @@ three kinds of evidence separate: browser E2E correctness, bounded resource beha
 and historical performance measurements. Each result states its workload and command;
 numbers from different sections should not be compared unless their workloads match.
 
-The latest measured baseline is v0.6.8. Older results remain available below for design
-history and regression context.
+The latest browser-correctness run is v0.6.10. The multi-tab resource measurements
+remain the v0.6.8 baseline because v0.6.10 does not change their workload or limits.
+Older results remain available below for design history and regression context.
 
-## Current measured baseline: v0.6.8
+## Current browser validation and resource baseline
 
-### 1. Browser E2E correctness
+### 1. Browser E2E correctness: v0.6.10
 
-v0.6.8 runs the real unpacked extension in Chromium.
+v0.6.10 runs the real unpacked extension in Chromium.
 Unlike the resource benchmark below, this is a deterministic correctness test: a local
-fixture supplies known title, meta, body, script, JavaScript-runtime, DOM, favicon, and
-SPA-route signals, then the test verifies the complete capture → match → session storage
-→ popup path.
+fixture supplies known title, meta, body, script, response-cookie, JavaScript-runtime,
+DOM, favicon, and SPA-route signals, then the test verifies the complete capture → match
+→ session storage → popup path.
 
-The release baseline passes with 6 initial matcher types, 2 favicon hashes, a replaced
+The release baseline passes with 7 initial fingerprint signals, 2 favicon hashes, a replaced
 SPA result (`e2e-spa`), and a rendered popup. It also proves that the SPA result no longer
 contains the old page hit. No real third-party repository is contacted: upstream network
 availability, rate limits, and mutable rule data would make CI nondeterministic. Third-party
@@ -29,10 +30,10 @@ rule-source download bounds and routing are covered by deterministic tests inste
 The machine-readable successful result is:
 
 ```json
-{"e2e":"passed","initialHits":6,"spaHit":"e2e-spa","faviconHashes":2,"popupRendered":true}
+{"e2e":"passed","initialHits":7,"spaHit":"e2e-spa","faviconHashes":2,"popupRendered":true}
 ```
 
-### 2. Multi-tab resource bounds
+### 2. Multi-tab resource bounds: v0.6.8
 
 v0.6.8 closes the multi-tab resource-hardening work with a real Chromium run, not
 just source-level queue assertions. The benchmark launches a fresh profile, loads
