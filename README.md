@@ -7,250 +7,242 @@
 ![Go WASM](https://img.shields.io/badge/Go-WASM-00ADD8?style=flat-square&logo=go&logoColor=white)
 ![Chrome Extension](https://img.shields.io/badge/Chrome-Extension-4285F4?style=flat-square&logo=googlechrome&logoColor=white)
 
-> **Project goal:** keep GoPainter small, fast, and auditable as it grows. New capabilities should preserve the Go Core / JavaScript Host boundary and improve real maintainability without fragmenting cohesive domain logic for metrics.
-
-**English** | [简体中文](./README_CN.md) · [Example rules](./rules/examples.yaml)
+**English** | [简体中文](./README_CN.md) · [Example rules](./rules/examples.yaml) · [Performance record](./BENCHMARK.md)
 
 **Browser-native web technology fingerprinting with live, explainable evidence.**
 
-GoPainter detects technologies directly from the browser using HTTP, HTML, DOM,
-JavaScript runtime, and favicon signals. It combines a deterministic **Go/WASM + Google RE2**
-engine with Wappalyzer, EHole, and nuclei rule sources, site crawling, and an AI Agent
-that can research, test, and validate new fingerprints.
+GoPainter identifies the technology behind the current page from HTTP, HTML, DOM,
+JavaScript runtime, and favicon signals. Matching is deterministic and runs locally in
+a **Go/WASM + Google RE2** core. Every hit shows the evidence that produced it; optional
+AI tools can research and propose fingerprints, but the Go core remains the final validator.
 
-GoPainter is built for inspectable results: every hit carries the concrete evidence that
-matched, and the Agent proposes rules while the Go Core remains the final validator.
+While you browse, the toolbar icon stays gray when nothing matches and becomes colored
+with a hit-count badge when fingerprints are found.
 
-While you browse, GoPainter fingerprints the current site automatically and surfaces hits in real time: the toolbar icon stays gray when nothing matches, and turns colored with a badge showing the hit count when it does.
+## Highlights
 
-## Why GoPainter?
-
-- **Deterministic matching** — Go/WASM + Google RE2 with bounded, browser-friendly performance
-- **Browser-native evidence** — HTTP, HTML, DOM, live JavaScript runtime, and favicon signals
-- **Existing rule ecosystems** — import and convert Wappalyzer, EHole, and nuclei sources
-- **Explainable results** — each hit includes the keyword, regex, status, or hash that matched
-- **Agent-assisted research** — inspect → search → test → validate, with auditable tool traces
-
-## Features
-
-- **YAML fingerprint rules** — word / regex / status / icon_hash / dsl / js / dom matchers, with `and`/`or` combinations and `negative` inversion
-- **Rule health inspection** — checks regex validity and structural prefilter opportunities, with short/long anchor rankings and actionable invalid/no-anchor details
-- **Composable rule sets** — keep imports separated, enable any combination for matching, and review a YAML diff before replacing a conflicting rule
-- **nuclei template compatibility** — imports automatically extract the HTTP matchers subset, so the large community template library is directly usable
-- **Third-party rule sources** — refresh Wappalyzer / EHole / nuclei-templates manually or on a daily/weekly schedule, with bounded downloads, atomic per-source rule-set replacement, update summaries, and one-version rollback; source data is fetched by the user and is never bundled or redistributed by GoPainter
-- **Performance-focused runtime** — Go WASM + Google RE2 matching, bounded page/UI data paths, and indexed Agent rule search
-- **Hit evidence** — each fingerprint carries the specific keyword, regex, status code, or hash that matched
-- **Icon state indicator** — gray = no match, colored + badge = N matches
-- **Agent-assisted fingerprint research** — a bounded, streaming tool loop researches the current tab or a rule, shows its auditable tool trace, and returns an evidence-based task report
-- **Scan history & reports** — choose a 50–5,000 entry rolling window and export it as JSON/CSV
+- **Explainable detection** — inspect the exact keyword, regex, status code, runtime value, DOM selector, or favicon hash behind each hit.
+- **Deterministic rule engine** — seven matcher types, `and`/`or`, negative conditions, confidence propagation, and Google RE2 semantics.
+- **Composable rule sets** — keep sources separate, enable any combination, and resolve same-ID conflicts with a YAML diff.
+- **Third-party rule sources** — user-initiated Wappalyzer, EHole, and nuclei-templates updates with bounded downloads, summaries, and one-version rollback.
+- **Rule tooling** — import native YAML or a supported nuclei HTTP subset; inspect invalid regexes and structural prefilter opportunities.
+- **Browser workflows** — automatic current-tab scans, site crawling, bookmark organization, scan history, and JSON/CSV reports.
+- **Auditable AI Agent** — bounded inspect → search → test → validate workflows with visible tool traces and explicit permission gates.
 
 ## Current release: v0.6.9
 
-v0.6.9 adds user-initiated third-party rule-source updates for Wappalyzer, EHole, and nuclei-templates: bounded streaming downloads, separate source rule sets, optional daily/weekly checks (off by default), change summaries, and one-version rollback. Third-party rule data is fetched by the user and remains unbundled and undistributed by GoPainter. See the resource measurements and previous versions in the [performance record](BENCHMARK.md).
+v0.6.9 adds user-initiated updates for the three third-party rule sources. Each source
+gets its own rule set, bounded streaming download, atomic replacement, update summary,
+optional daily/weekly check (off by default), and one rollback version. GoPainter does
+not bundle, mirror, or redistribute the third-party rule data.
+
+See [BENCHMARK.md](./BENCHMARK.md) for the Chromium resource measurements, browser E2E
+baseline, and historical performance notes.
 
 ## Quick start
 
-### 1. Install Go
+### 1. Build
 
-Building only needs the standard Go toolchain (`make build` compiles the production Go WASM + RE2 engine).
+Install the standard [Go toolchain](https://go.dev/dl/), then run:
 
-- macOS: `brew install go`
-- Windows / Linux: see the [Go download page](https://go.dev/dl/)
-
-### 2. Build the WASM engine
-
-**macOS / Linux**
 ```bash
-make build        # produces extension/wasm/matcher.wasm + wasm_exec.js
-make icons        # regenerate icons (optional; the repo ships them)
+make build
 ```
 
-`make build` is the only supported production build: standard Go WASM with embedded Google RE2. The Makefile still contains legacy experimental targets for TinyGo and the standard-library regex backend, but they are not maintained or supported release targets.
+This produces `extension/wasm/matcher.wasm` and `extension/wasm/wasm_exec.js`. The only
+supported production target is standard Go WASM with embedded Google RE2; the TinyGo and
+standard-library-regexp targets in the Makefile are legacy experiments.
 
-**Windows (PowerShell)**
+On Windows, use PowerShell:
+
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/build.ps1
 ```
 
-### 3. Install into Chrome
+### 2. Load the extension
 
-1. Open `chrome://extensions`
-2. Enable **Developer mode** (top right)
-3. Click **Load unpacked**
-4. Select this repo's **`extension/`** directory
+1. Open `chrome://extensions`.
+2. Enable **Developer mode**.
+3. Click **Load unpacked**.
+4. Select this repository's `extension/` directory.
 
-> Edge and Brave (Chromium-based) work the same way (`edge://extensions`).
+Edge and Brave use the same unpacked-extension flow from their extensions pages.
 
-### 4. Import rules & use
+### 3. Detect a site
 
-1. Click the GoPainter toolbar icon → "Rules" → import `rules/examples.yaml` (or any nuclei template)
-2. Visit a site — the icon turns colored on a match; click it to inspect details and evidence
-3. Click **Agent** to identify the current tab, research a fingerprint, or prepare an optimization suggestion. Automatic read-only tools may run concurrently up to five; permission-gated tools remain serialized and ask before use. `fetch_url` accepts HTTPS only, and a remembered grant is scoped to the approved origin. The visible trace streams as work completes, and no rule is written automatically.
+1. Open the GoPainter popup and go to **Rules**.
+2. Import [`rules/examples.yaml`](./rules/examples.yaml), another native rule file, or a supported nuclei template.
+3. Visit a page and open the popup to inspect its hits and evidence.
 
-### 5. Crawl a site (Side Panel)
+Use **Agent** to identify the current tab, research a fingerprint, or prepare a rule
+optimization. The Agent never writes a rule automatically; you review and import the
+validated result.
 
-1. Click the GoPainter toolbar icon → "Crawl this site", confirm the seed URL and max page count
-2. A crawl **Side Panel** slides out alongside the page, showing scanned count / queue / failures in real time, plus matched fingerprints per page
-3. While a crawl is running the toolbar button is disabled; clicking it again returns to the panel
-4. Crawling can also be started from any URL under Settings → "Site crawl"
+### Crawl a site
 
-> The side panel requires the `chrome.sidePanel` API (Chrome 126+). Older browsers won't auto-open it, but progress remains visible in the settings page.
+Choose **Crawl this site** from the popup, confirm the seed URL and optional page limit,
+then follow progress in the Side Panel. Crawls stay on the same site, deduplicate URLs,
+and show the queue, failures, and per-page hits. They can also be started from
+**Settings → Site crawl**.
 
-## Rule format
+The automatic Side Panel opening requires Chrome 126+. On older Chromium builds, crawl
+progress remains available in Settings.
 
-See [`rules/examples.yaml`](rules/examples.yaml). Supported matcher types:
+## Rule model
 
-| type | description | fields |
+See [`rules/examples.yaml`](./rules/examples.yaml) for complete examples.
+
+| Type | Matches | Payload field |
 |---|---|---|
-| `word` | plain-text containment | `words` |
-| `regex` | regular expression match | `regex` |
+| `word` | Plain-text containment | `words` |
+| `regex` | Google RE2 regular expression | `regex` |
 | `status` | HTTP status code | `status` |
-| `icon_hash` | favicon mmh3 hash (fofa standard) | `hash` |
-| `dsl` | expression evaluation (nuclei dsl subset) | `dsl` |
-| `js` | page runtime globals (MAIN world probe) | `js: [{path, pattern?}]` |
-| `dom` | CSS selector with optional text/attribute constraints | `dom: [{sel, text?, attrs?}]` |
+| `icon_hash` | Favicon mmh3 hash (FOFA format) | `hash` |
+| `dsl` | Supported nuclei-style expression subset | `dsl` |
+| `js` | Page runtime global with an optional pattern | `js: [{path, pattern?}]` |
+| `dom` | CSS selector with optional text/attribute patterns | `dom: [{sel, text?, attrs?}]` |
 
-Rules also support `implies: ["other technology"]` — on a hit, the listed technologies are derived automatically (e.g. Next.js → React), each derived hit carrying a "derived from X" evidence.
+Rule composition:
 
-The dsl subset supports the identifiers `body` / `title` / `url` / `header` / `raw` / `meta` / `script` / `status` / `favicon_hash`,
-the functions `contains(a, "substr")` / `matches(a, "regex")`, operators `&&` `||` `!` `==` `!=`, and parentheses.
+- `part`: `body`, `title`, `url`, `header`, `raw`, `meta`, or `script`; defaults to `body`.
+- `condition`: combines entries inside one matcher with `and` or `or`; defaults to `or`.
+- `matchers-condition`: combines multiple matchers in one rule.
+- `negative: true`: inverts a valid matcher result; an invalid condition is never turned into a hit.
+- `implies`: derives related technologies and records “derived from X” evidence.
+- `confidence: 0-100`: optional signal strength on a matcher or rule; an unannotated hit remains `null`, not an invented 100.
+
+For confidence aggregation, `or` takes the strongest matched signal and `and` takes the
+weakest. A rule-level value scales the matcher result, and an `implies` hit inherits its
+source confidence. Wappalyzer `\;confidence:N` suffixes are converted during import.
+
+The DSL subset supports:
+
+- Identifiers: `body`, `title`, `url`, `header`, `raw`, `meta`, `script`, `status`, `favicon_hash`
+- Functions: `contains(a, "text")`, `matches(a, "regex")`
+- Operators: `&&`, `||`, `!`, `==`, `!=`, and parentheses
+
 Example: `contains(body, "wp-content") && status == 200`
-
-- `part`: `body` / `title` / `url` / `header` / `raw` / `meta` / `script` (default `body`)
-- `condition`: combines conditions within a matcher, `and` / `or` (default `or`)
-- `matchers-condition`: combines multiple matchers within a rule
-- `negative: true`: inverts the match
-- `confidence: 0-100`: optional, on a matcher or a rule, expressing signal strength — strong signals (meta generator, proprietary paths) get high values,
-  weak signals (e.g. "page declares a manifest" is only a PWA candidate) get low ones; when unset the output is `confidence: null`, never fabricated as 100.
-  Aggregation: `or` takes the max confidence among matched matchers, `and` takes the min (the weakest link); a rule-level `confidence` acts as a scale factor;
-  derived (`implies`) hits inherit the source's confidence. `\;confidence:N` suffixes from the Wappalyzer source are converted on import,
-  and patterns of the same field with different confidences are split into separate matchers so a low-confidence miss doesn't drag down a high-confidence hit.
-  With "Confidence" enabled in settings, the popup shows a badge for every hit: numeric confidences as percentages, unannotated hits as `null`;
-  sorting and threshold filtering only apply to numeric confidences (off by default).
 
 ## Third-party rule sources
 
-The settings page offers three fixed community sources. Refreshes use bounded streaming downloads and strict host allowlists, convert into a separate rule set per source, atomically replace the previous set, and retain one rollback version in IndexedDB. Optional daily or weekly checks are off by default and use Chrome alarms only after the user enables them; arbitrary source URLs are intentionally unsupported.
+GoPainter offers three fixed community sources in Settings. Nothing is fetched until the
+user clicks **Refresh now** or explicitly enables daily/weekly checks.
 
-| source | size | description |
-|---|---|---|
-| [enthec/webappanalyzer](https://github.com/enthec/webappanalyzer) | several thousand | community-maintained Wappalyzer, web technology fingerprints |
-| [EdgeSecurityTeam/EHole](https://github.com/EdgeSecurityTeam/EHole) | 958 | EHole fingerprints, strong domestic-system coverage |
-| [projectdiscovery/nuclei-templates](https://github.com/projectdiscovery/nuclei-templates) | hundreds | http/technologies recognition templates |
+| Source | Approximate size | Purpose |
+|---|---:|---|
+| [enthec/webappanalyzer](https://github.com/enthec/webappanalyzer) | Several thousand | Community-maintained Wappalyzer web fingerprints |
+| [EdgeSecurityTeam/EHole](https://github.com/EdgeSecurityTeam/EHole) | About 958 | EHole fingerprints with strong Chinese-product coverage |
+| [projectdiscovery/nuclei-templates](https://github.com/projectdiscovery/nuclei-templates) | Hundreds | `http/technologies` recognition templates |
 
-Thanks to these communities for their long-term maintenance. The conversion logic lives in `wasm/engine/convert.go` and runs client-side at fetch time. A `304 Not Modified` response or unchanged content hash avoids rewriting the rule set.
+The extension downloads only from fixed HTTPS hosts, follows validated redirects, omits
+credentials, and enforces a 3 MB per-file / 30 MB per-update byte budget, four download
+workers, and a 25,000-rule result limit. A source is converted locally, validated, and
+atomically replaced in its own rule set. ETag, Last-Modified, and content hashes avoid
+unnecessary rewrites; one previous version is kept locally in IndexedDB for rollback.
+Arbitrary source URLs are intentionally unsupported.
 
-**Disclaimer**: this project is a format-conversion tool only; it bundles and distributes no third-party rule data. The content, licensing, and compliance of third-party sources are the responsibility of their maintainers; your pulling and use of them is likewise your own responsibility. Please respect each source's license and applicable law, and use this only for authorized security testing and research.
+The conversion code lives in `wasm/engine/convert.go`. GoPainter is a format-conversion
+tool and does **not** bundle or redistribute these libraries. Their content, licenses, and
+compliance remain the responsibility of their maintainers and users. Respect each source's
+license and applicable law, and use the data only for authorized testing and research.
 
-## AI / Agent configuration
+The built-in favicon hash database is a separate generated dataset derived from
+[BishopFox/Favicons](https://github.com/BishopFox/Favicons); its attribution and source are
+kept in `data/favicon-hashes.json`.
 
-Choose the OpenAI-compatible or Anthropic protocol in Settings, then fill in your endpoint and model. Use **Test Agent tools** before the first run.
+## AI and Agent
 
-| service | Base URL | example model |
+AI features are optional. In Settings, choose an OpenAI-compatible or Anthropic protocol,
+enter the endpoint and model, then run **Test Agent tools** before the first task.
+
+| Service | Base URL | Example model |
 |---|---|---|
 | OpenAI | `https://api.openai.com/v1` | `gpt-4o-mini` |
 | DeepSeek | `https://api.deepseek.com/v1` | `deepseek-chat` |
 | Qwen | `https://dashscope.aliyuncs.com/compatible-mode/v1` | `qwen-plus` |
 | Ollama (local) | `http://localhost:11434/v1` | `qwen2.5` |
 
-## AI & security notes
+Automatic read-only Agent tools may run concurrently, up to five at a time. Permission-
+gated network tools remain serialized and pause for approval. `fetch_url` accepts HTTPS
+only, applies bounded reads and private/local-address guards, and scopes remembered grants
+to the approved origin. External results are untrusted references, never instructions.
 
-- GoPainter never embeds, stores on a server, or uploads your API key. Keys live only in the extension's local storage and the extension requests your Base URL directly.
-- When using a cloud LLM, page features are sent to the model service you configure. Agent workflows start with a compact overview and send HTML snippets only when the page-body search tool is used; the direct AI identification/rule helpers may send a truncated HTML snippet. Do not enable AI on sensitive sites unless these can be shared with that provider.
-- AI-assisted identification, AI-generated rules, and AI bookmark fallback can be wrong or hallucinated. Review before promoting AI-generated rules into your long-term rule set. The project is not responsible for AI output accuracy, compliance, or external service costs.
-- Agent tool calls are limited to the selected task. Automatic read-only calls may run concurrently up to five; permission-gated network calls remain serialized and pause for approval. External results are untrusted reference material, not instructions.
-- Runtime and DOM signals come from the scanned page and are therefore untrusted evidence, not an authenticity assertion. Favicon downloads are bounded by URL count and response bytes.
+## Security and privacy boundaries
 
-## Commands
+- **No GoPainter server** — API keys stay in extension-local storage and requests go directly to the endpoint you configure.
+- **Model disclosure is explicit** — cloud AI receives page features; Agent starts with a compact overview and sends HTML snippets only when needed, while direct AI helpers may send truncated HTML. Do not use AI on sensitive pages unless that disclosure is acceptable.
+- **Page evidence is untrusted** — DOM and runtime values originate from the scanned page. A match is evidence that a signal existed, not proof that a technology is authentic.
+- **Browser resources are bounded** — page snapshots, UI lists, scan queues, favicon URL counts, concurrent downloads, response bytes, redirects, and history windows all have limits.
+- **AI output requires review** — identification, generated rules, and bookmark fallback can be wrong. The deterministic Go core validates structure and semantics, not real-world truth.
 
-| command | description |
+## Development and verification
+
+| Command | Purpose |
 |---|---|
 | `make build` | Build the production Go WASM + embedded RE2 engine |
-| `make test` | Run Go and JS unit tests, then the WASM smoke test |
-| `make test-go` | Run only the Go unit tests (js/wasm target, executed via node; no build required) |
-| `make test-js` | Run only the Node unit tests for shared extension logic |
-| `make test-browser-e2e` | Run the small Chromium content-collection, match, session, popup, and SPA end-to-end test |
-| `make bench-js` | Benchmark popup, collection, serialization, and Agent rule-search paths |
-| `make bench-chromium` | Run the 30/50-tab Chromium resource benchmark (requires a local Chrome build) |
+| `make test` | Run Go/WASM and JavaScript tests, then the WASM smoke test |
+| `make test-go` | Run Go tests through the js/wasm target |
+| `make test-js` | Run Node tests and JavaScript syntax checks |
+| `make test-browser-e2e` | Verify Chromium capture → match → session → popup and SPA replacement |
+| `make bench-js` | Benchmark UI, collection, serialization, and Agent rule-search paths |
+| `make bench-chromium` | Run the 30/50-tab Chromium resource benchmark |
 | `make icons` | Regenerate extension icons |
-| `make clean` | Remove `extension/wasm/matcher.wasm` and `wasm_exec.js` |
-| `node scripts/generate-icons.mjs` | Run the icon generator directly |
-| `node scripts/generate-hashdb.mjs` | Generate `wasm/engine/hashdb.go` from `data/favicon-hashes.json` |
-| `node scripts/smoke-test.mjs` | Run the WASM smoke test directly |
-| `powershell -ExecutionPolicy Bypass -File scripts/build.ps1` | Build WASM on Windows |
+| `make clean` | Remove generated WASM artifacts |
+
+Browser E2E and Chromium benchmarks require a local Chrome/Chromium build. Additional
+generators and direct script entry points live under `scripts/` and are documented in the
+Makefile.
 
 <details>
 <summary><strong>Architecture and repository layout</strong></summary>
 
-## Architecture
+### Architecture
 
-```
-GoPainter Host / Runtime (JS)            GoPainter Core / Authority (Go WASM)
-all external I/O and lifecycle           deterministic product semantics, zero I/O
-──────────────────────────────           ────────────────────────────────────────
-content.js   collects DOM / raw HTML ─┐
-background   collects headers/status   │     goMatch            rule matching + evidence
-  .js        favicon download        ─┼─→  goMmh3            favicon hash (fofa standard)
-             AI / Agent API calls     │     goExtractFeatures HTML → title/meta/scripts
-             icon state switching     │     goNormalizeRules  YAML docs → native rules
-             permission / lifecycle   │     goValidateCandidate strict Agent artifact validation
-                                      │     goPlanRequiredProbes Rule → JS/DOM feature plan
-options      YAML parsing (js-yaml)  ─┘    ←  everything in JSON, out JSON
-popup        results & evidence / Agent task runner
-sidepanel    crawl progress / start-stop (Side Panel, alongside the page)
+```text
+JavaScript Host / Runtime                 Go WASM Core / Authority
+browser, network, storage, lifecycle      deterministic semantics, zero I/O
+────────────────────────────────────      ─────────────────────────────
+content.js ─ page/DOM collection ────┐
+background ─ headers, icons, AI ─────┼──→ matching, evidence, mmh3
+options ─ YAML parsing and settings ─┘    normalization, validation,
+popup / sidepanel ─ interaction           probe planning, crawl scheduling
 ```
 
-Core boundary: **the WASM does pure computation only** (JSON in, JSON out; no network, YAML, or DOM).
-Rule semantics—including strict Agent candidate validation and required-probe planning—live in Go; JS owns browser/model I/O, permissions, and lifecycle.
+The boundary is deliberate: browser/model/user/storage/network concerns belong in the
+JavaScript Host; rule grammar, matcher semantics, normalization, strict candidate
+validation, probe planning, and other deterministic product rules belong in Go.
 
-> **Architecture invariant — do not blur this boundary.** Before adding logic, ask what it represents: deterministic GoPainter domain semantics belong in Go; interaction with browsers, models, users, storage, or networks belongs in JS. Never duplicate rule grammar, matcher semantics, normalization, probe planning, or probe-ID algorithms in the JS Host. Do not move the Agent loop, permissions, providers, Chrome APIs, DOM collection, or network I/O into WASM merely to increase the amount of Go code.
+Do not duplicate core semantics in JavaScript, and do not move Chrome APIs, DOM access,
+network I/O, provider code, permissions, or the Agent loop into WASM merely to increase
+the amount of Go code.
 
-## Directory layout
+### Repository layout
 
-```
-├── wasm/                     # WASM entry package (thin JS bridge)
-│   ├── main.go               #   register JS exports
-│   ├── bridge.go             #   JSON in/out for matching/conversion/hash/dsl
-│   ├── crawl_bridge.go       #   JSON in/out for crawler APIs
-│   └── engine/               #   pure Go logic package
-│       ├── matcher.go        #   matching engine (core)
-│       ├── candidate.go      #   strict Agent candidate validation + runtime coverage
-│       ├── probes.go         #   required JS/DOM probe planning and stable probe IDs
-│       ├── mmh3.go           #   favicon hashing
-│       ├── extract.go        #   HTML feature extraction (title/meta/scripts/favicons/links)
-│       ├── normalize.go      #   rule normalization (nuclei conversion)
-│       ├── dsl.go            #   dsl expression evaluator
-│       ├── convert.go        #   Wappalyzer/EHole fingerprint conversion
-│       ├── health.go         #   regex validity, prefilter potential and anchor quality
-│       ├── crawl.go          #   crawler scheduling (BFS/dedup/same-site/max pages)
-│       └── hashdb.go         #   favicon hash database (generated)
-├── extension/                # Chrome extension (MV3)
-│   ├── manifest.json
-│   ├── background.js         # thin service-worker composition root and message router
-│   ├── agent/                # bounded agent loop, tools and skills
-│   ├── background/           # Host modules: page/rules/history/crawl/bookmarks/AI/Agent
-│   ├── content.js            # page feature collection
-│   ├── popup.*               # results & evidence / AI identification / AI rule generation
-│   ├── options.*             # rule import / AI config / prompts / bookmark organization
-│   ├── sidepanel.*           # crawl progress / start-stop (Side Panel)
-│   ├── icons/                # colored & gray icon sets (script-generated)
-│   └── lib/                  # js-yaml (the only third-party JS)
-├── scripts/
-│   ├── generate-icons.mjs    # icon generator (pure Node, zero deps)
-│   ├── generate-hashdb.mjs   # favicon hash DB generator (data/ → wasm/engine/hashdb.go)
-│   ├── smoke-test.mjs        # wasm smoke test
-│   └── build.ps1             # Windows build script
-├── data/favicon-hashes.json  # hash DB source data (BishopFox/Favicons)
-├── rules/examples.yaml       # example rules
-└── Makefile                  # macOS/Linux build
+```text
+├── wasm/
+│   ├── main.go, bridge.go       # thin JSON bridge exposed to JavaScript
+│   └── engine/                  # pure Go matching, conversion and validation
+├── extension/
+│   ├── background.js            # MV3 composition root and message router
+│   ├── background/              # page, rule, source, crawl, history and AI hosts
+│   ├── agent/                   # bounded Agent loop, tools and skills
+│   ├── content.js               # page feature collection
+│   ├── popup.*, options.*       # results, rules and settings
+│   └── sidepanel.*              # crawl progress and controls
+├── scripts/                     # build, generation, benchmark and smoke scripts
+├── data/favicon-hashes.json     # favicon database source
+├── rules/examples.yaml          # example native rules
+└── Makefile
 ```
 
 </details>
 
 ## Project status
 
-The core browser workflow is implemented: automatic matching, evidence, composable rule sets and imports, third-party rule-source updates and rollback, Agent research and importable rule generation, crawling, history/report export, and bookmark organization. Browser E2E coverage now protects the complete capture → match → storage → popup path in CI; the next work should return to recognition quality and carefully scoped rule improvements.
+The core browser workflow is implemented and covered by unit, smoke, and browser E2E
+tests. The next priority is recognition quality: carefully scoped rule improvements and
+evidence-backed coverage work, not further expansion of the resource-management layer.
 
 ## License
 
-[MIT](LICENSE)
+[MIT](./LICENSE)

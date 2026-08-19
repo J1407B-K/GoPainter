@@ -1,4 +1,4 @@
-# GoPainter 🎨
+# GoPainter
 
 [![CI](https://img.shields.io/github/actions/workflow/status/J1407B-K/GoPainter/ci.yml?branch=master&style=flat-square&label=CI)](https://github.com/J1407B-K/GoPainter/actions/workflows/ci.yml)
 [![CodeFactor](https://www.codefactor.io/repository/github/j1407b-k/gopainter/badge)](https://www.codefactor.io/repository/github/j1407b-k/gopainter)
@@ -7,145 +7,142 @@
 ![Go WASM](https://img.shields.io/badge/Go-WASM-00ADD8?style=flat-square&logo=go&logoColor=white)
 ![Chrome Extension](https://img.shields.io/badge/Chrome-Extension-4285F4?style=flat-square&logo=googlechrome&logoColor=white)
 
-> **项目目标：**在持续增加能力的同时保持小而美、快速且可审计。新增实现应守住 Go Core / JavaScript Host 边界，解决真实维护问题，不为指标拆碎内聚的领域语义。
-
-[English](./README.md) | **简体中文** · [示例规则](./rules/examples.yaml)
+[English](./README.md) | **简体中文** · [示例规则](./rules/examples.yaml) · [性能记录](./BENCHMARK_CN.md)
 
 **浏览器原生的 Web 技术指纹识别，提供实时且可解释的证据。**
 
-GoPainter 直接从浏览器中的 HTTP、HTML、DOM、JavaScript 运行时和 favicon
-特征识别技术栈。它结合确定性的 **Go/WASM + Google RE2** 引擎、Wappalyzer/EHole/nuclei
-规则源、站点爬取，以及能够研究、测试和验证新指纹规则的 AI Agent。
+GoPainter 从 HTTP、HTML、DOM、JavaScript 运行时和 favicon 信号识别当前页面使用的
+技术。确定性匹配在本地的 **Go/WASM + Google RE2** Core 中完成，每个命中都会展示
+实际证据。可选的 AI 工具可以研究并提出指纹规则，但最终仍由 Go Core 校验。
 
-GoPainter 强调可审计结果：每个命中都附带实际匹配的证据，Agent 可以提出规则，
-但最终规则始终由 Go Core 验证。
+浏览网页时，未命中则工具栏图标保持灰色；发现指纹后，图标变为彩色并显示命中数量。
 
-浏览网页时自动对当前站点做指纹识别，命中结果实时展示——工具栏图标**灰色 = 未命中，彩色 + 数字角标 = 命中 N 个指纹**。
+## 核心能力
 
-## 为什么是 GoPainter？
-
-- ⚡ **确定性匹配**：Go/WASM + Google RE2，性能边界清晰且适合浏览器
-- 🌐 **浏览器原生证据**：HTTP、HTML、DOM、JavaScript 运行时和 favicon
-- 🧩 **兼容现有生态**：可导入并转换 Wappalyzer、EHole 和 nuclei 规则源
-- 🔍 **可解释结果**：每个命中都展示实际匹配的关键词、正则、状态码或哈希
-- 🤖 **Agent 辅助研究**：检查 → 搜索 → 测试 → 验证，全程保留可审计记录
-
-## 特性
-
-- 🧩 **YAML 指纹规则**：word / regex / status / icon_hash / dsl / js / dom 七种 matcher，支持 and/or 组合与 negative 取反
-- 🩺 **规则体检**：检查 regex 有效性和结构上的预筛机会，提供长/短锚点榜及可定位的无效/无锚点明细
-- 🗂️ **规则集组合启用**：不同来源分集管理，可批量启用任意多个规则集；同 ID 规则覆盖前展示 YAML diff 并由用户选择
-- 🔁 **兼容 nuclei 模板**：导入时自动提取 http matchers 子集，社区海量规则可直接使用
-- 🌐 **第三方规则源**：Wappalyzer / EHole / nuclei-templates 支持手动或每日/每周更新，下载有界、按来源原子替换独立规则集，并提供更新摘要和单版本回滚；规则数据由用户主动拉取，GoPainter 不内置、不再分发
-- ⚡ **性能导向的运行时**：Go WASM + Google RE2 匹配、受限的页面/UI 数据路径，以及索引化的 Agent 规则搜索
-- 🔍 **命中证据展示**：每个指纹附带具体命中的关键词/正则/状态码/哈希
-- 🎨 **图标状态感知**：灰色 = 未命中，彩色 + 角标数字 = 命中数
-- 🤖 **Agent 指纹研究**：受限的流式工具循环可识别当前标签页、研究指纹或给出规则优化建议；执行记录可审计，最终交付基于证据的任务报告
-- 🕘 **扫描历史与报告**：自定义 50–5,000 条滚动窗口，可导出 JSON/CSV 报告
+- **可解释识别**：查看每个命中对应的关键词、正则、状态码、运行时值、DOM 选择器或 favicon 哈希。
+- **确定性规则引擎**：七种 matcher、`and`/`or`、negative、置信度传播和 Google RE2 语义。
+- **规则集组合**：不同来源分集管理，可任意组合启用；同 ID 冲突通过 YAML diff 明确选择。
+- **第三方规则源**：由用户主动更新 Wappalyzer、EHole 和 nuclei-templates；下载有界，提供变化摘要和单版本回滚。
+- **规则工具**：导入原生 YAML 或支持的 nuclei HTTP 子集，检查无效正则和结构上的预筛机会。
+- **浏览器工作流**：当前标签自动识别、站点爬取、书签整理、扫描历史及 JSON/CSV 报告。
+- **可审计 AI Agent**：受限的“检查 → 搜索 → 测试 → 验证”流程，展示工具记录，并对敏感操作明确授权。
 
 ## 当前版本：v0.6.9
 
-v0.6.9 为 Wappalyzer、EHole 和 nuclei-templates 增加由用户主动触发的第三方规则源更新：有界流式下载、按来源独立规则集、默认关闭的每日/每周检查、变化摘要和单版本回滚。第三方规则数据仍由用户自行拉取，GoPainter 不内置、不分发。资源测量及各历史版本见[性能记录](BENCHMARK_CN.md)。
+v0.6.9 为三个第三方规则源增加由用户主动触发的更新。每个来源使用独立规则集，具备有界
+流式下载、原子替换、变化摘要、默认关闭的每日/每周检查，以及一个可回滚版本。GoPainter
+不内置、不镜像，也不再分发第三方完整规则数据。
+
+Chromium 资源测量、浏览器 E2E 基线和历史性能记录见 [BENCHMARK_CN.md](./BENCHMARK_CN.md)。
 
 ## 快速开始
 
-### 1. 安装 Go
+### 1. 构建
 
-构建只需标准 Go 工具链（`make build` 默认构建生产 Go WASM + RE2 引擎）。
+安装标准 [Go 工具链](https://go.dev/dl/) 后运行：
 
-- macOS：`brew install go`
-- Windows / Linux：见 [Go 官方下载页](https://go.dev/dl/)
-
-### 2. 构建 WASM 引擎
-
-**macOS / Linux**
 ```bash
-make build        # 产出 extension/wasm/matcher.wasm + wasm_exec.js
-make icons        # 如需重新生成图标（可选，仓库已内置）
+make build
 ```
 
-`make build` 是唯一受支持的生产构建：标准 Go WASM + 内嵌 Google RE2。Makefile 中仍保留 TinyGo 和标准库 regex 的遗留实验 target，但它们不再维护，也不作为受支持的发布目标。
+命令会生成 `extension/wasm/matcher.wasm` 和 `extension/wasm/wasm_exec.js`。唯一受支持
+的生产目标是标准 Go WASM + 内嵌 Google RE2；Makefile 中的 TinyGo 和标准库 regexp
+目标只是遗留实验入口。
 
-**Windows（PowerShell）**
+Windows 使用 PowerShell：
+
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/build.ps1
 ```
 
-### 3. 安装到 Chrome
+### 2. 加载扩展
 
-1. 打开 `chrome://extensions`
-2. 打开右上角「**开发者模式**」（Developer mode）
-3. 点击「**加载已解压的扩展程序**」（Load unpacked）
-4. 选择本项目的 **`extension/`** 目录
+1. 打开 `chrome://extensions`。
+2. 开启右上角的**开发者模式**。
+3. 点击**加载已解压的扩展程序**。
+4. 选择本仓库的 `extension/` 目录。
 
-> Edge / Brave 等 Chromium 浏览器同样适用（`edge://extensions`）。
+Edge 和 Brave 也可以在各自的扩展页面使用相同方式加载。
 
-### 4. 导入规则 & 使用
+### 3. 识别网站
 
-1. 点击工具栏 GoPainter 图标 → 「⚙️ 规则」→ 导入 `rules/examples.yaml`（或任意 nuclei 模板）
-2. 访问网站，图标变彩色即表示命中，点击图标查看详情与证据
-3. 点击「🤖 Agent」可识别当前标签页、研究指纹或准备规则优化建议。自动只读工具最多 5 路并发；需要授权的工具仍串行执行并在调用前确认。`fetch_url` 只接受 HTTPS，会话记忆也只对已批准的 origin 生效。执行记录会实时展示，且不会自动写入规则。
+1. 打开 GoPainter 弹窗并进入**规则**。
+2. 导入 [`rules/examples.yaml`](./rules/examples.yaml)、其他原生规则文件或支持的 nuclei 模板。
+3. 访问页面，再打开弹窗查看命中结果与证据。
 
-### 5. 爬取站点（Side Panel）
+使用 **Agent** 可以识别当前标签页、研究指纹或准备规则优化建议。Agent 不会自动写入
+规则；你需要检查并导入经过校验的结果。
 
-1. 点击工具栏 GoPainter 图标 → 「🕷 爬取本站」，确认起始 URL 与最大页数后启动
-2. 右侧自动滑出**爬取侧边栏**（Side Panel），与页面并存，实时显示已扫页数 / 队列 / 失败数，以及每个页面的命中指纹
-3. 爬取中工具栏的「爬取本站」会置灰，再次点击直接回到侧栏查看进度
-4. 也可以在设置页「🕷 站点爬取」从任意 URL 发起爬取
+### 爬取站点
 
-> 侧栏依赖 Chrome 126+ 的 `chrome.sidePanel` API；早版本浏览器不会自动弹侧栏，但仍可在设置页查看进度。
+在弹窗选择**爬取本站**，确认起始 URL 和可选页数上限，然后在 Side Panel 查看进度。
+爬取只访问同站页面，自动去重，并实时展示队列、失败数和每页命中。也可以从
+**设置 → 站点爬取**发起任务。
 
-## 规则格式
+自动打开 Side Panel 需要 Chrome 126+；旧版 Chromium 仍可在设置页查看爬取进度。
 
-见 [`rules/examples.yaml`](rules/examples.yaml)。支持七种 matcher：
+## 规则模型
 
-| type | 说明 | 条件字段 |
+完整示例见 [`rules/examples.yaml`](./rules/examples.yaml)。
+
+| 类型 | 匹配内容 | 载荷字段 |
 |---|---|---|
 | `word` | 文本包含 | `words` |
-| `regex` | 正则匹配 | `regex` |
+| `regex` | Google RE2 正则 | `regex` |
 | `status` | HTTP 状态码 | `status` |
-| `icon_hash` | favicon mmh3 哈希（fofa 标准） | `hash` |
-| `dsl` | 表达式求值（nuclei dsl 子集） | `dsl` |
-| `js` | 页面运行时全局变量（MAIN world 探测） | `js: [{path, pattern?}]` |
-| `dom` | CSS 选择器及可选文本/属性约束 | `dom: [{sel, text?, attrs?}]` |
+| `icon_hash` | favicon mmh3 哈希（FOFA 格式） | `hash` |
+| `dsl` | 支持的 nuclei 风格表达式子集 | `dsl` |
+| `js` | 页面运行时全局变量及可选 pattern | `js: [{path, pattern?}]` |
+| `dom` | CSS 选择器及可选文本/属性 pattern | `dom: [{sel, text?, attrs?}]` |
 
-规则还支持 `implies: ["其他技术名"]`——命中后自动级联推导（如 Next.js → React），推导命中带「由 X 推导」证据。
+规则组合方式：
 
-dsl 表达式支持：标识符 `body` / `title` / `url` / `header` / `raw` / `meta` / `script` / `status` / `favicon_hash`，
-函数 `contains(a, "子串")` / `matches(a, "正则")`，运算符 `&&` `||` `!` `==` `!=` 和括号。
+- `part`：`body`、`title`、`url`、`header`、`raw`、`meta` 或 `script`，默认 `body`。
+- `condition`：用 `and` 或 `or` 组合单个 matcher 内的条目，默认 `or`。
+- `matchers-condition`：组合一条规则内的多个 matcher。
+- `negative: true`：反转有效匹配结果；无效条件绝不会被反转成命中。
+- `implies`：推导关联技术，并记录“由 X 推导”的证据。
+- `confidence: 0-100`：可选的 matcher 或规则信号强度；未标注时保持 `null`，不会编造成 100。
+
+置信度合成时，`or` 取最强命中信号，`and` 取最弱信号；规则级置信度作为缩放系数，
+`implies` 命中继承来源置信度。Wappalyzer 的 `\;confidence:N` 后缀会在导入时转换。
+
+DSL 子集支持：
+
+- 标识符：`body`、`title`、`url`、`header`、`raw`、`meta`、`script`、`status`、`favicon_hash`
+- 函数：`contains(a, "文本")`、`matches(a, "正则")`
+- 运算符：`&&`、`||`、`!`、`==`、`!=` 和括号
+
 示例：`contains(body, "wp-content") && status == 200`
-
-- `part`：`body` / `title` / `url` / `header` / `raw` / `meta` / `script`（默认 `body`）
-- `condition`：matcher 内部多条件组合，`and` / `or`（默认 `or`）
-- `matchers-condition`：规则内多个 matcher 的组合方式
-- `negative: true`：取反
-- `confidence: 0-100`：可选，标在 matcher 或规则上，表示信号强度——强信号（meta generator、专有路径）给高分，
-  弱信号（比如「页面声明了 manifest」只是 PWA 候选）给低分；未标注时输出 `confidence: null`，不会自动编成 100。
-  合成规则：`or` 取命中 matcher 的最大值，`and` 取最小值（最短板），规则级 `confidence` 作为缩放系数；
-  `implies` 推导的命中继承来源置信度。Wappalyzer 源里的 `\;confidence:N` 拉取时自动转进来，
-  同字段不同置信度的模式会拆成独立 matcher，避免未命中的低分模式拉低高分命中。
-  在设置页「🎚 置信度」开启后，弹窗每条都会显示置信度：已标注显示百分比，未标注显示 `null`；
-  排序和阈值只作用于数字置信度（默认关闭）。
 
 ## 第三方规则源
 
-设置页提供三个固定社区来源。刷新过程使用有界流式下载和严格域名白名单；每个来源转换到独立规则集并原子替换旧版本，IndexedDB 保留一个回滚版本。每日/每周检查默认关闭，仅在用户主动开启后由 Chrome alarms 驱动；有意不支持任意来源 URL。
+设置页提供三个固定社区来源。只有用户点击**立即刷新**，或主动开启每日/每周检查后，
+扩展才会下载规则。
 
-| 源 | 规模 | 说明 |
-|---|---|---|
-| [enthec/webappanalyzer](https://github.com/enthec/webappanalyzer) | 几千条 | Wappalyzer 社区维护版，Web 技术指纹 |
-| [EdgeSecurityTeam/EHole](https://github.com/EdgeSecurityTeam/EHole) | 958 条 | 棱洞指纹，国产系统覆盖好 |
-| [projectdiscovery/nuclei-templates](https://github.com/projectdiscovery/nuclei-templates) | 数百条 | http/technologies 技术识别模板 |
+| 来源 | 大致规模 | 用途 |
+|---|---:|---|
+| [enthec/webappanalyzer](https://github.com/enthec/webappanalyzer) | 数千条 | 社区维护的 Wappalyzer Web 指纹 |
+| [EdgeSecurityTeam/EHole](https://github.com/EdgeSecurityTeam/EHole) | 约 958 条 | 棱洞指纹，国产系统覆盖较好 |
+| [projectdiscovery/nuclei-templates](https://github.com/projectdiscovery/nuclei-templates) | 数百条 | `http/technologies` 技术识别模板 |
 
-感谢以上社区的长期维护 🙏 转换逻辑在 `wasm/engine/convert.go`，均在用户侧运行时拉取。远端返回 `304 Not Modified` 或内容哈希未变化时不会重写规则集。
+扩展只从固定 HTTPS 主机下载，验证重定向，不携带凭据；单文件最多 3 MB、单次更新总计
+最多 30 MB，使用 4 个下载 worker，转换结果最多 25,000 条规则。每个来源均在本地转换、
+校验并原子替换自己的规则集。ETag、Last-Modified 和内容哈希用于跳过无变化的写入，
+IndexedDB 在本地保留一个旧版本用于回滚。项目有意不支持任意来源 URL。
 
-**声明**：本项目仅提供格式转换工具，不内置、不分发任何第三方规则数据。第三方规则源的内容、
-版权与合规性由其维护者负责；用户的拉取、使用行为及其后果与本项目无关。请遵守各源的许可证
-和适用法律，仅用于授权范围内的安全测试与研究。
+转换代码位于 `wasm/engine/convert.go`。GoPainter 仅提供格式转换能力，**不内置、不分发**
+这些第三方完整规则库。规则内容、许可证与合规责任仍属于各自维护者和使用者。请遵守每个
+来源的许可证和适用法律，仅在授权范围内用于测试与研究。
 
-## AI / Agent 配置
+内置 favicon 哈希库是另一份生成数据，来源为
+[BishopFox/Favicons](https://github.com/BishopFox/Favicons)；归属说明和数据源保留在
+`data/favicon-hashes.json`。
 
-在设置页选择 OpenAI 兼容或 Anthropic 协议，并填写接口与模型；首次使用前先点击「测试 Agent 工具」。
+## AI 与 Agent
+
+AI 功能完全可选。在设置页选择 OpenAI 兼容或 Anthropic 协议，填写 endpoint 和模型，
+首次执行任务前先运行**测试 Agent 工具**。
 
 | 服务 | Base URL | 模型示例 |
 |---|---|---|
@@ -154,103 +151,82 @@ dsl 表达式支持：标识符 `body` / `title` / `url` / `header` / `raw` / `m
 | 通义千问 | `https://dashscope.aliyuncs.com/compatible-mode/v1` | `qwen-plus` |
 | Ollama（本地） | `http://localhost:11434/v1` | `qwen2.5` |
 
-## AI 安全提示
+自动只读 Agent 工具最多并发 5 路。需要授权的联网工具保持串行，并在调用前暂停确认。
+`fetch_url` 只接受 HTTPS，执行有界读取和本地/私有地址防护；记住的授权仅对已批准的
+origin 生效。外部结果只是不可信参考资料，不是可以执行的指令。
 
-- GoPainter 不内置、不代管、不上传你的 API Key；API Key 只保存在浏览器扩展本地存储里，由扩展直接请求你填写的 Base URL。
-- 使用云端 LLM 时，页面特征会发送给你配置的模型服务。Agent 工作流先发送紧凑概览，只有调用正文搜索工具时才发送 HTML 片段；直接 AI 识别/规则辅助流程可能发送截断后的 HTML。除非确认这些信息可以交给对应服务商处理，否则不要在敏感站点上启用 AI。
-- AI 辅助识别、AI 生成规则、书签 AI 兜底分类都可能出错或编造结果。请人工确认后再把 AI 生成的规则加入长期规则库；本项目不对 AI 输出的准确性、合规性或外部服务费用负责。
-- Agent 工具调用限定于所选任务；自动只读工具最多 5 路并发，需要授权的联网工具仍串行执行并在调用前暂停确认，返回内容仅是不可信参考资料。
-- 运行时和 DOM 信号均来自被测页面，只能作为不可信证据，不能证明技术真实存在。favicon 下载受 URL 数和响应字节数限制。
+## 安全与隐私边界
 
-## 自定义脚本命令
+- **没有 GoPainter 服务端**：API Key 只保存在扩展本地存储中，请求直接发送到你配置的 endpoint。
+- **模型数据披露明确**：云端 AI 会收到页面特征；Agent 先发送紧凑概览，仅在需要时发送 HTML 片段，直接 AI 辅助功能可能发送截断后的 HTML。除非可以接受交给对应服务商处理，否则不要在敏感页面启用 AI。
+- **页面证据不可信**：DOM 和运行时值来自被测页面。命中只能说明某个信号存在，不能证明对应技术真实可信。
+- **浏览器资源有边界**：页面快照、UI 列表、扫描队列、favicon URL 数量、下载并发、响应字节、重定向和历史窗口均设有上限。
+- **AI 结果需要复核**：AI 识别、生成规则和书签兜底都可能出错。确定性 Go Core 校验的是结构与语义，不是现实世界中的真实性。
 
-| 命令 | 说明 |
+## 开发与验证
+
+| 命令 | 用途 |
 |---|---|
 | `make build` | 构建生产 Go WASM + 内嵌 RE2 引擎 |
-| `make test` | 跑 Go、JS 单元测试，再跑 WASM 冒烟测试 |
-| `make test-go` | 只跑 Go 单元测试（js/wasm 目标，经 node 执行，无需先构建） |
-| `make test-js` | 只跑扩展共享逻辑的 Node 单元测试 |
-| `make test-browser-e2e` | 运行小型 Chromium 内容采集 E2E：匹配、session、popup 与 SPA 链路 |
-| `make bench-js` | 测量 popup、大集合、序列化与 Agent 规则搜索路径 |
-| `make bench-chromium` | 运行 30/50 标签页 Chromium 资源压测（需要本机 Chrome） |
+| `make test` | 运行 Go/WASM 与 JavaScript 测试，再运行 WASM 冒烟测试 |
+| `make test-go` | 通过 js/wasm target 运行 Go 测试 |
+| `make test-js` | 运行 Node 测试和 JavaScript 语法检查 |
+| `make test-browser-e2e` | 验证 Chromium“采集 → 匹配 → session → popup”及 SPA 结果替换 |
+| `make bench-js` | 测量 UI、采集、序列化和 Agent 规则搜索路径 |
+| `make bench-chromium` | 运行 30/50 标签页 Chromium 资源压测 |
 | `make icons` | 重新生成扩展图标 |
-| `make clean` | 删除 `extension/wasm/matcher.wasm` 和 `wasm_exec.js` |
-| `node scripts/generate-icons.mjs` | 直接运行图标生成器 |
-| `node scripts/generate-hashdb.mjs` | 从 `data/favicon-hashes.json` 生成 `wasm/engine/hashdb.go` |
-| `node scripts/smoke-test.mjs` | 直接运行 WASM 冒烟测试 |
-| `powershell -ExecutionPolicy Bypass -File scripts/build.ps1` | Windows 构建 WASM |
+| `make clean` | 删除生成的 WASM 文件 |
+
+浏览器 E2E 和 Chromium 压测需要本机 Chrome/Chromium。其他生成器和脚本入口位于
+`scripts/`，详细命令以 Makefile 为准。
 
 <details>
 <summary><strong>架构与目录结构</strong></summary>
 
-## 架构
+### 架构
 
-```
-GoPainter Host / Runtime（JS）       GoPainter Core / Authority（Go WASM）
-负责一切外部 I/O 与生命周期            持有确定性产品语义，零 I/O
-──────────────────────────────      ─────────────────────────────────
-content.js   采集 DOM/原始 HTML ─┐
-background   采集响应头/状态码    │     goMatch            规则匹配 + 证据
-  .js        favicon 下载       ─┼─→  goMmh3             favicon 哈希（fofa 标准）
-             AI / Agent API 调用 │     goExtractFeatures  HTML → title/meta/scripts
-             图标状态切换        │     goNormalizeRules   YAML 文档 → 原生规则
-             权限 / 生命周期     │     goValidateCandidate 严格校验 Agent 产物
-                                 │     goPlanRequiredProbes 规则 → JS/DOM 特征计划
-options      YAML 解析(js-yaml) ─┘    ←  全部进 JSON 出 JSON
-popup        结果与证据展示 / Agent 任务运行器
-sidepanel    爬取进度实时展示 / 启停（Side Panel，与页面并存）
+```text
+JavaScript Host / Runtime                 Go WASM Core / Authority
+浏览器、网络、存储、生命周期                 确定性产品语义，零 I/O
+────────────────────────────────────      ─────────────────────────────
+content.js ─ 页面/DOM 采集 ──────────┐
+background ─ 响应头、图标、AI ───────┼──→ 匹配、证据、mmh3
+options ─ YAML 解析和设置 ───────────┘    规范化、校验、
+popup / sidepanel ─ 用户交互               probe 规划、爬取调度
 ```
 
-核心边界：**WASM 只做纯计算**（进 JSON 出 JSON，不碰网络/YAML/DOM）。
-规则语义——包括严格的 Agent 候选规则校验与 required-probe planning——统一放在 Go；JS 负责浏览器/模型 I/O、权限与生命周期。
+这条边界是有意设计的：浏览器、模型、用户、存储、网络与生命周期属于 JavaScript Host；
+规则语法、matcher 语义、规范化、严格候选校验、probe 规划及其他确定性产品规则属于 Go。
 
-> **架构红线——不要模糊这条边界。** 新增逻辑前先问：它描述的是 GoPainter 的确定性领域语义，还是在接触外部环境？规则是否合法、matcher 如何执行、规则如何规范化、需要采集哪些 probe、probe ID 如何生成，属于 Go Core；浏览器、模型、用户、存储、网络、权限和生命周期，属于 JS Host。禁止在 JS 中重复实现规则语法、matcher 语义、normalize、probe planning 或 probe-ID 算法；也不要为了增加 Go 代码量，把 Agent loop、Provider、权限、Chrome API、DOM 采集或网络 I/O 搬进 WASM。
+不要在 JavaScript 中重复 Core 语义，也不要为了增加 Go 代码量，把 Chrome API、DOM、
+网络 I/O、Provider、权限或 Agent loop 搬进 WASM。
 
-## 目录
+### 目录结构
 
-```
-├── wasm/                     # WASM 入口包（薄 JS bridge）
-│   ├── main.go               #   注册 JS 导出
-│   ├── bridge.go             #   匹配/转换/hash/dsl 的 JSON 进出
-│   ├── crawl_bridge.go       #   爬虫 API 的 JSON 进出
-│   └── engine/               #   纯 Go 逻辑包
-│       ├── matcher.go        #   匹配引擎（核心）
-│       ├── candidate.go      #   严格 Agent 候选校验 + 运行时覆盖判断
-│       ├── probes.go         #   JS/DOM 探针规划与稳定 probe ID
-│       ├── mmh3.go           #   favicon 哈希
-│       ├── extract.go        #   HTML 特征提取（title/meta/scripts/favicon/links）
-│       ├── normalize.go      #   规则规范化（nuclei 转换）
-│       ├── dsl.go            #   dsl 表达式求值器
-│       ├── convert.go        #   Wappalyzer/EHole 指纹转换
-│       ├── health.go         #   regex 有效性、预筛潜力与锚点质量体检
-│       ├── crawl.go          #   爬虫调度（BFS/去重/同站过滤/上限）
-│       └── hashdb.go         #   favicon 哈希库（生成）
-├── extension/                # Chrome 扩展（MV3）
-│   ├── manifest.json
-│   ├── background.js         # 精简的 service worker 装配入口与消息路由
-│   ├── background/           # Host 模块：页面/规则/历史/爬虫/书签/AI/Agent
-│   ├── content.js            # 页面特征采集
-│   ├── popup.*               # 结果与证据展示 / AI 识别 / AI 生成规则
-│   ├── options.*             # 规则导入 / AI 配置 / 提示词 / 书签整理
-│   ├── sidepanel.*           # 爬取进度实时展示 / 启停（Side Panel）
-│   ├── icons/                # 彩色/灰色两套图标（脚本生成）
-│   └── lib/                  # js-yaml（唯一的第三方 JS）
-├── scripts/
-│   ├── generate-icons.mjs    # 图标生成器（纯 Node，零依赖）
-│   ├── generate-hashdb.mjs   # favicon 哈希库生成器（data/ → wasm/engine/hashdb.go）
-│   ├── smoke-test.mjs        # wasm 冒烟测试
-│   └── build.ps1             # Windows 构建脚本
-├── data/favicon-hashes.json  # 哈希库源数据（BishopFox/Favicons）
-├── rules/examples.yaml       # 示例规则
-└── Makefile                  # macOS/Linux 构建
+```text
+├── wasm/
+│   ├── main.go, bridge.go       # 暴露给 JavaScript 的薄 JSON bridge
+│   └── engine/                  # 纯 Go 匹配、转换与校验逻辑
+├── extension/
+│   ├── background.js            # MV3 装配入口与消息路由
+│   ├── background/              # 页面、规则源、爬取、历史与 AI Host
+│   ├── agent/                   # 有界 Agent loop、工具与技能
+│   ├── content.js               # 页面特征采集
+│   ├── popup.*, options.*       # 结果、规则与设置
+│   └── sidepanel.*              # 爬取进度与控制
+├── scripts/                     # 构建、生成、压测与冒烟脚本
+├── data/favicon-hashes.json     # favicon 数据库源文件
+├── rules/examples.yaml          # 原生规则示例
+└── Makefile
 ```
 
 </details>
 
 ## 项目状态
 
-浏览器核心工作流已经完整：自动匹配与证据、规则集组合启用和导入、第三方规则源更新与回滚、Agent 研究与可导入规则生成、站点爬取、历史/报告导出和书签整理。浏览器 E2E 已在 CI 覆盖“采集 → 匹配 → 存储 → 弹窗”整条链路；下一阶段应回到识别质量和范围明确的规则改进。
+浏览器核心工作流已经实现，并由单元测试、冒烟测试和浏览器 E2E 覆盖。下一阶段优先提升
+识别质量：做范围明确的规则改进和有证据的覆盖补充，而不是继续扩张资源治理层。
 
 ## License
 
-[MIT](LICENSE)
+[MIT](./LICENSE)
