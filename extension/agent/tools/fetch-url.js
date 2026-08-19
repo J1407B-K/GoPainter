@@ -94,6 +94,39 @@
     return `fetch_url:${origin}`;
   }
 
+  function redirectTarget(response, current, redirects, grants = []) {
+    if (redirects === MAX_REDIRECTS) throw new Error(`重定向超过 ${MAX_REDIRECTS} 次上限`);
+    const location = response.headers.get('location');
+    if (!location) throw new Error('重定向响应缺少可验证的 Location');
+    const next = validateURL(new URL(location, current).href);
+    if (next.origin !== current.origin && !grants.includes(originGrant(next.origin))) {
+      throw new Error(`跨来源重定向需要单独授权：${next.href}`);
+    }
+    return next;
+  }
+
+  function readableContentType(response) {
+    const contentType = (response.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+    const supported = contentType.startsWith('text/')
+      || ['application/json', 'application/xml', 'application/xhtml+xml'].includes(contentType);
+    if (!supported) throw new Error(`不支持的内容类型：${contentType || '(missing)'}`);
+    return contentType;
+  }
+
+  async function publicResponse(response, current) {
+    if (!response.ok) throw new Error(`读取失败: HTTP ${response.status}`);
+    const contentType = readableContentType(response);
+    const bytes = await readBounded(response, MAX_BYTES);
+    const decoded = new TextDecoder('utf-8', { fatal: false }).decode(bytes);
+    const content = readableText(decoded, contentType);
+    return {
+      url: current.href, status: response.status, contentType, bytes: bytes.byteLength,
+      title: typeof content === 'string' ? '' : content.title,
+      text: typeof content === 'string' ? content : content.text,
+      untrusted: true,
+    };
+  }
+
   async function fetchPublic(startURL, context = {}) {
     const signal = context?.signal;
     let current = validateURL(startURL);
@@ -109,30 +142,10 @@
           headers: { Accept: 'text/html,text/plain,application/json,application/xml,text/xml;q=0.9,*/*;q=0.1' },
         });
         if (response.status >= 300 && response.status < 400) {
-          if (redirects === MAX_REDIRECTS) throw new Error(`重定向超过 ${MAX_REDIRECTS} 次上限`);
-          const location = response.headers.get('location');
-          if (!location) throw new Error('重定向响应缺少可验证的 Location');
-          const next = validateURL(new URL(location, current).href);
-          if (next.origin !== current.origin && !context.grants?.includes(originGrant(next.origin))) {
-            throw new Error(`跨来源重定向需要单独授权：${next.href}`);
-          }
-          current = next;
+          current = redirectTarget(response, current, redirects, context.grants);
           continue;
         }
-        if (!response.ok) throw new Error(`读取失败: HTTP ${response.status}`);
-        const contentType = (response.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
-        if (!(contentType.startsWith('text/') || ['application/json', 'application/xml', 'application/xhtml+xml'].includes(contentType))) {
-          throw new Error(`不支持的内容类型：${contentType || '(missing)'}`);
-        }
-        const bytes = await readBounded(response, MAX_BYTES);
-        const decoded = new TextDecoder('utf-8', { fatal: false }).decode(bytes);
-        const content = readableText(decoded, contentType);
-        return {
-          url: current.href, status: response.status, contentType, bytes: bytes.byteLength,
-          title: typeof content === 'string' ? '' : content.title,
-          text: typeof content === 'string' ? content : content.text,
-          untrusted: true,
-        };
+        return publicResponse(response, current);
       }
       throw new Error('重定向处理失败');
     } catch (error) {

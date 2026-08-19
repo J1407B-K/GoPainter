@@ -59,6 +59,116 @@ func isJSONNull(raw json.RawMessage) bool {
 	return bytes.Equal(bytes.TrimSpace(raw), []byte("null"))
 }
 
+func validateRawRootNulls(root map[string]json.RawMessage) []ValidationIssue {
+	var errors []ValidationIssue
+	for _, field := range []string{"confidence", "implies", "excludes"} {
+		if value, ok := root[field]; ok && isJSONNull(value) {
+			errors = append(errors, issue(field, "invalid_null", "%s 不能是 null", field))
+		}
+	}
+	return errors
+}
+
+func validateRawMatcherFields(matcher map[string]json.RawMessage, matcherType, base string) []ValidationIssue {
+	payloadFor := map[string]string{"word": "words", "regex": "regex", "status": "status", "icon_hash": "hash", "dsl": "dsl", "js": "js", "dom": "dom"}
+	allowed := map[string]bool{"type": true, "part": true, "condition": true, "negative": true, "confidence": true}
+	allowed[payloadFor[matcherType]] = true
+	var errors []ValidationIssue
+	for key := range matcher {
+		if !allowed[key] {
+			errors = append(errors, issue(base+"."+key, "unsupported_field", "matcher type %q 不支持字段 %s", matcherType, key))
+		}
+	}
+	return errors
+}
+
+func validateRawMatcherScalars(matcher map[string]json.RawMessage, base string) []ValidationIssue {
+	var errors []ValidationIssue
+	for _, field := range []string{"part", "condition", "negative", "confidence"} {
+		if value, ok := matcher[field]; ok && isJSONNull(value) {
+			errors = append(errors, issue(base+"."+field, "invalid_null", "%s 不能是 null", field))
+		}
+	}
+	for _, field := range []string{"part", "condition"} {
+		if value, ok := matcher[field]; ok && !isJSONNull(value) {
+			var text string
+			if json.Unmarshal(value, &text) == nil && text == "" {
+				errors = append(errors, issue(base+"."+field, "invalid_enum", "%s 不能是空字符串", field))
+			}
+		}
+	}
+	return errors
+}
+
+func validateRawJSShape(raw json.RawMessage, base string) []ValidationIssue {
+	var probes []map[string]json.RawMessage
+	_ = json.Unmarshal(raw, &probes)
+	var errors []ValidationIssue
+	for i, probe := range probes {
+		value, ok := probe["pattern"]
+		if !ok {
+			continue
+		}
+		path := fmt.Sprintf("%s.js[%d].pattern", base, i)
+		if isJSONNull(value) {
+			errors = append(errors, issue(path, "invalid_null", "pattern 不能是 null"))
+			continue
+		}
+		var text string
+		if json.Unmarshal(value, &text) == nil && !validNonEmptyString(text, 1000) {
+			errors = append(errors, issue(path, "invalid_string", "pattern 必须是有界非空字符串"))
+		}
+	}
+	return errors
+}
+
+func validateRawDOMProbe(probe map[string]json.RawMessage, path string) []ValidationIssue {
+	var errors []ValidationIssue
+	for _, field := range []string{"text", "attrs"} {
+		if value, ok := probe[field]; ok && isJSONNull(value) {
+			errors = append(errors, issue(path+"."+field, "invalid_null", "%s 不能是 null", field))
+		}
+	}
+	if value, ok := probe["text"]; ok && !isJSONNull(value) {
+		var text string
+		if json.Unmarshal(value, &text) == nil && !validNonEmptyString(text, 1000) {
+			errors = append(errors, issue(path+".text", "invalid_string", "text 必须是有界非空字符串"))
+		}
+	}
+	if value, ok := probe["attrs"]; ok && !isJSONNull(value) {
+		var attrs map[string]string
+		if json.Unmarshal(value, &attrs) == nil && len(attrs) == 0 {
+			errors = append(errors, issue(path+".attrs", "invalid_map", "attrs 必须是非空字符串映射"))
+		}
+	}
+	return errors
+}
+
+func validateRawDOMShape(raw json.RawMessage, base string) []ValidationIssue {
+	var probes []map[string]json.RawMessage
+	_ = json.Unmarshal(raw, &probes)
+	var errors []ValidationIssue
+	for i, probe := range probes {
+		errors = append(errors, validateRawDOMProbe(probe, fmt.Sprintf("%s.dom[%d]", base, i))...)
+	}
+	return errors
+}
+
+func validateRawMatcherShape(matcher map[string]json.RawMessage, index int) []ValidationIssue {
+	base := fmt.Sprintf("matchers[%d]", index)
+	var matcherType string
+	_ = json.Unmarshal(matcher["type"], &matcherType)
+	errors := validateRawMatcherFields(matcher, matcherType, base)
+	errors = append(errors, validateRawMatcherScalars(matcher, base)...)
+	if matcherType == "js" {
+		errors = append(errors, validateRawJSShape(matcher["js"], base)...)
+	}
+	if matcherType == "dom" {
+		errors = append(errors, validateRawDOMShape(matcher["dom"], base)...)
+	}
+	return errors
+}
+
 // validateRawCandidateShape 校验仅靠 Rule 值无法分辨的“字段是否出现”语义，例如
 // regex matcher 夹带 words、显式 null，或 attrs: {}。这些都不能被静默吞掉。
 func validateRawCandidateShape(raw []byte) []ValidationIssue {
@@ -66,86 +176,13 @@ func validateRawCandidateShape(raw []byte) []ValidationIssue {
 	if err := json.Unmarshal(raw, &root); err != nil {
 		return nil // strictDecodeRule 会给出主错误
 	}
-	var errors []ValidationIssue
-	for _, field := range []string{"confidence", "implies", "excludes"} {
-		if value, ok := root[field]; ok && isJSONNull(value) {
-			errors = append(errors, issue(field, "invalid_null", "%s 不能是 null", field))
-		}
-	}
+	errors := validateRawRootNulls(root)
 	var matchers []map[string]json.RawMessage
 	if value, ok := root["matchers"]; ok {
 		_ = json.Unmarshal(value, &matchers)
 	}
-	payloadFor := map[string]string{"word": "words", "regex": "regex", "status": "status", "icon_hash": "hash", "dsl": "dsl", "js": "js", "dom": "dom"}
-	common := map[string]bool{"type": true, "part": true, "condition": true, "negative": true, "confidence": true}
 	for i, matcher := range matchers {
-		base := fmt.Sprintf("matchers[%d]", i)
-		var matcherType string
-		_ = json.Unmarshal(matcher["type"], &matcherType)
-		allowed := make(map[string]bool, len(common)+1)
-		for key := range common {
-			allowed[key] = true
-		}
-		allowed[payloadFor[matcherType]] = true
-		for key := range matcher {
-			if !allowed[key] {
-				errors = append(errors, issue(base+"."+key, "unsupported_field", "matcher type %q 不支持字段 %s", matcherType, key))
-			}
-		}
-		for _, field := range []string{"part", "condition", "negative", "confidence"} {
-			if value, ok := matcher[field]; ok && isJSONNull(value) {
-				errors = append(errors, issue(base+"."+field, "invalid_null", "%s 不能是 null", field))
-			}
-		}
-		for _, field := range []string{"part", "condition"} {
-			if value, ok := matcher[field]; ok && !isJSONNull(value) {
-				var text string
-				if json.Unmarshal(value, &text) == nil && text == "" {
-					errors = append(errors, issue(base+"."+field, "invalid_enum", "%s 不能是空字符串", field))
-				}
-			}
-		}
-		switch matcherType {
-		case "js":
-			var probes []map[string]json.RawMessage
-			_ = json.Unmarshal(matcher["js"], &probes)
-			for j, probe := range probes {
-				if value, ok := probe["pattern"]; ok {
-					path := fmt.Sprintf("%s.js[%d].pattern", base, j)
-					if isJSONNull(value) {
-						errors = append(errors, issue(path, "invalid_null", "pattern 不能是 null"))
-					} else {
-						var text string
-						if json.Unmarshal(value, &text) == nil && !validNonEmptyString(text, 1000) {
-							errors = append(errors, issue(path, "invalid_string", "pattern 必须是有界非空字符串"))
-						}
-					}
-				}
-			}
-		case "dom":
-			var probes []map[string]json.RawMessage
-			_ = json.Unmarshal(matcher["dom"], &probes)
-			for j, probe := range probes {
-				path := fmt.Sprintf("%s.dom[%d]", base, j)
-				for _, field := range []string{"text", "attrs"} {
-					if value, ok := probe[field]; ok && isJSONNull(value) {
-						errors = append(errors, issue(path+"."+field, "invalid_null", "%s 不能是 null", field))
-					}
-				}
-				if value, ok := probe["text"]; ok && !isJSONNull(value) {
-					var text string
-					if json.Unmarshal(value, &text) == nil && !validNonEmptyString(text, 1000) {
-						errors = append(errors, issue(path+".text", "invalid_string", "text 必须是有界非空字符串"))
-					}
-				}
-				if value, ok := probe["attrs"]; ok && !isJSONNull(value) {
-					var attrs map[string]string
-					if json.Unmarshal(value, &attrs) == nil && len(attrs) == 0 {
-						errors = append(errors, issue(path+".attrs", "invalid_map", "attrs 必须是非空字符串映射"))
-					}
-				}
-			}
-		}
+		errors = append(errors, validateRawMatcherShape(matcher, i)...)
 	}
 	return errors
 }
@@ -173,6 +210,137 @@ func validateConfidence(path string, value *int) []ValidationIssue {
 	return nil
 }
 
+func matcherPayloadCount(m Matcher) int {
+	count := 0
+	for _, length := range []int{len(m.Words), len(m.Regex), len(m.Status), len(m.Hash), len(m.Dsl), len(m.Js), len(m.Dom)} {
+		if length > 0 {
+			count++
+		}
+	}
+	return count
+}
+
+func validateRegexPayload(m Matcher, base string) []ValidationIssue {
+	errors := validateStringList(base+".regex", m.Regex, maxCandidateItems, 4000)
+	for i, pattern := range m.Regex {
+		if _, err := compileRegex(pattern); err != nil {
+			errors = append(errors, issue(fmt.Sprintf("%s.regex[%d]", base, i), "invalid_regex", "正则无法由 Go RE2 编译：%v", err))
+		}
+	}
+	return errors
+}
+
+func validateStatusPayload(m Matcher, base string) []ValidationIssue {
+	var errors []ValidationIssue
+	if len(m.Status) == 0 || len(m.Status) > maxCandidateItems {
+		errors = append(errors, issue(base+".status", "invalid_list", "status 必须包含 1-50 个整数"))
+	}
+	for i, value := range m.Status {
+		if value < 100 || value > 599 {
+			errors = append(errors, issue(fmt.Sprintf("%s.status[%d]", base, i), "out_of_range", "HTTP 状态码必须在 100-599 之间"))
+		}
+	}
+	return errors
+}
+
+func validateDSLPayload(m Matcher, base string, features Features) []ValidationIssue {
+	errors := validateStringList(base+".dsl", m.Dsl, maxCandidateItems, 4000)
+	ctx := newMatchCtx(&features)
+	for i, expression := range m.Dsl {
+		if _, err := dslEval(expression, ctx); err != nil {
+			errors = append(errors, issue(fmt.Sprintf("%s.dsl[%d]", base, i), "invalid_dsl", "DSL 无法执行：%v", err))
+		}
+	}
+	return errors
+}
+
+func validateJSProbe(probe JsProbe, path string) []ValidationIssue {
+	var errors []ValidationIssue
+	if !validNonEmptyString(probe.Path, 500) {
+		errors = append(errors, issue(path+".path", "invalid_string", "path 必须是长度不超过 500 的非空字符串"))
+	}
+	if probe.Pattern == "" {
+		return errors
+	}
+	if !validNonEmptyString(probe.Pattern, 1000) {
+		return append(errors, issue(path+".pattern", "invalid_string", "pattern 必须是长度不超过 1000 的非空字符串"))
+	}
+	if _, err := compileRegex(probe.Pattern); err != nil {
+		errors = append(errors, issue(path+".pattern", "invalid_regex", "正则无法由 Go RE2 编译：%v", err))
+	}
+	return errors
+}
+
+func validateJSPayload(m Matcher, base string) []ValidationIssue {
+	var errors []ValidationIssue
+	if len(m.Js) == 0 || len(m.Js) > maxCandidateItems {
+		errors = append(errors, issue(base+".js", "invalid_list", "js 必须包含 1-50 个探针"))
+	}
+	for i, probe := range m.Js {
+		errors = append(errors, validateJSProbe(probe, fmt.Sprintf("%s.js[%d]", base, i))...)
+	}
+	return errors
+}
+
+func validateDOMProbe(probe DomProbe, path string) []ValidationIssue {
+	var errors []ValidationIssue
+	if !validNonEmptyString(probe.Sel, 1000) {
+		errors = append(errors, issue(path+".sel", "invalid_string", "sel 必须是长度不超过 1000 的非空字符串"))
+	}
+	if probe.Text != "" {
+		if !validNonEmptyString(probe.Text, 1000) {
+			errors = append(errors, issue(path+".text", "invalid_string", "text 必须是长度不超过 1000 的非空字符串"))
+		} else if _, err := compileRegex(probe.Text); err != nil {
+			errors = append(errors, issue(path+".text", "invalid_regex", "正则无法由 Go RE2 编译：%v", err))
+		}
+	}
+	if len(probe.Attrs) > 30 {
+		errors = append(errors, issue(path+".attrs", "too_many_items", "attrs 最多包含 30 项"))
+	}
+	for key, pattern := range probe.Attrs {
+		attrPath := path + ".attrs." + key
+		if !validNonEmptyString(key, 200) || !validNonEmptyString(pattern, 1000) {
+			errors = append(errors, issue(attrPath, "invalid_string", "属性名和值必须是有界非空字符串"))
+		} else if _, err := compileRegex(pattern); err != nil {
+			errors = append(errors, issue(attrPath, "invalid_regex", "正则无法由 Go RE2 编译：%v", err))
+		}
+	}
+	return errors
+}
+
+func validateDOMPayload(m Matcher, base string) []ValidationIssue {
+	var errors []ValidationIssue
+	if len(m.Dom) == 0 || len(m.Dom) > maxCandidateItems {
+		errors = append(errors, issue(base+".dom", "invalid_list", "dom 必须包含 1-50 个探针"))
+	}
+	for i, probe := range m.Dom {
+		errors = append(errors, validateDOMProbe(probe, fmt.Sprintf("%s.dom[%d]", base, i))...)
+	}
+	return errors
+}
+
+func validateMatcherPayload(m Matcher, base string, features Features) []ValidationIssue {
+	switch m.Type {
+	case "word":
+		return validateStringList(base+".words", m.Words, maxCandidateItems, 4000)
+	case "regex":
+		return validateRegexPayload(m, base)
+	case "status":
+		return validateStatusPayload(m, base)
+	case "icon_hash":
+		if len(m.Hash) == 0 || len(m.Hash) > maxCandidateItems {
+			return []ValidationIssue{issue(base+".hash", "invalid_list", "hash 必须包含 1-50 个 int32")}
+		}
+	case "dsl":
+		return validateDSLPayload(m, base, features)
+	case "js":
+		return validateJSPayload(m, base)
+	case "dom":
+		return validateDOMPayload(m, base)
+	}
+	return nil
+}
+
 func validateMatcherStrict(m Matcher, index int, features Features) []ValidationIssue {
 	base := fmt.Sprintf("matchers[%d]", index)
 	allowedTypes := map[string]bool{"word": true, "regex": true, "status": true, "icon_hash": true, "dsl": true, "js": true, "dom": true}
@@ -189,110 +357,11 @@ func validateMatcherStrict(m Matcher, index int, features Features) []Validation
 	}
 	errors = append(errors, validateConfidence(base+".confidence", m.Confidence)...)
 
-	payloadCount := 0
-	if len(m.Words) > 0 {
-		payloadCount++
-	}
-	if len(m.Regex) > 0 {
-		payloadCount++
-	}
-	if len(m.Status) > 0 {
-		payloadCount++
-	}
-	if len(m.Hash) > 0 {
-		payloadCount++
-	}
-	if len(m.Dsl) > 0 {
-		payloadCount++
-	}
-	if len(m.Js) > 0 {
-		payloadCount++
-	}
-	if len(m.Dom) > 0 {
-		payloadCount++
-	}
-	if payloadCount != 1 {
+	if matcherPayloadCount(m) != 1 {
 		errors = append(errors, issue(base, "invalid_payload", "matcher 必须且只能包含与 type 对应的一个非空载荷"))
 		return errors
 	}
-
-	switch m.Type {
-	case "word":
-		errors = append(errors, validateStringList(base+".words", m.Words, maxCandidateItems, 4000)...)
-	case "regex":
-		errors = append(errors, validateStringList(base+".regex", m.Regex, maxCandidateItems, 4000)...)
-		for i, pattern := range m.Regex {
-			if _, err := compileRegex(pattern); err != nil {
-				errors = append(errors, issue(fmt.Sprintf("%s.regex[%d]", base, i), "invalid_regex", "正则无法由 Go RE2 编译：%v", err))
-			}
-		}
-	case "status":
-		if len(m.Status) == 0 || len(m.Status) > maxCandidateItems {
-			errors = append(errors, issue(base+".status", "invalid_list", "status 必须包含 1-50 个整数"))
-		}
-		for i, value := range m.Status {
-			if value < 100 || value > 599 {
-				errors = append(errors, issue(fmt.Sprintf("%s.status[%d]", base, i), "out_of_range", "HTTP 状态码必须在 100-599 之间"))
-			}
-		}
-	case "icon_hash":
-		if len(m.Hash) == 0 || len(m.Hash) > maxCandidateItems {
-			errors = append(errors, issue(base+".hash", "invalid_list", "hash 必须包含 1-50 个 int32"))
-		}
-	case "dsl":
-		errors = append(errors, validateStringList(base+".dsl", m.Dsl, maxCandidateItems, 4000)...)
-		ctx := newMatchCtx(&features)
-		for i, expression := range m.Dsl {
-			if _, err := dslEval(expression, ctx); err != nil {
-				errors = append(errors, issue(fmt.Sprintf("%s.dsl[%d]", base, i), "invalid_dsl", "DSL 无法执行：%v", err))
-			}
-		}
-	case "js":
-		if len(m.Js) == 0 || len(m.Js) > maxCandidateItems {
-			errors = append(errors, issue(base+".js", "invalid_list", "js 必须包含 1-50 个探针"))
-		}
-		for i, probe := range m.Js {
-			path := fmt.Sprintf("%s.js[%d]", base, i)
-			if !validNonEmptyString(probe.Path, 500) {
-				errors = append(errors, issue(path+".path", "invalid_string", "path 必须是长度不超过 500 的非空字符串"))
-			}
-			if probe.Pattern != "" {
-				if !validNonEmptyString(probe.Pattern, 1000) {
-					errors = append(errors, issue(path+".pattern", "invalid_string", "pattern 必须是长度不超过 1000 的非空字符串"))
-				} else if _, err := compileRegex(probe.Pattern); err != nil {
-					errors = append(errors, issue(path+".pattern", "invalid_regex", "正则无法由 Go RE2 编译：%v", err))
-				}
-			}
-		}
-	case "dom":
-		if len(m.Dom) == 0 || len(m.Dom) > maxCandidateItems {
-			errors = append(errors, issue(base+".dom", "invalid_list", "dom 必须包含 1-50 个探针"))
-		}
-		for i, probe := range m.Dom {
-			path := fmt.Sprintf("%s.dom[%d]", base, i)
-			if !validNonEmptyString(probe.Sel, 1000) {
-				errors = append(errors, issue(path+".sel", "invalid_string", "sel 必须是长度不超过 1000 的非空字符串"))
-			}
-			if probe.Text != "" {
-				if !validNonEmptyString(probe.Text, 1000) {
-					errors = append(errors, issue(path+".text", "invalid_string", "text 必须是长度不超过 1000 的非空字符串"))
-				} else if _, err := compileRegex(probe.Text); err != nil {
-					errors = append(errors, issue(path+".text", "invalid_regex", "正则无法由 Go RE2 编译：%v", err))
-				}
-			}
-			if len(probe.Attrs) > 30 {
-				errors = append(errors, issue(path+".attrs", "too_many_items", "attrs 最多包含 30 项"))
-			}
-			for key, pattern := range probe.Attrs {
-				attrPath := path + ".attrs." + key
-				if !validNonEmptyString(key, 200) || !validNonEmptyString(pattern, 1000) {
-					errors = append(errors, issue(attrPath, "invalid_string", "属性名和值必须是有界非空字符串"))
-				} else if _, err := compileRegex(pattern); err != nil {
-					errors = append(errors, issue(attrPath, "invalid_regex", "正则无法由 Go RE2 编译：%v", err))
-				}
-			}
-		}
-	}
+	errors = append(errors, validateMatcherPayload(m, base, features)...)
 	return errors
 }
 

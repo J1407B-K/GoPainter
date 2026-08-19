@@ -527,148 +527,175 @@ func (t *triState) result() evalResult {
 	return t.val
 }
 
+func evalWordMatcher(m *Matcher, c *matchCtx, part string, st *triState, ev *[]Evidence) {
+	// body 有索引走命中集合；空词与 strings.Contains("")=true 对齐
+	if c.bodyWordHits != nil && part == "body" {
+		for _, word := range m.Words {
+			ok := word == "" || c.bodyWordHits[strings.ToLower(word)]
+			st.add(boolResult(ok), m.Condition)
+			if ok {
+				*ev = append(*ev, Evidence{Type: "word", Part: part, Detail: word})
+			}
+		}
+		return
+	}
+	cmpText := c.partTextLower(*m)
+	for _, word := range m.Words {
+		ok := strings.Contains(cmpText, strings.ToLower(word))
+		st.add(boolResult(ok), m.Condition)
+		if ok {
+			*ev = append(*ev, Evidence{Type: "word", Part: part, Detail: word})
+		}
+	}
+}
+
+func evalRegexMatcher(m *Matcher, c *matchCtx, part string, st *triState, ev *[]Evidence) {
+	text := c.partText(*m)
+	lowerText := c.partTextLower(*m)
+	hasFoldSensitive := c.partHasFoldSensitive(*m)
+	for _, pattern := range m.Regex {
+		re, err := compileRegex("(?i)" + pattern)
+		if err != nil {
+			re, err = compileRegex(pattern)
+		}
+		if err != nil {
+			// 正则是坏的，这条件判无效而不是未命中：negative 不能拿它当"没出现"
+			st.add(evalInvalid, m.Condition)
+			continue
+		}
+		// AST 证明必然不匹配才跳过；含非 ASCII 的 part 不预筛。
+		if regexCanSkip(pattern, lowerText, hasFoldSensitive, c.regexLitLookup(*m)) {
+			st.add(evalMiss, m.Condition)
+			continue
+		}
+		ok := re.MatchString(text)
+		st.add(boolResult(ok), m.Condition)
+		if !ok {
+			continue
+		}
+		detail := re.FindString(text)
+		if len(detail) > 120 {
+			detail = detail[:120] + "…"
+		}
+		if detail == "" {
+			detail = "（零宽匹配）"
+		}
+		*ev = append(*ev, Evidence{Type: "regex", Part: part, Detail: detail, Pattern: pattern})
+	}
+}
+
+func evalStatusMatcher(m *Matcher, f *Features, st *triState, ev *[]Evidence) {
+	for _, status := range m.Status {
+		ok := f.Status == status
+		st.add(boolResult(ok), m.Condition)
+		if ok {
+			*ev = append(*ev, Evidence{Type: "status", Detail: fmt.Sprintf("状态码 %d", status)})
+		}
+	}
+}
+
+func evalIconHashMatcher(m *Matcher, f *Features, st *triState, ev *[]Evidence) {
+	// 页面的所有 icon 哈希都参与比对，不知道哪个图案才是指纹库里那个
+	for _, hash := range m.Hash {
+		ok := slices.Contains(f.FaviconHashes, hash)
+		st.add(boolResult(ok), m.Condition)
+		if ok {
+			*ev = append(*ev, Evidence{Type: "icon_hash", Detail: fmt.Sprintf("mmh3 %d", hash)})
+		}
+	}
+}
+
+func evalDSLMatcher(m *Matcher, c *matchCtx, st *triState, ev *[]Evidence) {
+	for _, expression := range m.Dsl {
+		ok, err := dslEval(expression, c)
+		if err != nil {
+			// DSL 语法/求值出错判无效，negative 不能反转。
+			st.add(evalInvalid, m.Condition)
+			continue
+		}
+		st.add(boolResult(ok), m.Condition)
+		if ok {
+			*ev = append(*ev, Evidence{Type: "dsl", Detail: expression})
+		}
+	}
+}
+
+func evalJSMatcher(m *Matcher, f *Features, st *triState, ev *[]Evidence) {
+	for _, probe := range m.Js {
+		value, exists := f.Js[probe.Path]
+		if !exists {
+			st.add(evalMiss, m.Condition)
+			continue
+		}
+		if probe.Pattern == "" {
+			st.add(evalHit, m.Condition)
+			*ev = append(*ev, Evidence{Type: "js", Detail: jsProbeDetail(probe.Path, value)})
+			continue
+		}
+		re, err := compileRegex(probe.Pattern)
+		if err != nil {
+			st.add(evalInvalid, m.Condition)
+			continue
+		}
+		ok := re.MatchString(value)
+		st.add(boolResult(ok), m.Condition)
+		if ok {
+			*ev = append(*ev, Evidence{Type: "js", Detail: jsProbeDetail(probe.Path, value)})
+		}
+	}
+}
+
+func evalDOMMatcher(m *Matcher, f *Features, st *triState, ev *[]Evidence) {
+	// JS 侧和这里用相同 probeID；命中即存在于 DomHits。
+	for _, selector := range m.Words {
+		ok := f.DomHits[probeID(DomProbe{Sel: selector})]
+		st.add(boolResult(ok), m.Condition)
+		if ok {
+			*ev = append(*ev, Evidence{Type: "dom", Detail: selector})
+		}
+	}
+	for _, probe := range m.Dom {
+		ok := f.DomHits[probeID(probe)]
+		st.add(boolResult(ok), m.Condition)
+		if ok {
+			*ev = append(*ev, Evidence{Type: "dom", Detail: probe.Sel})
+		}
+	}
+}
+
+func evalMatcherState(m *Matcher, c *matchCtx, part string, ev *[]Evidence) evalResult {
+	st := triState{}
+	switch m.Type {
+	case "word":
+		evalWordMatcher(m, c, part, &st, ev)
+	case "regex":
+		evalRegexMatcher(m, c, part, &st, ev)
+	case "status":
+		evalStatusMatcher(m, c.f, &st, ev)
+	case "icon_hash":
+		evalIconHashMatcher(m, c.f, &st, ev)
+	case "dsl":
+		evalDSLMatcher(m, c, &st, ev)
+	case "js":
+		evalJSMatcher(m, c.f, &st, ev)
+	case "dom":
+		evalDOMMatcher(m, c.f, &st, ev)
+	default:
+		// 未知 matcher 类型：整条 matcher 无效，不产出证据，negative 也不反转。
+		st.add(evalInvalid, m.Condition)
+	}
+	return st.result()
+}
+
 // evalMatcherInto 求值单个 matcher，证据直接追加进调用方共享的 ev 切片。
 // 之前 evalMatcher 内部自建 ev、返回后再被 matchRule 拷贝一次，命中多的规则集里
 // 这两次切片分配按命中数线性累积；共享切片把命中路径的分配砍半。
 func evalMatcherInto(m Matcher, c *matchCtx, ev *[]Evidence) bool {
-	f := c.f
-	st := triState{}
 	part := m.Part
 	if part == "" {
 		part = "body"
 	}
-
-	switch m.Type {
-	case "word":
-		// body 有索引走命中集合；空词与 strings.Contains("")=true 对齐
-		if c.bodyWordHits != nil && part == "body" {
-			for _, w := range m.Words {
-				ok := w == "" || c.bodyWordHits[strings.ToLower(w)]
-				st.add(boolResult(ok), m.Condition)
-				if ok {
-					*ev = append(*ev, Evidence{Type: "word", Part: part, Detail: w})
-				}
-			}
-			break
-		}
-		cmpText := c.partTextLower(m)
-		for _, w := range m.Words {
-			ok := strings.Contains(cmpText, strings.ToLower(w))
-			st.add(boolResult(ok), m.Condition)
-			if ok {
-				*ev = append(*ev, Evidence{Type: "word", Part: part, Detail: w})
-			}
-		}
-	case "regex":
-		text := c.partText(m)
-		lowerText := c.partTextLower(m)
-		hasFoldSensitive := c.partHasFoldSensitive(m)
-		for _, r := range m.Regex {
-			re, err := compileRegex("(?i)" + r)
-			if err != nil {
-				re, err = compileRegex(r)
-			}
-			if err != nil {
-				// 正则是坏的，这条件判无效而不是未命中：negative 不能拿它当"没出现"
-				st.add(evalInvalid, m.Condition)
-				continue
-			}
-			// 必需字面量预过滤：AST 证明必然不匹配才跳过（含非 ASCII 的 part 不预筛，
-			// 避免 ToLower 与 SimpleFold 的折叠差异造成误跳过）。body 有 AC 索引时查
-			// 命中集合，否则 Contains 小文本。
-			if regexCanSkip(r, lowerText, hasFoldSensitive, c.regexLitLookup(m)) {
-				st.add(evalMiss, m.Condition)
-				continue
-			}
-			ok := re.MatchString(text)
-			st.add(boolResult(ok), m.Condition)
-			if ok {
-				detail := re.FindString(text)
-				if len(detail) > 120 {
-					detail = detail[:120] + "…"
-				}
-				if detail == "" {
-					detail = "（零宽匹配）"
-				}
-				*ev = append(*ev, Evidence{Type: "regex", Part: part, Detail: detail, Pattern: r})
-			}
-		}
-	case "status":
-		for _, s := range m.Status {
-			ok := f.Status == s
-			st.add(boolResult(ok), m.Condition)
-			if ok {
-				*ev = append(*ev, Evidence{Type: "status", Detail: fmt.Sprintf("状态码 %d", s)})
-			}
-		}
-	case "icon_hash":
-		// 页面的所有 icon 哈希都参与比对，不知道哪个图案才是指纹库里那个
-		for _, h := range m.Hash {
-			ok := slices.Contains(f.FaviconHashes, h)
-			st.add(boolResult(ok), m.Condition)
-			if ok {
-				*ev = append(*ev, Evidence{Type: "icon_hash", Detail: fmt.Sprintf("mmh3 %d", h)})
-			}
-		}
-	case "dsl":
-		for _, expr := range m.Dsl {
-			ok, err := dslEval(expr, c)
-			if err != nil {
-				// dsl 语法/求值出错判无效，同上 negative 不能反转
-				st.add(evalInvalid, m.Condition)
-				continue
-			}
-			st.add(boolResult(ok), m.Condition)
-			if ok {
-				*ev = append(*ev, Evidence{Type: "dsl", Detail: expr})
-			}
-		}
-	case "js":
-		for _, p := range m.Js {
-			val, exists := f.Js[p.Path]
-			if !exists {
-				st.add(evalMiss, m.Condition)
-				continue
-			}
-			if p.Pattern == "" {
-				st.add(evalHit, m.Condition)
-				*ev = append(*ev, Evidence{Type: "js", Detail: jsProbeDetail(p.Path, val)})
-				continue
-			}
-			re, err := compileRegex(p.Pattern)
-			if err != nil {
-				st.add(evalInvalid, m.Condition)
-				continue
-			}
-			ok := re.MatchString(val)
-			st.add(boolResult(ok), m.Condition)
-			if ok {
-				*ev = append(*ev, Evidence{Type: "js", Detail: jsProbeDetail(p.Path, val)})
-			}
-		}
-	case "dom":
-		// 探测结果 f.DomHits 里存的是命中的 probe id；同一组 sel/text/attrs
-		// 在 JS 侧和这里算出同一个 id，命中即存在
-		for _, sel := range m.Words {
-			ok := f.DomHits[probeID(DomProbe{Sel: sel})]
-			st.add(boolResult(ok), m.Condition)
-			if ok {
-				*ev = append(*ev, Evidence{Type: "dom", Detail: sel})
-			}
-		}
-		for _, p := range m.Dom {
-			ok := f.DomHits[probeID(p)]
-			st.add(boolResult(ok), m.Condition)
-			if ok {
-				*ev = append(*ev, Evidence{Type: "dom", Detail: p.Sel})
-			}
-		}
-	default:
-		// 未知 matcher 类型：整条 matcher 无效，不产出证据，negative 也不反转
-		st.add(evalInvalid, m.Condition)
-	}
-
-	state := st.result()
+	state := evalMatcherState(&m, c, part, ev)
 	if m.Negative {
 		switch state {
 		case evalHit:

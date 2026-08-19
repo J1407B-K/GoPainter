@@ -42,7 +42,7 @@
     const current = stored[STORAGE_KEY] || {};
     return Object.fromEntries(Object.values(SOURCE_DEFS).map((def) => [
       def.id,
-      { ...defaultMeta(def), ...(current[def.id] || {}), id: def.id, name: def.name, ruleSetId: def.ruleSetId },
+      { ...defaultMeta(def), ...current[def.id], id: def.id, name: def.name, ruleSetId: def.ruleSetId },
     ]));
   }
 
@@ -69,65 +69,77 @@
     return url;
   }
 
+  async function requestSource(url, options, conditional) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+    const headers = { Accept: options.accept || 'application/json, text/plain, */*' };
+    if (conditional && options.etag) headers['If-None-Match'] = options.etag;
+    if (conditional && options.lastModified) headers['If-Modified-Since'] = options.lastModified;
+    try {
+      const response = await fetch(url.href, {
+        signal: controller.signal, redirect: 'manual', credentials: 'omit', cache: 'no-store', headers,
+      });
+      return { controller, response };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  function redirectedSourceURL(response, url, redirect) {
+    if (redirect === MAX_REDIRECTS) throw new Error('规则源重定向次数过多');
+    const location = response.headers.get('location');
+    if (!location) throw new Error('规则源重定向缺少 Location');
+    return checkedRemoteURL(new URL(location, url).href);
+  }
+
+  async function readBoundedBody(response, controller, budget, maxBytes) {
+    const declared = Number(response.headers.get('content-length'));
+    if (Number.isFinite(declared) && (declared > maxBytes || budget.bytes + declared > MAX_TOTAL_BYTES)) {
+      throw new Error('规则源响应超过大小上限');
+    }
+    if (!response.body) throw new Error('规则源响应没有正文');
+    const reader = response.body.getReader();
+    const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+    const chunks = [];
+    let length = 0;
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        length += value.byteLength;
+        budget.bytes += value.byteLength;
+        if (length > maxBytes || budget.bytes > MAX_TOTAL_BYTES) {
+          await reader.cancel();
+          throw new Error('规则源响应超过大小上限');
+        }
+        chunks.push(value);
+      }
+    } finally {
+      clearTimeout(timer);
+      reader.releaseLock();
+    }
+    const bytes = new Uint8Array(length);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    return new TextDecoder().decode(bytes);
+  }
+
   async function fetchBounded(rawURL, budget, options = {}) {
     let url = checkedRemoteURL(rawURL);
     const maxBytes = Math.min(options.maxBytes || MAX_FILE_BYTES, MAX_FILE_BYTES);
     for (let redirect = 0; redirect <= MAX_REDIRECTS; redirect++) {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-      let response;
-      try {
-        const headers = { Accept: options.accept || 'application/json, text/plain, */*' };
-        if (redirect === 0 && options.etag) headers['If-None-Match'] = options.etag;
-        if (redirect === 0 && options.lastModified) headers['If-Modified-Since'] = options.lastModified;
-        response = await fetch(url.href, {
-          signal: controller.signal, redirect: 'manual', credentials: 'omit', cache: 'no-store', headers,
-        });
-      } finally {
-        clearTimeout(timer);
-      }
+      const { controller, response } = await requestSource(url, options, redirect === 0);
       if (response.status === 304) return { notModified: true, url: url.href };
       if (response.status >= 300 && response.status < 400) {
-        if (redirect === MAX_REDIRECTS) throw new Error('规则源重定向次数过多');
-        const location = response.headers.get('location');
-        if (!location) throw new Error('规则源重定向缺少 Location');
-        url = checkedRemoteURL(new URL(location, url).href);
+        url = redirectedSourceURL(response, url, redirect);
         continue;
       }
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const declared = Number(response.headers.get('content-length'));
-      if (Number.isFinite(declared) && (declared > maxBytes || budget.bytes + declared > MAX_TOTAL_BYTES)) {
-        throw new Error('规则源响应超过大小上限');
-      }
-      if (!response.body) throw new Error('规则源响应没有正文');
-      const reader = response.body.getReader();
-      const bodyTimer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-      const chunks = [];
-      let length = 0;
-      try {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          length += value.byteLength;
-          budget.bytes += value.byteLength;
-          if (length > maxBytes || budget.bytes > MAX_TOTAL_BYTES) {
-            await reader.cancel();
-            throw new Error('规则源响应超过大小上限');
-          }
-          chunks.push(value);
-        }
-      } finally {
-        clearTimeout(bodyTimer);
-        reader.releaseLock();
-      }
-      const bytes = new Uint8Array(length);
-      let offset = 0;
-      for (const chunk of chunks) {
-        bytes.set(chunk, offset);
-        offset += chunk.byteLength;
-      }
       return {
-        text: new TextDecoder().decode(bytes), url: url.href,
+        text: await readBoundedBody(response, controller, budget, maxBytes), url: url.href,
         etag: response.headers.get('etag') || '',
         lastModified: response.headers.get('last-modified') || '',
       };
