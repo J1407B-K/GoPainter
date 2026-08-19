@@ -46,7 +46,7 @@ While you browse, GoPainter fingerprints the current site automatically and surf
 
 ## Current release: v0.6.9
 
-v0.6.9 adds user-initiated third-party rule-source updates for Wappalyzer, EHole, and nuclei-templates: bounded streaming downloads, separate source rule sets, optional daily/weekly checks (off by default), change summaries, and one-version rollback. Third-party rule data is fetched by the user and remains unbundled and undistributed by GoPainter. Browser E2E now runs in CI and release checks. See the resource measurements and previous versions in the [performance record](BENCHMARK.md).
+v0.6.9 adds user-initiated third-party rule-source updates for Wappalyzer, EHole, and nuclei-templates: bounded streaming downloads, separate source rule sets, optional daily/weekly checks (off by default), change summaries, and one-version rollback. Third-party rule data is fetched by the user and remains unbundled and undistributed by GoPainter. See the resource measurements and previous versions in the [performance record](BENCHMARK.md).
 
 ## Quick start
 

@@ -4,9 +4,11 @@ This is the project's living performance record. Every material performance chan
 its measured workload, trade-offs, and reproduction command belongs here. The goal
 is not to collect micro-benchmarks; it is to make future design decisions auditable.
 
-## v0.6.9 - Chromium browser E2E correctness baseline
+## v0.6.8 - Chromium validation
 
-v0.6.9 runs the real unpacked extension in Chromium as part of CI and release checks.
+### Browser E2E correctness baseline
+
+v0.6.8 runs the real unpacked extension in Chromium.
 Unlike the resource benchmark below, this is a deterministic correctness test: a local
 fixture supplies known title, meta, body, script, JavaScript-runtime, DOM, favicon, and
 SPA-route signals, then the test verifies the complete capture → match → session storage
@@ -25,7 +27,7 @@ The machine-readable successful result is:
 {"e2e":"passed","initialHits":6,"spaHit":"e2e-spa","faviconHashes":2,"popupRendered":true}
 ```
 
-## v0.6.8 - Chromium multi-tab resource bounds
+### Chromium multi-tab resource bounds
 
 v0.6.8 closes the multi-tab resource-hardening work with a real Chromium run, not
 just source-level queue assertions. The benchmark launches a fresh profile, loads
