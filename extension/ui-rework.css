@@ -319,6 +319,22 @@ html.gp-popup .ev .tag {
   font: 700 9px var(--gp-mono);
 }
 html.gp-popup .ev .detail { min-width: 0; color: #536980; font: 10px/1.45 var(--gp-mono); overflow-wrap: anywhere; }
+html.gp-popup .ev.locatable {
+  width: 100%;
+  cursor: pointer;
+  border: 1px solid #ebf0f5;
+  font: inherit;
+  text-align: left;
+  transition: border-color .16s ease, background .16s ease, transform .16s ease;
+}
+html.gp-popup .ev.locatable:hover,
+html.gp-popup .ev.locatable:focus-visible {
+  background: #edf6f3;
+  border-color: #9bd7c1;
+  outline: 0;
+  transform: translateX(2px);
+}
+html.gp-popup .ev.locatable .tag:after { content: ' ↗'; color: #16805f; }
 html.gp-popup .footer {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

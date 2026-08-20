@@ -165,13 +165,122 @@
     });
   }
 
+  let evidenceCleanup = null;
+
+  function clearEvidenceLocation() {
+    evidenceCleanup?.();
+    evidenceCleanup = null;
+  }
+
+  function showEvidenceToast(message) {
+    const toast = document.createElement('div');
+    toast.textContent = message;
+    toast.setAttribute('role', 'status');
+    Object.assign(toast.style, {
+      all: 'initial', position: 'fixed', top: '18px', right: '18px', zIndex: '2147483647',
+      maxWidth: 'min(360px, calc(100vw - 36px))', padding: '10px 13px', borderRadius: '9px',
+      color: '#fff', background: 'rgba(15, 43, 66, .94)', boxShadow: '0 8px 24px rgba(0,0,0,.22)',
+      font: '600 13px/1.45 system-ui, sans-serif', letterSpacing: 'normal', textAlign: 'left',
+    });
+    (document.documentElement || document.body).append(toast);
+    return toast;
+  }
+
+  function ensureEvidenceStyles() {
+    if (document.getElementById('gopainter-evidence-styles')) return;
+    const style = document.createElement('style');
+    style.id = 'gopainter-evidence-styles';
+    style.textContent = `.gopainter-evidence-target { outline: 3px solid #16a878 !important; outline-offset: 3px !important; box-shadow: 0 0 0 6px rgba(22, 168, 120, .2) !important; }`;
+    (document.head || document.documentElement).append(style);
+  }
+
+  function highlightElements(elements, label) {
+    clearEvidenceLocation();
+    ensureEvidenceStyles();
+    const targets = elements.slice(0, 20);
+    for (const element of targets) element.classList.add('gopainter-evidence-target');
+    targets[0]?.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+    const toast = showEvidenceToast(label);
+    const timer = setTimeout(clearEvidenceLocation, 3_600);
+    evidenceCleanup = () => {
+      clearTimeout(timer);
+      for (const element of targets) element.classList.remove('gopainter-evidence-target');
+      toast.remove();
+    };
+    return { ok: true, count: targets.length };
+  }
+
+  function highlightText(detail) {
+    const raw = String(detail || '').trim();
+    const needle = (raw.endsWith('…') ? raw.slice(0, -1) : raw).toLocaleLowerCase();
+    if (!needle || !document.body) return { ok: false };
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
+      acceptNode(node) {
+        const parent = node.parentElement;
+        if (!parent || ['SCRIPT', 'STYLE', 'NOSCRIPT'].includes(parent.tagName)) return NodeFilter.FILTER_REJECT;
+        return node.data.toLocaleLowerCase().includes(needle) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP;
+      },
+    });
+    const node = walker.nextNode();
+    if (!node) return { ok: false };
+    const start = node.data.toLocaleLowerCase().indexOf(needle);
+    const range = document.createRange();
+    range.setStart(node, start);
+    range.setEnd(node, start + needle.length);
+    const marks = [];
+    for (const rect of range.getClientRects()) {
+      const mark = document.createElement('div');
+      Object.assign(mark.style, {
+        all: 'initial', position: 'absolute', zIndex: '2147483647', pointerEvents: 'none',
+        top: `${rect.top + scrollY - 2}px`, left: `${rect.left + scrollX - 2}px`,
+        width: `${rect.width + 4}px`, height: `${rect.height + 4}px`, borderRadius: '3px',
+        background: 'rgba(250, 204, 21, .42)', outline: '2px solid rgba(202, 138, 4, .82)',
+      });
+      document.documentElement.append(mark);
+      marks.push(mark);
+    }
+    if (!marks.length) return { ok: false };
+    clearEvidenceLocation();
+    node.parentElement?.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+    const toast = showEvidenceToast('GoPainter located matching page text');
+    const timer = setTimeout(clearEvidenceLocation, 3_600);
+    evidenceCleanup = () => {
+      clearTimeout(timer);
+      marks.forEach((mark) => mark.remove());
+      toast.remove();
+    };
+    return { ok: true, count: 1 };
+  }
+
+  function locateEvidence(evidence) {
+    const type = evidence?.type;
+    if (type === 'dom') {
+      try {
+        const elements = [...document.querySelectorAll(String(evidence.detail || ''))];
+        return elements.length ? highlightElements(elements, `GoPainter located ${elements.length} matching element${elements.length === 1 ? '' : 's'}`) : { ok: false };
+      } catch {
+        return { ok: false };
+      }
+    }
+    if ((type === 'word' || type === 'regex') && (!evidence.part || evidence.part === 'body' || evidence.part === 'raw')) {
+      return highlightText(evidence.detail);
+    }
+    return { ok: false };
+  }
+
   report();
 
   // A live rule edit may introduce probes that were not part of the original
   // page snapshot. Only the extension can send this runtime message.
   chrome.runtime.onMessage.addListener((message) => {
-    if (message?.type !== 'gopainter:recollect') return false;
-    report().catch(() => {});
+    if (message?.type === 'gopainter:recollect') {
+      report().catch(() => {});
+      return false;
+    }
+    if (message?.type === 'gopainter:locateEvidence') {
+      try { locateEvidence(message.evidence); } catch { /* a stale page may have been torn down */ }
+      return false;
+    }
     return false;
   });
 

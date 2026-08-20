@@ -36,6 +36,7 @@
     '提示词': 'Prompts', '恢复默认': 'Restore default', '保存 AI 配置': 'Save AI settings',
     '编辑集': 'Rule set', '加载中…': 'Loading…', '爬取本站': 'Crawl site',
     '当前页面': 'Current page', '快捷操作': 'Quick actions',
+    '在页面中定位此证据': 'Locate this evidence on the page',
     '规则集：': 'Rule set: ',
     '实时 YAML 校验 · Go/WASM': 'Live YAML validation · Go/WASM', '检查 YAML': 'Check YAML', '正在校验 YAML…': 'Validating YAML…',
     '✓ YAML 与规则有效': '✓ Valid YAML and rule', 'YAML / 规则无效': 'Invalid YAML / rule',

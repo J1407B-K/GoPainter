@@ -403,8 +403,18 @@ function appendHitEvidence(card, hit) {
   const box = document.createElement('div');
   box.className = 'evidence';
   for (const [index, evidence] of hit.evidence.entries()) {
-    const row = document.createElement('div');
-    row.className = 'ev';
+    const canLocate = evidenceCanLocate(evidence);
+    const row = document.createElement(canLocate ? 'button' : 'div');
+    row.className = 'ev' + (canLocate ? ' locatable' : '');
+    if (canLocate) {
+      row.type = 'button';
+      row.title = t('在页面中定位此证据', 'Locate this evidence on the page');
+      row.setAttribute('aria-label', row.title);
+      row.addEventListener('click', (event) => {
+        event.stopPropagation();
+        locateEvidence(evidence);
+      });
+    }
     const tagText = evidence.part && evidence.part !== 'body' ? `${evidence.type}:${evidence.part}` : evidence.type;
     row.innerHTML = `<span class="tag"></span><span class="detail"></span>`;
     row.querySelector('.tag').textContent = tagText;
@@ -413,6 +423,29 @@ function appendHitEvidence(card, hit) {
     box.appendChild(row);
   }
   card.appendChild(box);
+}
+
+function evidenceCanLocate(evidence) {
+  if (evidence?.type === 'dom') return Boolean(evidence.detail);
+  return (evidence?.type === 'word' || evidence?.type === 'regex')
+    && (!evidence.part || evidence.part === 'body' || evidence.part === 'raw')
+    && Boolean(evidence.detail);
+}
+
+async function locateEvidence(evidence) {
+  if (!Number.isInteger(currentTabId)) return;
+  try {
+    await chrome.tabs.sendMessage(currentTabId, {
+      type: 'gopainter:locateEvidence',
+      evidence: {
+        type: evidence.type,
+        part: evidence.part || 'body',
+        detail: String(evidence.detail || '').slice(0, 120),
+      },
+    });
+  } catch {
+    // The current tab may have navigated or Chrome may not allow a content script there.
+  }
 }
 
 function appendHitActions(card, head, hit) {

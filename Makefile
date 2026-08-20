@@ -6,6 +6,7 @@ EXEC_JS  := extension/wasm/wasm_exec.js
 GO_BIN   := $(shell go env GOBIN)
 GO_PATH  := $(shell go env GOPATH)
 GOLANGCI_LINT := $(if $(GO_BIN),$(GO_BIN),$(GO_PATH)/bin)/golangci-lint
+GOLANGCI_LINT_VERSION := v2.1.6
 
 .PHONY: build build-tinygo build-go build-go-stdlib build-go-re2 icons lint-go test test-go test-go-stdlib test-go-re2 test-js test-browser-e2e bench-js bench-regex bench-chromium clean
 
@@ -29,6 +30,7 @@ test-js:
 	node --test test/*.test.cjs
 
 lint-go:
+	@if [ ! -x "$(GOLANGCI_LINT)" ]; then go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION); fi
 	GOOS=js GOARCH=wasm $(GOLANGCI_LINT) run --timeout=5m
 
 bench-js:
