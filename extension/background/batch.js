@@ -153,12 +153,15 @@
     } catch (error) {
       if (runId === runtime.runId) runtime.state.error = String(error?.message || error).slice(0, 500);
     } finally {
-      if (runId !== runtime.runId) return;
-      runtime.state.running = false;
-      runtime.state.stopped = runtime.controller.signal.aborted;
-      runtime.state.finishedAt = Date.now();
-      await persistProgress(true);
-      runtime.active = false;
+      // Never return from finally: that can suppress an exception or pending
+      // control flow. A replaced run must simply leave its successor untouched.
+      if (runId === runtime.runId) {
+        runtime.state.running = false;
+        runtime.state.stopped = runtime.controller.signal.aborted;
+        runtime.state.finishedAt = Date.now();
+        await persistProgress(true);
+        runtime.active = false;
+      }
     }
   }
 

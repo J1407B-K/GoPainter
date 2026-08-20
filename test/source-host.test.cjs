@@ -38,6 +38,7 @@ function createHarness({ failWappFile = false } = {}) {
   const storage = {};
   const events = [];
   const appliedRuleSets = [];
+  const reconciledRuleSets = [];
   let activeFetches = 0;
   let maxFetches = 0;
   let abortedFetches = 0;
@@ -130,14 +131,15 @@ function createHarness({ failWappFile = false } = {}) {
     GoPainterUtils: { mergeConvertedRules: (rules) => rules },
     GoPainterRulesHost: {
       handlers: {
+        reconcileSourceRuleSet: async (input) => { reconciledRuleSets.push(input); return { ok: true, changed: false }; },
         convertWappalyzer: async ({ techJSON }) => ({
           rules: Object.keys(JSON.parse(techJSON)).map((name) => ({ id: `wapp-${name}`, name })),
         }),
         convertEHole: async () => ({ rules: [{ id: 'ehole-test', name: 'EHole test' }] }),
         normalizeRules: async () => ({ rules: [] }),
       },
-      replaceSourceRuleSet: async ({ rules }) => {
-        appliedRuleSets.push(rules.map((rule) => rule.id));
+      replaceSourceRuleSet: async ({ id, name, rules }) => {
+        appliedRuleSets.push({ id, name, rules: rules.map((rule) => rule.id) });
         return {
           previousCount: 0,
           ruleCount: rules.length,
@@ -152,7 +154,8 @@ function createHarness({ failWappFile = false } = {}) {
     handlers: context.GoPainterSourceHost.handlers,
     stats: () => ({
       activeFetches, maxFetches, abortedFetches,
-      events: [...events], appliedRuleSets: appliedRuleSets.map((rules) => [...rules]),
+      events: [...events], appliedRuleSets: appliedRuleSets.map((rules) => ({ ...rules, rules: [...rules.rules] })),
+      reconciledRuleSets: reconciledRuleSets.map((input) => ({ ...input, legacyRuleSetNames: [...(input.legacyRuleSetNames || [])] })),
     }),
   };
 }
@@ -172,10 +175,22 @@ test('different third-party sources share one four-request download limit', asyn
   assert.equal(ehole.ok, true);
   assert.ok(stats.maxFetches <= 4, `observed ${stats.maxFetches} concurrent downloads`);
   assert.ok(eholeStart > lastWappFile, 'the second source started before the first source finished downloading');
-  assert.deepEqual(stats.appliedRuleSets[0], Array.from(
+  assert.equal(stats.appliedRuleSets[0].id, 'source:wappalyzer');
+  assert.equal(stats.appliedRuleSets[0].name, 'Wappalyzer 社区版');
+  assert.deepEqual(stats.appliedRuleSets[0].rules, Array.from(
     { length: 8 },
     (_, index) => `wapp-Technology ${String.fromCharCode(97 + index)}.json`
   ));
+  assert.equal(stats.appliedRuleSets[1].id, 'source:ehole');
+  assert.equal(stats.appliedRuleSets[1].name, 'EHole 棱洞');
+  assert.ok(stats.reconciledRuleSets.some((input) => input.id === 'source:wappalyzer'
+    && input.name === 'Wappalyzer 社区版'
+    && input.legacyRuleSetIds.includes('wappalyzer')
+    && input.legacyRuleSetNames.includes('Wappalyzer Community Edition')));
+  assert.ok(stats.reconciledRuleSets.some((input) => input.id === 'source:ehole'
+    && input.name === 'EHole 棱洞'
+    && input.legacyRuleSetIds.includes('ehole')
+    && input.legacyRuleSetNames.includes('EHole')));
   assert.equal(stats.activeFetches, 0);
 });
 

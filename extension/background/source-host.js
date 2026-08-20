@@ -13,15 +13,18 @@
   const ALLOWED_HOSTS = new Set(['api.github.com', 'raw.githubusercontent.com', 'github.com']);
   const SOURCE_DEFS = Object.freeze({
     wappalyzer: Object.freeze({
-      id: 'wappalyzer', name: 'Wappalyzer Community Edition', ruleSetId: 'source:wappalyzer',
+      id: 'wappalyzer', name: 'Wappalyzer 社区版', ruleSetId: 'source:wappalyzer',
+      legacyRuleSetIds: ['wappalyzer'], legacyRuleSetNames: ['Wappalyzer Community Edition', 'Wappalyzer'],
       manifest: 'https://api.github.com/repos/enthec/webappanalyzer/contents/src/technologies',
     }),
     ehole: Object.freeze({
-      id: 'ehole', name: 'EHole', ruleSetId: 'source:ehole',
+      id: 'ehole', name: 'EHole 棱洞', ruleSetId: 'source:ehole',
+      legacyRuleSetIds: ['ehole'], legacyRuleSetNames: ['EHole'],
       manifest: 'https://raw.githubusercontent.com/EdgeSecurityTeam/EHole/main/finger.json',
     }),
     nuclei: Object.freeze({
       id: 'nuclei', name: 'nuclei-templates', ruleSetId: 'source:nuclei',
+      legacyRuleSetIds: ['nuclei'], legacyRuleSetNames: ['Nuclei Templates'],
       manifest: 'https://api.github.com/repos/projectdiscovery/nuclei-templates/contents/http/technologies',
     }),
   });
@@ -32,6 +35,7 @@
   function defaultMeta(def) {
     return {
       id: def.id, name: def.name, ruleSetId: def.ruleSetId,
+      legacyRuleSetIds: def.legacyRuleSetIds, legacyRuleSetNames: def.legacyRuleSetNames,
       autoUpdate: false, intervalHours: 24, lastCheckedAt: 0, lastUpdatedAt: 0,
       ruleCount: 0, etag: '', lastModified: '', contentHash: '', lastError: '',
       canRollback: false, lastSummary: null,
@@ -313,6 +317,12 @@
   async function performUpdate(sourceId, signal) {
     const def = SOURCE_DEFS[sourceId];
     if (!def) throw new Error('未知规则源');
+    await GoPainterRulesHost.handlers.reconcileSourceRuleSet({
+      id: def.ruleSetId,
+      name: def.name,
+      legacyRuleSetIds: def.legacyRuleSetIds,
+      legacyRuleSetNames: def.legacyRuleSetNames,
+    });
     const state = await loadState();
     const meta = state[sourceId];
     const checkedAt = Date.now();
@@ -385,6 +395,17 @@
     if (!needed && current) await chrome.alarms.clear(ALARM_NAME);
   }
 
+  async function reconcileKnownSourceRuleSets() {
+    for (const def of Object.values(SOURCE_DEFS)) {
+      await GoPainterRulesHost.handlers.reconcileSourceRuleSet({
+        id: def.ruleSetId,
+        name: def.name,
+        legacyRuleSetIds: def.legacyRuleSetIds,
+        legacyRuleSetNames: def.legacyRuleSetNames,
+      });
+    }
+  }
+
   async function setAutoUpdate({ sourceId, enabled, intervalHours }) {
     if (!SOURCE_DEFS[sourceId]) throw new Error('未知规则源');
     const interval = Math.min(168, Math.max(6, Number.parseInt(intervalHours, 10) || 24));
@@ -426,6 +447,7 @@
     })();
   });
 
+  reconcileKnownSourceRuleSets().catch((error) => console.warn('整理旧规则源规则集失败:', error));
   syncAlarm().catch(() => {});
 
   globalThis.GoPainterSourceHost = Object.freeze({

@@ -133,6 +133,17 @@ pass &&= checked.valid && checked.rule?.id === 'react'
   && checked.currentPageHits?.some((h) => h.id === 'react')
   && !rejected.valid && rejected.errors?.[0]?.code === 'invalid_json';
 
+// 已安装的第三方规则可能天然拥有大量 matcher；编辑器不能把 AI 候选
+// 的 50 项上限错误施加到它们身上。
+const installedRule = {
+  id: 'large-source-rule', name: 'Large source rule', 'matchers-condition': 'or',
+  matchers: Array.from({ length: 51 }, (_, index) => ({ type: 'word', words: [`marker-${index}`] })),
+};
+const draftChecked = JSON.parse(globalThis.goValidateRuleDraft(JSON.stringify(installedRule), '{}'));
+const candidateRejected = JSON.parse(globalThis.goValidateCandidate(JSON.stringify(installedRule), '{}'));
+console.log('installed rule editable =', draftChecked.valid, 'candidate limit retained =', !candidateRejected.valid);
+pass &&= draftChecked.valid && !candidateRejected.valid;
+
 // Rule → probes 与 DOM probe ID 都由 Core 规划，Host 不再复制哈希协议。
 const planned = JSON.parse(globalThis.goPlanRequiredProbes(JSON.stringify([{
   id: 'runtime', name: 'Runtime', matchers: [

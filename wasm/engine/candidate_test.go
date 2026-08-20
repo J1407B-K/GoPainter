@@ -2,6 +2,7 @@ package engine
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -41,6 +42,26 @@ func TestValidateCandidateStrictAndExecutable(t *testing.T) {
 	}
 	if result.RuntimeCoverage == nil || !result.RuntimeCoverage.Complete {
 		t.Fatalf("unexpected coverage: %+v", result.RuntimeCoverage)
+	}
+}
+
+func TestValidateEditableRuleAllowsInstalledSourceRuleSizes(t *testing.T) {
+	matchers := make([]any, 51)
+	for i := range matchers {
+		matchers[i] = map[string]any{"type": "word", "words": []string{fmt.Sprintf("marker-%d", i)}}
+	}
+	matchers[0] = map[string]any{"type": "word", "words": make([]string, 51)}
+	for i := range matchers[0].(map[string]any)["words"].([]string) {
+		matchers[0].(map[string]any)["words"].([]string)[i] = fmt.Sprintf("word-%d", i)
+	}
+	rule := map[string]any{
+		"id": "large-source-rule", "name": "Large source rule", "matchers-condition": "or", "matchers": matchers,
+	}
+	if candidate := ValidateCandidate(candidateJSON(rule), Features{}); candidate.Valid || !hasIssue(candidate, "matchers", "invalid_list") {
+		t.Fatalf("candidate validation must keep its 50 matcher limit: %+v", candidate.Errors)
+	}
+	if editable := ValidateEditableRule(candidateJSON(rule), Features{}); !editable.Valid {
+		t.Fatalf("installed source rule should remain editable: %+v", editable.Errors)
 	}
 }
 

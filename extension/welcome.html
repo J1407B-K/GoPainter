@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>欢迎使用 GoPainter</title>
+  <link rel="stylesheet" href="welcome.css">
+</head>
+<body>
+  <main class="welcome-shell">
+    <header class="topbar">
+      <a class="brand" href="options.html" aria-label="打开 GoPainter 设置">
+        <img src="icons/icon48.png" alt="">
+        <span>GoPainter</span>
+      </a>
+      <button id="skip" class="text-button" type="button">跳过引导</button>
+    </header>
+
+    <section id="intro" class="screen intro" aria-labelledby="welcome-title">
+      <div class="eyebrow"><span></span> LOCAL · EXPLAINABLE · DETERMINISTIC</div>
+      <h1 id="welcome-title">让每一次识别<br>都有<span>证据</span>可循。</h1>
+      <p class="lede">导入 YAML 规则，GoPainter 会在本地采集页面特征、执行匹配，并展示每一条命中的来源。</p>
+
+      <div class="flow" aria-label="规则匹配流程演示">
+        <div class="flow-card rule-card"><div class="flow-icon">{ }</div><strong>YAML 规则</strong><small>你定义信号</small></div>
+        <div class="flow-link"><i></i><i></i><i></i></div>
+        <div class="flow-card core-card"><div class="orbit orbit-a"></div><div class="orbit orbit-b"></div><div class="core-mark">G</div><strong>Go / WASM</strong><small>本地确定性匹配</small></div>
+        <div class="flow-link"><i></i><i></i><i></i></div>
+        <div class="flow-card evidence-card"><div class="evidence-lines"><b></b><b></b><b></b></div><strong>命中证据</strong><small>可检查、可追溯</small></div>
+      </div>
+
+      <div class="sample-box">
+        <div class="sample-copy"><span class="sample-dot"></span><div><strong>试试本地样例</strong><small>3 条规则 · WordPress / Nginx / Analytics</small></div></div>
+        <pre aria-label="样例 YAML"><code>- id: demo-wordpress
+  matchers: [word, regex]</code></pre>
+      </div>
+      <div class="actions">
+        <button id="import-sample" class="primary" type="button">导入样例并开始演示 <span>→</span></button>
+        <a href="options.html" class="secondary">我想导入自己的 YAML</a>
+      </div>
+      <p id="intro-status" class="status" role="status"></p>
+    </section>
+
+    <section id="demo" class="screen demo" hidden aria-labelledby="demo-title">
+      <div class="eyebrow success"><span>✓</span> SAMPLE RULES IMPORTED</div>
+      <h1 id="demo-title">规则已经就绪。<br>看看它如何命中。</h1>
+      <p class="lede">下面的 HTML 和响应头是本地样例，不会访问网络，也不会改动你的页面。</p>
+
+      <div class="demo-layout">
+        <article class="code-window">
+          <header><span></span><span></span><span></span><em>sample-page.html</em></header>
+          <pre id="sample-body"></pre>
+        </article>
+        <div class="match-column">
+          <div class="scan-line"><span></span><b>Production WASM engine</b><em id="scan-status">准备匹配</em></div>
+          <div id="demo-hits" class="demo-hits" aria-live="polite"></div>
+        </div>
+      </div>
+
+      <div class="demo-footer">
+        <div><strong>这就是完整匹配链路。</strong><span>规则与样例集彼此独立，之后可在设置中管理。</span></div>
+        <div class="actions compact"><a href="options.html" class="secondary">打开规则设置</a><button id="finish" class="primary" type="button">开始识别网页 <span>→</span></button></div>
+      </div>
+    </section>
+  </main>
+  <script src="wasm/wasm_exec.js"></script>
+  <script src="welcome.js"></script>
+</body>
+</html>

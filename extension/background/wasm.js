@@ -11,6 +11,7 @@ function ensureWasm() {
       go.run(instance); // 不会返回，Go 那边 select{} 常驻
       if (typeof globalThis.goMatch !== 'function'
         || typeof globalThis.goValidateCandidate !== 'function'
+        || typeof globalThis.goValidateRuleDraft !== 'function'
         || typeof globalThis.goPlanRequiredProbes !== 'function') {
         throw new Error('wasm 加载了但核心 API 没注册完整');
       }

@@ -612,10 +612,16 @@ html.gp-options .source-item:hover,
 html.gp-options .hash-item:hover,
 html.gp-options .crawl-item:hover,
 html.gp-options .history-item:hover { background: var(--gp-surface-2); border-color: var(--gp-line); }
-html.gp-options .source-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; }
-html.gp-options .source-item .src-info { min-width: 0; }
+html.gp-options .source-item { display: block; }
+html.gp-options .source-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 16px; }
+html.gp-options .source-item .src-info { display: grid; gap: 2px; min-width: 0; }
 html.gp-options .source-item a { color: var(--gp-accent); text-decoration: none; }
 html.gp-options .source-item button { margin: 0; white-space: nowrap; }
+html.gp-options .source-controls { display: flex; align-items: center; justify-content: flex-end; gap: 7px; flex-wrap: wrap; }
+html.gp-options .source-controls label { display: inline-flex; align-items: center; gap: 4px; margin: 0; font-size: 11px; white-space: nowrap; }
+html.gp-options .source-controls select { width: auto; min-width: 68px; margin: 0; padding: 5px 7px; }
+html.gp-options .source-meta { margin-top: 8px; }
+html.gp-options .source-ruleset { color: var(--gp-text-3); font: 10px var(--gp-mono); }
 
 .locale-toggle {
   margin-left: auto;
@@ -690,6 +696,26 @@ html.gp-options .rule-modal-head { padding: 13px 16px; margin: 0; border-bottom:
 html.gp-options .rule-modal-close { min-height: 28px; margin: 0; padding: 2px 7px; border: 0; font-size: 16px; }
 html.gp-options .rule-modal pre { margin: 0; padding: 14px 16px; color: #dce7f5; background: #18212b; border: 0; border-radius: 0; font: 11px/1.55 var(--gp-mono); }
 html.gp-options .rule-modal > button { align-self: flex-end; margin: 12px 16px; }
+/* The editable rule dialog needs a real viewport-bound editor, rather than
+ * inheriting the compact read-only dialog's natural content height. */
+html.gp-options #rule-modal .rule-modal {
+  display: grid;
+  grid-template-rows: auto auto minmax(320px, 1fr) auto auto;
+  width: min(860px, calc(100vw - 36px));
+  height: min(780px, calc(100vh - 36px));
+  max-height: none;
+}
+html.gp-options #rule-modal .rule-modal-head { min-width: 0; }
+html.gp-options #rule-modal .rule-modal-editor-note { display: flex; align-items: center; gap: 6px; padding: 9px 16px 0; color: var(--gp-text-2); font-size: 11px; font-weight: 650; }
+html.gp-options #rule-modal .rule-modal-editor-note span { display: inline-grid; place-items: center; width: 15px; height: 15px; color: #fff; background: var(--gp-success); border-radius: 50%; font-size: 9px; }
+html.gp-options #rule-modal #rule-modal-body { width: auto; min-height: 0; height: 100%; margin: 10px 16px 0; padding: 14px 15px; color: #dce7f5; background: #18212b; border: 1px solid #26394b; border-radius: 7px; resize: vertical; font: 12px/1.6 var(--gp-mono); white-space: pre; word-break: normal; }
+html.gp-options #rule-modal #rule-modal-validation { min-height: 31px; margin: 9px 16px 0; padding: 6px 9px; border: 1px solid transparent; border-radius: 6px; font-size: 11px; line-height: 1.45; }
+html.gp-options #rule-modal #rule-modal-validation.pending { color: #536d8b; background: #eef4fb; border-color: #d7e5f5; }
+html.gp-options #rule-modal #rule-modal-validation.valid { color: #167257; background: #e9f7f1; border-color: #c6eadb; }
+html.gp-options #rule-modal #rule-modal-validation.invalid { color: #ad3542; background: #fff0f1; border-color: #f0c6cb; }
+html.gp-options #rule-modal .history-actions { display: flex; gap: 8px; margin: 10px 16px 14px; }
+html.gp-options #rule-modal .history-actions button { margin: 0; }
+html.gp-options #rule-modal #rule-modal-check { color: var(--gp-brand); background: var(--gp-brand-soft); border-color: #c8d9f0; }
 
 /* ------------------------------------------------------------------
  * Crawl side panel
@@ -771,6 +797,67 @@ html.gp-sidepanel .empty { padding: 28px 0; color: var(--gp-text-3); text-align:
 
 @keyframes gp-pulse { 50% { opacity: .4; } }
 
+/* Compact inspection surface: the popup borrows the welcome page's layered
+ * blue, evidence-first hierarchy without sacrificing its dense workflow. */
+html.gp-popup body { background: #f5f8fc; }
+html.gp-popup .banner { position: relative; min-height: 78px; padding: 13px 14px 12px 16px; overflow: hidden; background: linear-gradient(124deg,#294f89 0%,#315b9d 58%,#1f67d8 100%); border-bottom-color: #24477c; }
+html.gp-popup .banner:before { content: ""; position: absolute; width: 138px; height: 138px; top: -87px; right: -20px; pointer-events: none; border: 1px solid rgba(255,255,255,.15); border-radius: 50%; box-shadow: 0 0 0 27px rgba(255,255,255,.035),0 0 0 55px rgba(255,255,255,.025); }
+html.gp-popup .brand-lockup, html.gp-popup .ruleset-quick, html.gp-popup .locale-toggle { position: relative; z-index: 1; }
+html.gp-popup .banner h1 { gap: 8px; letter-spacing: -.02em !important; }
+html.gp-popup .gp-logo { width: 29px; height: 29px; box-shadow: 0 3px 10px rgba(10,35,76,.26); }
+html.gp-popup .banner .sub { margin-left: 37px; color: rgba(255,255,255,.7); font-weight: 650; letter-spacing: .03em !important; }
+html.gp-popup .hit-count { display: inline-grid; place-items: center; min-width: 19px; height: 19px; padding: 0 5px; color: #21548f; background: #fff; border-radius: 999px; font: 800 10px var(--gp-mono); box-shadow: 0 2px 8px rgba(17,47,91,.22); }
+html.gp-popup .ruleset-quick { grid-template-columns: 1fr; gap: 3px; max-width: 120px; color: rgba(255,255,255,.62); font: 700 9px var(--gp-font); text-transform: uppercase; letter-spacing: .06em !important; }
+html.gp-popup .ruleset-quick select { width: 120px; height: 29px; background: rgba(21,57,108,.36); border-color: rgba(207,227,255,.4); font-size: 10px; }
+html.gp-popup .container { min-height: 205px; padding: 11px 12px 13px; background: transparent; }
+html.gp-popup .page-info { position: relative; margin-bottom: 13px; padding: 10px 11px; overflow: hidden; background: rgba(255,255,255,.9); border-color: #dbe4ef; border-radius: 9px; box-shadow: 0 5px 17px rgba(37,70,118,.07); }
+html.gp-popup .page-info.page-enter { animation: gp-page-enter .3s cubic-bezier(.2,.8,.2,1) both; }
+html.gp-popup .page-info:after { content: ""; position: absolute; top: 0; right: 0; bottom: 0; width: 3px; background: linear-gradient(#6fa5ed,#315b9d); opacity: .78; }
+html.gp-popup .page-kicker, html.gp-popup .tool-kicker { display: flex; align-items: center; gap: 6px; color: #718197; font: 750 9px var(--gp-font); letter-spacing: .09em !important; text-transform: uppercase; }
+html.gp-popup .page-kicker { margin-bottom: 7px; }
+html.gp-popup .page-kicker span { width: 6px; height: 6px; background: var(--gp-success); border-radius: 50%; box-shadow: 0 0 0 3px var(--gp-success-soft); }
+html.gp-popup .page-info .title { font-size: 13px; font-weight: 720; letter-spacing: -.01em !important; }
+html.gp-popup .page-info .url { max-width: 320px; margin-top: 4px; color: #738398; }
+html.gp-popup .favicon { width: 28px; height: 28px; border-radius: 7px; }
+html.gp-popup .meta-row { margin-top: 8px; }
+html.gp-popup .chip { padding: 2px 6px; color: #566b83; background: #f1f5fa; border: 1px solid #e1e8f0; border-radius: 999px; }
+html.gp-popup .chip.ok { color: #147256; background: #e8f7f1; border-color: #c6eadb; }
+html.gp-popup #status.empty { min-height: 142px; display: grid; place-content: center; padding: 20px 26px; color: var(--gp-text-2); background: rgba(255,255,255,.72); border: 1px dashed #cbd8e8; border-radius: 10px; text-align: center; line-height: 1.65; }
+html.gp-popup .section-label { display: flex; align-items: center; gap: 7px; margin: 2px 2px 8px; color: #718197; font-size: 9px; letter-spacing: .09em !important; }
+html.gp-popup .section-label:after, html.gp-popup .tool-kicker:after { content: ""; height: 1px; flex: 1; background: #dce5ef; }
+html.gp-popup .hit, html.gp-popup .candidate { padding: 11px 12px 11px 15px; margin-bottom: 8px; border-color: #dce5ef; border-radius: 9px; box-shadow: 0 4px 14px rgba(37,70,118,.055); animation: gp-hit-enter .34s cubic-bezier(.2,.8,.2,1) both; animation-delay: var(--gp-enter-delay, 0ms); }
+html.gp-popup .hit:before { width: 3px; background: linear-gradient(#24a77e,#14805e); }
+html.gp-popup .hit.hit-ai:before { background: linear-gradient(#4d81df,#1f67d8); }
+html.gp-popup .hit .name { font-size: 13px; font-weight: 730; letter-spacing: -.01em !important; }
+html.gp-popup .hit .version { padding: 1px 5px; color: #1f67d8; background: #e8f1ff; border-radius: 4px; font-size: 10px; }
+html.gp-popup .hit .id { padding: 2px 5px; color: #74859a; background: #f2f5f8; border-radius: 4px; }
+html.gp-popup .hit .evidence { gap: 4px; margin-top: 9px; }
+html.gp-popup .ev { padding: 5px 7px; background: #f5f8fc; border: 1px solid #ebf0f5; border-radius: 5px; opacity: 0; animation: gp-evidence-enter .24s ease-out both; animation-delay: var(--gp-evidence-delay, 0ms); }
+html.gp-popup .ev .tag { color: #42617f; background: #e7eef6; border-radius: 3px; }
+html.gp-popup .ev .detail { color: #536980; }
+html.gp-popup .tool-kicker { margin: 14px 2px 7px; color: #8290a2; }
+html.gp-popup .footer { gap: 7px; margin-top: 0; padding-top: 0; border-top: 0; }
+html.gp-popup .action-card { min-height: 58px; flex-direction: row; justify-content: flex-start; gap: 7px; padding: 8px; border-radius: 8px; }
+html.gp-popup .action-card:hover { transform: translateY(-1px); box-shadow: 0 5px 14px rgba(35,53,82,.11); }
+html.gp-popup .ac-icon { width: 27px; height: 27px; border-radius: 7px; font-size: 14px; }
+html.gp-popup .ac-label { min-width: 0; font-size: 10px; text-align: left; white-space: normal; line-height: 1.25; }
+html.gp-popup #crawl-btn { color: #1f775e; background: #f0faf6; border-color: #cce8dc; }
+html.gp-popup #agent-btn { color: #315b9d; background: #f0f5ff; border-color: #cddcff; }
+html.gp-popup #settings-btn { color: #59687a; background: #f6f8fa; border-color: #dce3eb; }
+html.gp-popup #rule-area { position: relative; padding: 11px; margin-top: 12px; background: #fff; border: 1px solid #dce5ef; border-radius: 9px; box-shadow: 0 5px 17px rgba(37,70,118,.06); }
+html.gp-popup #rule-area .section-label { margin-top: 0; }
+html.gp-popup .rule-editor-note { display: flex; align-items: center; gap: 5px; margin: -2px 0 9px; color: #637890; font: 650 10px var(--gp-font); }
+html.gp-popup .rule-editor-note span { display: inline-grid; place-items: center; width: 15px; height: 15px; color: #fff; background: var(--gp-success); border-radius: 50%; font: 800 9px var(--gp-font); }
+html.gp-popup #rule-yaml { min-height: 320px; height: min(52vh, 420px); resize: vertical; border: 1px solid #26394b; box-shadow: inset 0 1px 0 rgba(255,255,255,.035); }
+html.gp-popup #rule-validation { display: flex; align-items: flex-start; min-height: 29px; margin-top: 8px; padding: 6px 8px; border: 1px solid transparent; border-radius: 6px; font-size: 10px; line-height: 1.45; }
+html.gp-popup #rule-validation.pending { color: #536d8b; background: #eef4fb; border-color: #d7e5f5; }
+html.gp-popup #rule-validation.valid { color: #167257; background: #e9f7f1; border-color: #c6eadb; }
+html.gp-popup #rule-validation.invalid { color: #ad3542; background: #fff0f1; border-color: #f0c6cb; }
+html.gp-popup #rule-check { flex: 0 0 auto; color: #315b9d; background: #f0f5ff; border-color: #cbdcff; }
+@keyframes gp-page-enter { from { opacity: 0; transform: translateY(-5px) scale(.985); } to { opacity: 1; transform: none; } }
+@keyframes gp-hit-enter { from { opacity: 0; transform: translateY(10px) scale(.985); } to { opacity: 1; transform: none; } }
+@keyframes gp-evidence-enter { from { opacity: 0; transform: translateX(-5px); } to { opacity: 1; transform: none; } }
+
 @media (max-width: 800px) {
   html.gp-options .banner { position: relative; padding: 10px 14px; }
   html.gp-options .settings-layout { display: block; padding: 0 0 32px; }
@@ -795,8 +882,9 @@ html.gp-sidepanel .empty { padding: 28px 0; color: var(--gp-text-3); text-align:
 
 @media (max-width: 520px) {
   html.gp-options .banner .sub { display: none; }
-  html.gp-options .source-item { grid-template-columns: 1fr; }
-  html.gp-options .source-item button { width: 100%; }
+  html.gp-options .source-head { grid-template-columns: 1fr; align-items: start; }
+  html.gp-options .source-controls { justify-content: flex-start; }
+  html.gp-options .source-item button { width: auto; }
   html.gp-options .ruleset-actions { grid-template-columns: 1fr 1fr; }
   html.gp-options .ruleset-actions input { grid-column: 1 / -1; }
   html.gp-options .ruleset-actions button { width: 100%; }

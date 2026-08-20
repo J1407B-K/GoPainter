@@ -31,14 +31,14 @@ with a hit-count badge when fingerprints are found.
 - **Browser workflows** — automatic current-tab scans, batch URL scans, site crawling, bookmark organization, scan history, and JSON/CSV reports.
 - **Auditable AI Agent** — bounded inspect → search → test → validate workflows with visible tool traces and explicit permission gates.
 
-## Current release: v0.7.0
+## Current release: v0.7.1
 
-v0.7.0 adds three end-to-end identification workflows. Settings can scan up to 500 URLs
-and export JSON or CSV; regex and JavaScript matchers can extract versions from capture
-groups; and a matched rule can be opened from the popup, edited as YAML, validated against
-the current page by the production WASM engine, then saved and rematched immediately.
-Batch work uses four fetch workers, byte-bounded response streams, and a separate 2.5 MB
-session-results budget.
+v0.7.1 adds a first-run local rule demo, clearer YAML editing and validation, and smoother
+popup result presentation. Third-party source sets retain stable identities across manual
+and scheduled updates, and their full installed rules can now be reopened and saved without
+being constrained by the AI-candidate 50-matcher limit. Settings can scan up to 500 URLs and
+export JSON or CSV; batch work uses four fetch workers, byte-bounded response streams, and a
+separate 2.5 MB session-results budget.
 
 See [BENCHMARK.md](./BENCHMARK.md) for the Chromium resource measurements, browser E2E
 baseline, and historical performance notes.
@@ -261,7 +261,7 @@ the amount of Go code.
 
 The core browser workflow is implemented and covered by unit, smoke, and browser E2E
 tests. GoPainter owns reliable collection, matching, validation, and result workflows;
-v0.7.0 does not expand the fingerprint corpus. Users import, edit, or explicitly update
+v0.7.1 does not expand the fingerprint corpus. Users import, edit, or explicitly update
 the compatible rule sources they choose to use.
 
 ## License

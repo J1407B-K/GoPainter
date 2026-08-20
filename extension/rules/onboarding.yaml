@@ -1,0 +1,34 @@
+# GoPainter onboarding sample: this is a deliberately small, local rule set.
+# Importing it creates a separate “入门示例” rule set and does not replace your rules.
+- id: demo-wordpress
+  name: WordPress
+  confidence: 90
+  matchers:
+    - type: word
+      part: body
+      words:
+        - /wp-content/
+    - type: regex
+      part: meta
+      version: "\\1"
+      regex:
+        - "generator: WordPress ([0-9.]+)"
+
+- id: demo-nginx
+  name: Nginx
+  confidence: 95
+  matchers:
+    - type: regex
+      part: header
+      version: "\\1"
+      regex:
+        - "server: nginx/([0-9.]+)"
+
+- id: demo-analytics
+  name: Example Analytics
+  confidence: 75
+  matchers:
+    - type: word
+      part: script
+      words:
+        - analytics.example.test/tracker.js

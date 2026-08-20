@@ -337,9 +337,11 @@
           <span class="t" id="rule-modal-title">规则详情</span>
           <button class="rule-modal-close" id="rule-modal-close" title="关闭">✕</button>
         </div>
+        <div class="rule-modal-editor-note"><span>✓</span>实时 YAML 校验 · Go/WASM</div>
         <textarea id="rule-modal-body" spellcheck="false" aria-label="规则 YAML"></textarea>
-        <div id="rule-modal-validation" class="muted"></div>
+        <div id="rule-modal-validation" class="muted" role="status" aria-live="polite"></div>
         <div class="history-actions">
+          <button id="rule-modal-check">检查 YAML</button>
           <button id="rule-modal-save" class="primary">保存并生效</button>
           <button id="rule-copy">复制 YAML</button>
         </div>
@@ -393,6 +395,7 @@
           <div class="src-info">
             <a href="https://github.com/enthec/webappanalyzer" target="_blank">Wappalyzer 社区版</a>
             <span class="muted">几千条 Web 技术指纹（headers/meta/html/script/cookie/url）</span>
+            <span class="source-ruleset" data-source-ruleset="wappalyzer"></span>
           </div>
           <div class="source-controls">
             <button data-source-refresh="wappalyzer">立即刷新</button>
@@ -410,6 +413,7 @@
           <div class="src-info">
             <a href="https://github.com/EdgeSecurityTeam/EHole" target="_blank">EHole 棱洞</a>
             <span class="muted">958 条指纹，国产系统覆盖好（关键词 + faviconhash）</span>
+            <span class="source-ruleset" data-source-ruleset="ehole"></span>
           </div>
           <div class="source-controls">
             <button data-source-refresh="ehole">立即刷新</button>
@@ -427,6 +431,7 @@
           <div class="src-info">
             <a href="https://github.com/projectdiscovery/nuclei-templates" target="_blank">nuclei-templates</a>
             <span class="muted">http/technologies 目录的技术识别模板（文件多，拉取较慢）</span>
+            <span class="source-ruleset" data-source-ruleset="nuclei"></span>
           </div>
           <div class="source-controls">
             <button data-source-refresh="nuclei">立即刷新</button>

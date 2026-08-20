@@ -145,37 +145,37 @@ let currentRuleId = '';
 let currentRuleName = '';
 let ruleModalValidationTimer = null;
 let ruleModalValidationSerial = 0;
+const ruleModalValidation = document.getElementById('rule-modal-validation');
+const ruleModalSave = document.getElementById('rule-modal-save');
 
 function optionValidationText(response) {
-  if (response?.valid) return GoPainterI18n?.locale === 'en' ? 'Valid rule' : '规则有效';
+  if (response?.valid) return GoPainterI18n?.locale === 'en' ? '✓ Valid YAML and rule' : '✓ YAML 与规则有效';
   const issue = response?.errors?.[0];
-  if (!issue) return GoPainterI18n?.locale === 'en' ? 'Invalid rule' : '规则无效';
+  if (!issue) return GoPainterI18n?.locale === 'en' ? 'Invalid YAML / rule' : 'YAML / 规则无效';
   return GoPainterI18n?.locale === 'en'
-    ? `${issue.path || '$'}: ${issue.code || 'invalid rule'}`
-    : `${issue.path || '$'}：${issue.message || issue.code}`;
+    ? `Invalid YAML / rule: ${issue.path || '$'}: ${issue.code || 'invalid rule'}`
+    : `YAML / 规则无效：${issue.path || '$'}：${issue.message || issue.code}`;
 }
 
 async function validateOptionRule() {
   const serial = ++ruleModalValidationSerial;
-  const status = document.getElementById('rule-modal-validation');
-  const save = document.getElementById('rule-modal-save');
-  status.className = 'muted';
-  status.textContent = GoPainterI18n?.locale === 'en' ? 'Validating…' : '正在校验…';
-  save.disabled = true;
+  ruleModalValidation.className = 'pending';
+  ruleModalValidation.textContent = GoPainterI18n?.locale === 'en' ? 'Validating YAML…' : '正在校验 YAML…';
+  ruleModalSave.disabled = true;
   try {
     const response = await chrome.runtime.sendMessage({
       type: 'validateRuleDraft', yaml: ruleModalBody.value, expectedId: currentRuleId,
     });
     if (serial !== ruleModalValidationSerial) return null;
-    status.className = response?.valid ? 'valid' : 'invalid';
-    status.textContent = response?.ok ? optionValidationText(response) : (response?.error || optionValidationText());
-    save.disabled = !response?.valid;
+    ruleModalValidation.className = response?.valid ? 'valid' : 'invalid';
+    ruleModalValidation.textContent = response?.ok ? optionValidationText(response) : (response?.error || optionValidationText());
+    ruleModalSave.disabled = !response?.valid;
     return response;
   } catch (error) {
     if (serial !== ruleModalValidationSerial) return null;
-    status.className = 'invalid';
-    status.textContent = error.message;
-    save.disabled = true;
+    ruleModalValidation.className = 'invalid';
+    ruleModalValidation.textContent = error.message;
+    ruleModalSave.disabled = true;
     return null;
   }
 }
@@ -187,8 +187,9 @@ function openRuleDetail(rule) {
     ? `${currentRuleName} (${currentRuleId})` : `${currentRuleName}（${currentRuleId}）`;
   ruleModalValidationSerial++;
   ruleModalBody.value = jsyaml.dump(GoPainterUtils.sanitizeRule(rule) || rule, { noRefs: true, lineWidth: -1 });
-  document.getElementById('rule-modal-validation').textContent = '';
-  document.getElementById('rule-modal-save').disabled = true;
+  ruleModalValidation.className = 'pending';
+  ruleModalValidation.textContent = '正在校验 YAML…';
+  ruleModalSave.disabled = true;
   ruleModal.classList.add('open');
   clearTimeout(ruleModalValidationTimer);
   ruleModalValidationTimer = setTimeout(validateOptionRule, 0);
@@ -197,6 +198,11 @@ function openRuleDetail(rule) {
 ruleModalBody.addEventListener('input', () => {
   clearTimeout(ruleModalValidationTimer);
   ruleModalValidationTimer = setTimeout(validateOptionRule, 220);
+});
+
+document.getElementById('rule-modal-check').addEventListener('click', () => {
+  clearTimeout(ruleModalValidationTimer);
+  validateOptionRule();
 });
 
 document.getElementById('rule-list').addEventListener('click', (e) => {
@@ -452,6 +458,7 @@ function renderRuleSources(sources) {
     const rollback = document.querySelector(`[data-source-rollback="${source.id}"]`);
     const auto = document.querySelector(`[data-source-auto="${source.id}"]`);
     const interval = document.querySelector(`[data-source-interval="${source.id}"]`);
+    const ruleSet = document.querySelector(`[data-source-ruleset="${source.id}"]`);
     if (!status || !refresh || !rollback || !auto || !interval) continue;
     status.textContent = sourceSummary(source);
     status.className = `source-meta ${source.lastError ? 'error' : 'muted'}`;
@@ -461,6 +468,7 @@ function renderRuleSources(sources) {
     auto.checked = source.autoUpdate;
     interval.value = String(source.intervalHours === 168 ? 168 : 24);
     interval.disabled = !source.autoUpdate;
+    if (ruleSet) ruleSet.textContent = `规则集：${source.name}`;
   }
 }
 

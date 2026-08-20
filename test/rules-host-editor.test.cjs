@@ -43,7 +43,7 @@ function createHarness() {
     GoPainterUtils: utils,
     invalidateRuleMatchingCaches: () => { invalidations++; },
     ensureWasm: async () => {},
-    goValidateCandidate: (ruleJSON) => {
+    goValidateRuleDraft: (ruleJSON) => {
       const rule = JSON.parse(ruleJSON);
       const normalizedRule = {
         ...rule,
@@ -57,6 +57,7 @@ function createHarness() {
         errors: [],
       });
     },
+    goNormalizeRules: (docsJSON) => JSON.stringify({ rules: JSON.parse(docsJSON).flatMap((doc) => Array.isArray(doc) ? doc : [doc]) }),
   };
   context.globalThis = context;
   vm.runInNewContext(source, context, { filename: 'rules-host.js' });
@@ -104,4 +105,45 @@ test('live rule editing rejects a stale revision and a changed rule id', async (
     yaml: JSON.stringify({ id: 'demo', name: 'Demo', 'matchers-condition': 'or', matchers: [{ type: 'word', words: ['x'] }] }),
     expectedId: 'demo', expectedRevision: 3,
   }), /规则状态已更新/);
+});
+
+test('onboarding sample lives in its own enabled rule set and can be reinstalled safely', async () => {
+  const h = createHarness();
+  const sample = [{ id: 'demo-nginx', name: 'Nginx', matchers: [{ type: 'word', words: ['server: nginx'] }] }];
+  const first = await h.handlers.installOnboardingRules({ yaml: JSON.stringify(sample) });
+  assert.equal(first.ok, true);
+  assert.equal(first.state.activeRuleSetId, 'onboarding-demo');
+  assert.deepEqual(first.state.enabledRuleSetIds, ['remote', 'onboarding-demo']);
+  assert.equal(h.storage.ruleSets.find((set) => set.id === 'onboarding-demo').rules[0].id, 'demo-nginx');
+  assert.equal(h.storage.ruleSets.find((set) => set.id === 'remote').rules[0].id, 'demo');
+
+  const updated = [{ id: 'demo-wordpress', name: 'WordPress', matchers: [{ type: 'word', words: ['/wp-content/'] }] }];
+  await h.handlers.installOnboardingRules({ yaml: JSON.stringify(updated) });
+  assert.equal(h.storage.ruleSets.filter((set) => set.id === 'onboarding-demo').length, 1);
+  assert.equal(h.storage.ruleSets.find((set) => set.id === 'onboarding-demo').rules[0].id, 'demo-wordpress');
+  assert.equal(h.storage.ruleSets.find((set) => set.id === 'remote').rules[0].id, 'demo');
+});
+
+test('source-rule reconciliation folds legacy aliases into one stable source ID without discarding rules', async () => {
+  const h = createHarness();
+  h.storage.ruleSets = [
+    { id: 'local', name: 'Local', rules: [] },
+    { id: 'legacy-wapp', name: 'Wappalyzer Community Edition', rules: [{ id: 'old', name: 'Old', matchers: [] }] },
+    { id: 'source:wappalyzer', name: 'Wappalyzer 社区版', rules: [{ id: 'new', name: 'New', matchers: [] }] },
+  ];
+  h.storage.activeRuleSetId = 'legacy-wapp';
+  h.storage.enabledRuleSetIds = ['legacy-wapp', 'source:wappalyzer'];
+  h.storage.ruleStateRevision = 8;
+
+  const result = await h.handlers.reconcileSourceRuleSet({
+    id: 'source:wappalyzer', name: 'Wappalyzer 社区版',
+    legacyRuleSetNames: ['Wappalyzer Community Edition'],
+  });
+  assert.equal(result.changed, true);
+  assert.equal(h.storage.ruleSets.filter((set) => set.id === 'source:wappalyzer').length, 1);
+  const source = h.storage.ruleSets.find((set) => set.id === 'source:wappalyzer');
+  assert.equal(source.name, 'Wappalyzer 社区版');
+  assert.deepEqual(source.rules.map((rule) => rule.id), ['old', 'new']);
+  assert.equal(h.storage.activeRuleSetId, 'source:wappalyzer');
+  assert.deepEqual(h.storage.enabledRuleSetIds, ['source:wappalyzer']);
 });

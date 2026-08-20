@@ -12,6 +12,7 @@ const ruleNameInput = document.getElementById('rule-name-input');
 const ruleYaml = document.getElementById('rule-yaml');
 const ruleValidation = document.getElementById('rule-validation');
 const ruleGenerate = document.getElementById('rule-generate');
+const ruleCheck = document.getElementById('rule-check');
 const ruleSave = document.getElementById('rule-save');
 const ruleDiscard = document.getElementById('rule-discard');
 const pageInfo = document.getElementById('page-info');
@@ -267,6 +268,9 @@ function displayHits() {
 
 function renderPageSummary(features, result) {
   pageInfo.style.display = 'block';
+  pageInfo.classList.remove('page-enter');
+  void pageInfo.offsetWidth;
+  pageInfo.classList.add('page-enter');
   document.getElementById('page-title').textContent = features.title || t('（无标题）', '(Untitled)');
   document.getElementById('page-url').textContent = features.url;
   const faviconEl = document.getElementById('page-favicon');
@@ -292,6 +296,8 @@ function renderPageSummary(features, result) {
 }
 
 function showHitStatus(html) {
+  const hitCount = document.getElementById('hit-count');
+  hitCount.hidden = true;
   statusEl.style.display = 'block';
   statusEl.innerHTML = html;
 }
@@ -321,7 +327,13 @@ function renderHitList(result) {
   const limited = totalHits > hits.length ? t(`，展示前 ${hits.length} 个`, `, showing first ${hits.length}`) : '';
   label.textContent = t(`命中 ${totalHits} 个指纹${limited}`, `${totalHits} fingerprints detected${limited}`)
     + (hidden > 0 ? t(`（隐藏 ${hidden} 个低置信度）`, ` (${hidden} low-confidence hidden)`) : '');
-  hitsEl.append(label, ...hits.map(renderHit));
+  const hitCount = document.getElementById('hit-count');
+  hitCount.hidden = false;
+  hitCount.textContent = totalHits > 99 ? '99+' : String(totalHits);
+  hitCount.title = t(`当前页面命中 ${totalHits} 个指纹`, `${totalHits} fingerprints detected on this page`);
+  const cards = hits.map(renderHit);
+  cards.forEach((card, index) => card.style.setProperty('--gp-enter-delay', `${Math.min(index, 8) * 58}ms`));
+  hitsEl.append(label, ...cards);
 }
 
 function render({ features, result }) {
@@ -336,7 +348,13 @@ function renderHit(hit) {
   const card = document.createElement('div');
   card.className = 'hit';
   card.dataset.ruleId = hit.id || '';
+  const head = appendHitHeader(card, hit);
+  appendHitEvidence(card, hit);
+  appendHitActions(card, head, hit);
+  return card;
+}
 
+function appendHitHeader(card, hit) {
   const head = document.createElement('div');
   head.className = 'head';
   head.innerHTML = `<span class="name"></span><span class="tail"><span class="id"></span></span>`;
@@ -369,22 +387,27 @@ function renderHit(hit) {
     head.querySelector('.tail').appendChild(badge);
   }
   card.appendChild(head);
+  return head;
+}
 
-  if (hit.evidence?.length) {
-    const box = document.createElement('div');
-    box.className = 'evidence';
-    for (const ev of hit.evidence) {
-      const row = document.createElement('div');
-      row.className = 'ev';
-      const tagText = ev.part && ev.part !== 'body' ? `${ev.type}:${ev.part}` : ev.type;
-      row.innerHTML = `<span class="tag"></span><span class="detail"></span>`;
-      row.querySelector('.tag').textContent = tagText;
-      row.querySelector('.detail').textContent = ev.detail;
-      box.appendChild(row);
-    }
-    card.appendChild(box);
+function appendHitEvidence(card, hit) {
+  if (!hit.evidence?.length) return;
+  const box = document.createElement('div');
+  box.className = 'evidence';
+  for (const [index, evidence] of hit.evidence.entries()) {
+    const row = document.createElement('div');
+    row.className = 'ev';
+    const tagText = evidence.part && evidence.part !== 'body' ? `${evidence.type}:${evidence.part}` : evidence.type;
+    row.innerHTML = `<span class="tag"></span><span class="detail"></span>`;
+    row.querySelector('.tag').textContent = tagText;
+    row.querySelector('.detail').textContent = evidence.detail;
+    row.style.setProperty('--gp-evidence-delay', `${130 + Math.min(index, 5) * 42}ms`);
+    box.appendChild(row);
   }
+  card.appendChild(box);
+}
 
+function appendHitActions(card, head, hit) {
   const actions = document.createElement('div');
   actions.className = 'hit-actions';
   const derivedOnly = hit.evidence?.length > 0
@@ -414,7 +437,6 @@ function renderHit(hit) {
     actions.appendChild(btn);
   }
   if (actions.childElementCount) card.appendChild(actions);
-  return card;
 }
 
 function makeChip(text, ok = false) {
@@ -805,24 +827,26 @@ function validationIssueText(issue) {
 function showRuleValidation(response, pending = false) {
   if (pending) {
     ruleValidation.className = 'pending';
-    ruleValidation.textContent = t('正在校验…', 'Validating…');
+    ruleValidation.textContent = t('正在校验 YAML…', 'Validating YAML…');
     ruleSave.disabled = true;
     return;
   }
   if (!response?.valid) {
     ruleValidation.className = 'invalid';
     const issues = response?.errors || [];
-    ruleValidation.textContent = issues.length ? issues.slice(0, 3).map(validationIssueText).join(' · ') : t('规则无效', 'Invalid rule');
+    ruleValidation.textContent = issues.length
+      ? `${t('YAML / 规则无效：', 'Invalid YAML / rule: ')}${issues.slice(0, 3).map(validationIssueText).join(' · ')}`
+      : t('YAML / 规则无效', 'Invalid YAML / rule');
     ruleSave.disabled = true;
     return;
   }
   ruleValidation.className = 'valid';
   const matched = response.currentPageHits?.length > 0;
   ruleValidation.textContent = matched
-    ? t('规则有效 · 当前页面命中', 'Valid rule · matches the current page')
+    ? t('✓ YAML 与规则有效 · 当前页面命中', '✓ Valid YAML and rule · matches the current page')
     : response.runtimeCoverage?.complete
-      ? t('规则有效 · 当前页面未命中', 'Valid rule · does not match the current page')
-      : t('规则有效 · JS/DOM 探针将在保存后重新采集', 'Valid rule · JS/DOM probes will be recollected after saving');
+      ? t('✓ YAML 与规则有效 · 当前页面未命中', '✓ Valid YAML and rule · does not match the current page')
+      : t('✓ YAML 与规则有效 · JS/DOM 探针将在保存后重新采集', '✓ Valid YAML and rule · JS/DOM probes will be recollected after saving');
   ruleSave.disabled = false;
 }
 
@@ -860,6 +884,11 @@ function scheduleRuleValidation(delay = 220) {
 ruleYaml.addEventListener('input', () => {
   showRuleValidation(null, true);
   scheduleRuleValidation();
+});
+
+ruleCheck.addEventListener('click', () => {
+  clearTimeout(ruleValidationTimer);
+  validateRuleEditor();
 });
 
 function updateEditRuleCopy() {

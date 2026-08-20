@@ -13,6 +13,20 @@ const (
 	maxCandidateItems    = 50
 )
 
+// validationLimits keep the untrusted candidate path bounded while allowing the
+// editor to faithfully reopen an already-installed third-party rule. Source
+// imports have never imposed the candidate-size limit, so applying it again on
+// edit made valid Wappalyzer/EHole rules impossible to save unchanged.
+type validationLimits struct {
+	matchers int
+	items    int
+}
+
+var (
+	candidateValidationLimits = validationLimits{matchers: maxCandidateMatchers, items: maxCandidateItems}
+	editorValidationLimits    = validationLimits{}
+)
+
 // ValidationIssue 是严格候选校验的稳定错误格式，供 Agent Tool 和 UI 共用。
 type ValidationIssue struct {
 	Path    string `json:"path"`
@@ -192,8 +206,11 @@ func validNonEmptyString(value string, maxLength int) bool {
 }
 
 func validateStringList(path string, values []string, maxItems, maxLength int) []ValidationIssue {
-	if len(values) == 0 || len(values) > maxItems {
-		return []ValidationIssue{issue(path, "invalid_list", "%s 必须包含 1-%d 个字符串", path, maxItems)}
+	if len(values) == 0 || (maxItems > 0 && len(values) > maxItems) {
+		if maxItems > 0 {
+			return []ValidationIssue{issue(path, "invalid_list", "%s 必须包含 1-%d 个字符串", path, maxItems)}
+		}
+		return []ValidationIssue{issue(path, "invalid_list", "%s 必须至少包含 1 个字符串", path)}
 	}
 	for i, value := range values {
 		if !validNonEmptyString(value, maxLength) {
@@ -220,8 +237,8 @@ func matcherPayloadCount(m Matcher) int {
 	return count
 }
 
-func validateRegexPayload(m Matcher, base string) []ValidationIssue {
-	errors := validateStringList(base+".regex", m.Regex, maxCandidateItems, 4000)
+func validateRegexPayload(m Matcher, base string, maxItems int) []ValidationIssue {
+	errors := validateStringList(base+".regex", m.Regex, maxItems, 4000)
 	for i, pattern := range m.Regex {
 		if _, err := compileRegex(pattern); err != nil {
 			errors = append(errors, issue(fmt.Sprintf("%s.regex[%d]", base, i), "invalid_regex", "正则无法由 Go RE2 编译：%v", err))
@@ -230,10 +247,14 @@ func validateRegexPayload(m Matcher, base string) []ValidationIssue {
 	return errors
 }
 
-func validateStatusPayload(m Matcher, base string) []ValidationIssue {
+func validateStatusPayload(m Matcher, base string, maxItems int) []ValidationIssue {
 	var errors []ValidationIssue
-	if len(m.Status) == 0 || len(m.Status) > maxCandidateItems {
-		errors = append(errors, issue(base+".status", "invalid_list", "status 必须包含 1-50 个整数"))
+	if len(m.Status) == 0 || (maxItems > 0 && len(m.Status) > maxItems) {
+		if maxItems > 0 {
+			errors = append(errors, issue(base+".status", "invalid_list", "status 必须包含 1-50 个整数"))
+		} else {
+			errors = append(errors, issue(base+".status", "invalid_list", "status 必须至少包含 1 个整数"))
+		}
 	}
 	for i, value := range m.Status {
 		if value < 100 || value > 599 {
@@ -243,8 +264,8 @@ func validateStatusPayload(m Matcher, base string) []ValidationIssue {
 	return errors
 }
 
-func validateDSLPayload(m Matcher, base string, features Features) []ValidationIssue {
-	errors := validateStringList(base+".dsl", m.Dsl, maxCandidateItems, 4000)
+func validateDSLPayload(m Matcher, base string, features Features, maxItems int) []ValidationIssue {
+	errors := validateStringList(base+".dsl", m.Dsl, maxItems, 4000)
 	ctx := newMatchCtx(&features)
 	for i, expression := range m.Dsl {
 		if _, err := dslEval(expression, ctx); err != nil {
@@ -271,10 +292,14 @@ func validateJSProbe(probe JsProbe, path string) []ValidationIssue {
 	return errors
 }
 
-func validateJSPayload(m Matcher, base string) []ValidationIssue {
+func validateJSPayload(m Matcher, base string, maxItems int) []ValidationIssue {
 	var errors []ValidationIssue
-	if len(m.Js) == 0 || len(m.Js) > maxCandidateItems {
-		errors = append(errors, issue(base+".js", "invalid_list", "js 必须包含 1-50 个探针"))
+	if len(m.Js) == 0 || (maxItems > 0 && len(m.Js) > maxItems) {
+		if maxItems > 0 {
+			errors = append(errors, issue(base+".js", "invalid_list", "js 必须包含 1-50 个探针"))
+		} else {
+			errors = append(errors, issue(base+".js", "invalid_list", "js 必须至少包含 1 个探针"))
+		}
 	}
 	for i, probe := range m.Js {
 		errors = append(errors, validateJSProbe(probe, fmt.Sprintf("%s.js[%d]", base, i))...)
@@ -308,10 +333,14 @@ func validateDOMProbe(probe DomProbe, path string) []ValidationIssue {
 	return errors
 }
 
-func validateDOMPayload(m Matcher, base string) []ValidationIssue {
+func validateDOMPayload(m Matcher, base string, maxItems int) []ValidationIssue {
 	var errors []ValidationIssue
-	if len(m.Dom) == 0 || len(m.Dom) > maxCandidateItems {
-		errors = append(errors, issue(base+".dom", "invalid_list", "dom 必须包含 1-50 个探针"))
+	if len(m.Dom) == 0 || (maxItems > 0 && len(m.Dom) > maxItems) {
+		if maxItems > 0 {
+			errors = append(errors, issue(base+".dom", "invalid_list", "dom 必须包含 1-50 个探针"))
+		} else {
+			errors = append(errors, issue(base+".dom", "invalid_list", "dom 必须至少包含 1 个探针"))
+		}
 	}
 	for i, probe := range m.Dom {
 		errors = append(errors, validateDOMProbe(probe, fmt.Sprintf("%s.dom[%d]", base, i))...)
@@ -319,29 +348,32 @@ func validateDOMPayload(m Matcher, base string) []ValidationIssue {
 	return errors
 }
 
-func validateMatcherPayload(m Matcher, base string, features Features) []ValidationIssue {
+func validateMatcherPayload(m Matcher, base string, features Features, maxItems int) []ValidationIssue {
 	switch m.Type {
 	case "word":
-		return validateStringList(base+".words", m.Words, maxCandidateItems, 4000)
+		return validateStringList(base+".words", m.Words, maxItems, 4000)
 	case "regex":
-		return validateRegexPayload(m, base)
+		return validateRegexPayload(m, base, maxItems)
 	case "status":
-		return validateStatusPayload(m, base)
+		return validateStatusPayload(m, base, maxItems)
 	case "icon_hash":
-		if len(m.Hash) == 0 || len(m.Hash) > maxCandidateItems {
-			return []ValidationIssue{issue(base+".hash", "invalid_list", "hash 必须包含 1-50 个 int32")}
+		if len(m.Hash) == 0 || (maxItems > 0 && len(m.Hash) > maxItems) {
+			if maxItems > 0 {
+				return []ValidationIssue{issue(base+".hash", "invalid_list", "hash 必须包含 1-50 个 int32")}
+			}
+			return []ValidationIssue{issue(base+".hash", "invalid_list", "hash 必须至少包含 1 个 int32")}
 		}
 	case "dsl":
-		return validateDSLPayload(m, base, features)
+		return validateDSLPayload(m, base, features, maxItems)
 	case "js":
-		return validateJSPayload(m, base)
+		return validateJSPayload(m, base, maxItems)
 	case "dom":
-		return validateDOMPayload(m, base)
+		return validateDOMPayload(m, base, maxItems)
 	}
 	return nil
 }
 
-func validateMatcherStrict(m Matcher, index int, features Features) []ValidationIssue {
+func validateMatcherStrict(m Matcher, index int, features Features, maxItems int) []ValidationIssue {
 	base := fmt.Sprintf("matchers[%d]", index)
 	allowedTypes := map[string]bool{"word": true, "regex": true, "status": true, "icon_hash": true, "dsl": true, "js": true, "dom": true}
 	allowedParts := map[string]bool{"body": true, "title": true, "url": true, "header": true, "raw": true, "meta": true, "script": true}
@@ -364,13 +396,11 @@ func validateMatcherStrict(m Matcher, index int, features Features) []Validation
 		errors = append(errors, issue(base, "invalid_payload", "matcher 必须且只能包含与 type 对应的一个非空载荷"))
 		return errors
 	}
-	errors = append(errors, validateMatcherPayload(m, base, features)...)
+	errors = append(errors, validateMatcherPayload(m, base, features, maxItems)...)
 	return errors
 }
 
-// ValidateCandidate 对 Agent 交付物执行严格校验。它与兼容历史格式的 NormalizeDocs
-// 是不同入口：这里拒绝未知字段和非法值，不做静默修正。
-func ValidateCandidate(raw []byte, features Features) CandidateValidation {
+func validateRuleStrict(raw []byte, features Features, limits validationLimits) CandidateValidation {
 	rule, err := strictDecodeRule(raw)
 	if err != nil {
 		return CandidateValidation{Errors: []ValidationIssue{issue("$", "invalid_json", "候选规则结构无效：%v", err)}}
@@ -385,14 +415,18 @@ func ValidateCandidate(raw []byte, features Features) CandidateValidation {
 	if rule.MatchersCondition != "and" && rule.MatchersCondition != "or" {
 		errors = append(errors, issue("matchers-condition", "invalid_enum", "matchers-condition 只能是 and 或 or"))
 	}
-	if len(rule.Matchers) == 0 || len(rule.Matchers) > maxCandidateMatchers {
-		errors = append(errors, issue("matchers", "invalid_list", "matchers 必须包含 1-50 项"))
+	if len(rule.Matchers) == 0 || (limits.matchers > 0 && len(rule.Matchers) > limits.matchers) {
+		if limits.matchers > 0 {
+			errors = append(errors, issue("matchers", "invalid_list", "matchers 必须包含 1-50 项"))
+		} else {
+			errors = append(errors, issue("matchers", "invalid_list", "matchers 必须至少包含 1 项"))
+		}
 	}
 	errors = append(errors, validateConfidence("confidence", rule.Confidence)...)
-	errors = append(errors, validateStringListOptional("implies", rule.Implies)...)
-	errors = append(errors, validateStringListOptional("excludes", rule.Excludes)...)
+	errors = append(errors, validateStringListOptional("implies", rule.Implies, limits.items)...)
+	errors = append(errors, validateStringListOptional("excludes", rule.Excludes, limits.items)...)
 	for i, matcher := range rule.Matchers {
-		errors = append(errors, validateMatcherStrict(matcher, i, features)...)
+		errors = append(errors, validateMatcherStrict(matcher, i, features, limits.items)...)
 	}
 	if len(errors) > 0 {
 		return CandidateValidation{Errors: errors}
@@ -426,9 +460,22 @@ func ValidateCandidate(raw []byte, features Features) CandidateValidation {
 	}
 }
 
-func validateStringListOptional(path string, values []string) []ValidationIssue {
+// ValidateCandidate validates agent-generated rules. Its small list limits are
+// a deliberate boundary for model output.
+func ValidateCandidate(raw []byte, features Features) CandidateValidation {
+	return validateRuleStrict(raw, features, candidateValidationLimits)
+}
+
+// ValidateEditableRule validates a single existing rule before saving it from
+// the editor. It retains the strict schema and matcher checks but deliberately
+// does not impose candidate-only list limits on installed source rules.
+func ValidateEditableRule(raw []byte, features Features) CandidateValidation {
+	return validateRuleStrict(raw, features, editorValidationLimits)
+}
+
+func validateStringListOptional(path string, values []string, maxItems int) []ValidationIssue {
 	if values == nil {
 		return nil
 	}
-	return validateStringList(path, values, maxCandidateItems, 500)
+	return validateStringList(path, values, maxItems, 500)
 }

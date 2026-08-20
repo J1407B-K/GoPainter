@@ -82,3 +82,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     .catch((error) => sendResponse({ ok: false, error: String(error.message || error) }));
   return true;
 });
+
+// A first-run page gives the extension an immediately testable, local workflow.
+// It is deliberately limited to fresh installs; upgrades never interrupt users.
+chrome.runtime.onInstalled?.addListener(({ reason }) => {
+  if (reason === 'install') chrome.tabs.create({ url: chrome.runtime.getURL('welcome.html') });
+});

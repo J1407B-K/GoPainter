@@ -274,8 +274,8 @@
 <body>
   <div class="banner">
     <div class="brand-lockup">
-      <h1><img class="gp-logo" src="icons/icon32.png" alt="">GoPainter</h1>
-      <div class="sub">J1407B-K</div>
+      <h1><img class="gp-logo" src="icons/icon32.png" alt="">GoPainter <span id="hit-count" class="hit-count" hidden></span></h1>
+      <div class="sub">By J1407B</div>
     </div>
     <label class="ruleset-quick">编辑集 <select id="ruleset-quick" aria-label="切换当前编辑规则集"><option>加载中</option></select></label>
     <button type="button" class="locale-toggle" data-locale-toggle>EN</button>
@@ -283,6 +283,7 @@
 
   <div class="container">
     <div class="page-info" id="page-info" style="display:none">
+      <div class="page-kicker"><span></span>当前页面</div>
       <div class="title-row">
         <img id="page-favicon" class="favicon" alt="" style="display:none">
         <div class="title" id="page-title"></div>
@@ -294,6 +295,7 @@
     <div id="status" class="empty"><span class="icon">⏳</span>加载中…</div>
     <div id="hits"></div>
 
+    <div class="tool-kicker">快捷操作</div>
     <div class="footer">
       <button type="button" class="action-card" id="crawl-btn">
         <span class="ac-icon">🕷</span><span class="ac-label">爬取本站</span>
@@ -312,10 +314,12 @@
     </div>
     <div id="rule-area">
       <div id="rule-mode-label" class="section-label"></div>
+      <div class="rule-editor-note"><span>✓</span>实时 YAML 校验 · Go/WASM</div>
       <input id="rule-name-input" type="text" placeholder="技术名，如 WordPress" style="display:none">
       <textarea id="rule-yaml" spellcheck="false" aria-label="规则 YAML"></textarea>
-      <div id="rule-validation" class="pending"></div>
+      <div id="rule-validation" class="pending" role="status" aria-live="polite"></div>
       <div class="rule-actions">
+        <button id="rule-check" class="ghost" type="button">检查 YAML</button>
         <button id="rule-generate" class="ghost" style="display:none">✨ 生成</button>
         <button id="rule-save">✅ 保存规则</button>
         <button id="rule-discard" class="ghost">丢弃</button>

@@ -78,7 +78,7 @@
   async function validateDraft(yaml, tabId) {
     const document = singleRuleDocument(yaml);
     await ensureWasm();
-    const validation = JSON.parse(globalThis.goValidateCandidate(
+    const validation = JSON.parse(globalThis.goValidateRuleDraft(
       JSON.stringify(document), JSON.stringify(await pageFeatures(tabId))
     ));
     if (validation.error) throw new Error(validation.error);
@@ -314,6 +314,25 @@
     return { ok: true, state: next, name, revision: nextRevision };
   }
 
+  // First-run demo is intentionally isolated from user rule sets. Re-running the
+  // welcome flow replaces only this named set and never merges into an existing set.
+  async function installOnboardingRules({ yaml }) {
+    const rules = await normalizeRuleYaml(yaml);
+    const { state, revision } = await loadVersionedRuleState();
+    const id = 'onboarding-demo';
+    const name = '入门示例';
+    const ruleSets = state.ruleSets.some((set) => set.id === id)
+      ? state.ruleSets.map((set) => set.id === id ? { ...set, name, rules } : set)
+      : [...state.ruleSets, { id, name, rules }];
+    const enabledRuleSetIds = [...new Set([...state.enabledRuleSetIds, id])];
+    const next = GoPainterUtils.normalizeRuleSets(
+      ruleSets, id, [], enabledRuleSetIds, state.ruleSetOverrides
+    );
+    const nextRevision = await writeRuleState(next, revision);
+    globalThis.invalidateRuleMatchingCaches?.();
+    return { ok: true, state: next, revision: nextRevision, rules };
+  }
+
   async function deleteRuleSet({ ruleSetId }) {
     const { state, revision } = await loadVersionedRuleState();
     const target = state.ruleSets.find((set) => set.id === ruleSetId);
@@ -348,6 +367,39 @@
       ruleCount: rules.length,
       revision: nextRevision,
     };
+  }
+
+  // Source updates are identified by stable IDs, never by their visible title.
+  // Still, early/local builds may have left name-based or duplicate source sets.
+  // Collapse those aliases before an update so scheduled refreshes cannot grow
+  // the rule-set list indefinitely.
+  async function reconcileSourceRuleSet({ id, name, legacyRuleSetIds = [], legacyRuleSetNames = [] }) {
+    if (!id || !name) throw new Error('规则源标识无效');
+    const legacyIDs = new Set([id, ...legacyRuleSetIds].map((value) => String(value || '')).filter(Boolean));
+    const legacyNames = new Set([name, ...legacyRuleSetNames].map((value) => String(value || '')).filter(Boolean));
+    const { state, revision } = await loadVersionedRuleState();
+    const matches = state.ruleSets.filter((set) => legacyIDs.has(set.id) || legacyNames.has(set.name));
+    if (!matches.length) return { ok: true, changed: false, state, revision };
+    const canonical = matches.find((set) => set.id === id);
+    const selected = canonical || matches[0];
+    const needsRewrite = matches.length > 1 || selected?.id !== id || selected?.name !== name;
+    if (!needsRewrite) return { ok: true, changed: false, state, revision };
+    const orderedMatches = [...matches.filter((set) => set.id !== id), ...matches.filter((set) => set.id === id)];
+    const mergedRules = GoPainterUtils.mergeRules([], orderedMatches.flatMap((set) => set.rules || []));
+    const replacement = { id, name, rules: mergedRules };
+    const firstIndex = state.ruleSets.findIndex((set) => matches.includes(set));
+    const ruleSets = state.ruleSets.filter((set) => !matches.includes(set));
+    ruleSets.splice(firstIndex < 0 ? ruleSets.length : firstIndex, 0, replacement);
+    const enabledRuleSetIds = state.enabledRuleSetIds.filter((setId) => !legacyIDs.has(setId));
+    if (matches.some((set) => state.enabledRuleSetIds.includes(set.id)) || canonical) enabledRuleSetIds.push(id);
+    const activeRuleSetId = matches.some((set) => set.id === state.activeRuleSetId) ? id : state.activeRuleSetId;
+    const ruleSetOverrides = Object.fromEntries(Object.entries(state.ruleSetOverrides).map(([ruleId, setId]) =>
+      [ruleId, legacyIDs.has(setId) ? id : setId]
+    ));
+    const next = GoPainterUtils.normalizeRuleSets(ruleSets, activeRuleSetId, [], enabledRuleSetIds, ruleSetOverrides);
+    const nextRevision = await writeRuleState(next, revision);
+    globalThis.invalidateRuleMatchingCaches?.();
+    return { ok: true, changed: true, state: next, revision: nextRevision };
   }
 
   async function normalizeRules({ docsJSON }) {
@@ -409,7 +461,9 @@
       addRule: (msg) => serializeMutation(() => addRule(msg)),
       replaceActiveRuleSetRules: (msg) => serializeMutation(() => replaceActiveRuleSetRules(msg)),
       createRuleSet: (msg) => serializeMutation(() => createRuleSet(msg)),
+      installOnboardingRules: (msg) => serializeMutation(() => installOnboardingRules(msg)),
       deleteRuleSet: (msg) => serializeMutation(() => deleteRuleSet(msg)),
+      reconcileSourceRuleSet: (msg) => serializeMutation(() => reconcileSourceRuleSet(msg)),
       normalizeRules,
       convertWappalyzer: ({ techJSON }) => callCoreConverter('goConvertWappalyzer', techJSON),
       convertEHole: ({ fingerJSON }) => callCoreConverter('goConvertEHole', fingerJSON),

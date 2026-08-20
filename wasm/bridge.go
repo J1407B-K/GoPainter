@@ -75,17 +75,30 @@ func jsNormalize(_ js.Value, args []js.Value) any {
 	return string(out)
 }
 
+func validateRuleWith(raw js.Value, featureJSON js.Value, validate func([]byte, engine.Features) engine.CandidateValidation) any {
+	var features engine.Features
+	if err := json.Unmarshal([]byte(featureJSON.String()), &features); err != nil {
+		return jsError("特征 JSON 解析失败: %s", err)
+	}
+	out, _ := json.Marshal(validate([]byte(raw.String()), features))
+	return string(out)
+}
+
 // goValidateCandidate(ruleJSON, featuresJSON) -> 严格候选校验、生产 matcher 命中与运行时覆盖。
 func jsValidateCandidate(_ js.Value, args []js.Value) any {
 	if len(args) < 2 {
 		return jsError("validateCandidate(ruleJSON, featuresJSON) 需要两个参数")
 	}
-	var features engine.Features
-	if err := json.Unmarshal([]byte(args[1].String()), &features); err != nil {
-		return jsError("特征 JSON 解析失败: %s", err)
+	return validateRuleWith(args[0], args[1], engine.ValidateCandidate)
+}
+
+// goValidateRuleDraft(ruleJSON, featuresJSON) -> strict editor validation for
+// already-installed rules, without AI-candidate list limits.
+func jsValidateRuleDraft(_ js.Value, args []js.Value) any {
+	if len(args) < 2 {
+		return jsError("validateRuleDraft(ruleJSON, featuresJSON) 需要两个参数")
 	}
-	out, _ := json.Marshal(engine.ValidateCandidate([]byte(args[0].String()), features))
-	return string(out)
+	return validateRuleWith(args[0], args[1], engine.ValidateEditableRule)
 }
 
 // goPlanRequiredProbes(rulesJSON) -> Host 需要采集的 JS path 和 DOM probes。
@@ -217,6 +230,7 @@ func registerJSExports() {
 	g.Set("goExtractFeatures", js.FuncOf(jsExtract))
 	g.Set("goNormalizeRules", js.FuncOf(jsNormalize))
 	g.Set("goValidateCandidate", js.FuncOf(jsValidateCandidate))
+	g.Set("goValidateRuleDraft", js.FuncOf(jsValidateRuleDraft))
 	g.Set("goPlanRequiredProbes", js.FuncOf(jsPlanRequiredProbes))
 	g.Set("goHashLookup", js.FuncOf(jsHashLookup))
 	g.Set("goConvertWappalyzer", js.FuncOf(jsConvertWappalyzer))
