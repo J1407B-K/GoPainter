@@ -20,7 +20,7 @@ jobs:
           node-version: '22'
 
       - name: Go lint
-        uses: golangci/golangci-lint-action@v7
+        uses: golangci/golangci-lint-action@v8
         env:
           GOOS: js
           GOARCH: wasm
