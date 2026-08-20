@@ -263,6 +263,7 @@
       <a href="#rules-section">指纹规则</a>
       <a href="#health-section">规则体检</a>
       <a href="#confidence-section">置信度</a>
+      <a href="#appearance-section">外观</a>
       <a href="#sources-section">第三方规则源</a>
       <a href="#hashes-section">favicon 哈希库</a>
       <a href="#bookmarks-section">书签分类</a>
@@ -381,6 +382,13 @@
       <input type="text" id="conf-threshold" placeholder="0">
       <br>
       <button id="conf-save" class="primary">保存</button>
+    </div>
+
+    <div class="card" id="appearance-section">
+      <h2>外观</h2>
+      <p class="muted">控制弹窗打开时的品牌开屏动画；关闭后不会影响匹配、扫描或其他页面动画。</p>
+      <label class="bm-all-label"><input type="checkbox" id="popup-intro-enabled"> 打开 Popup 时播放品牌开屏动画</label>
+      <div id="appearance-status" class="muted" style="margin-top: 8px;"></div>
     </div>
 
     <div class="card" id="sources-section">

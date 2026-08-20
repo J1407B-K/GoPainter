@@ -41,6 +41,7 @@ const ruleConflictModal = document.getElementById('rule-conflict-modal');
 const ruleConflictTitle = document.getElementById('rule-conflict-title');
 const ruleConflictProgress = document.getElementById('rule-conflict-progress');
 const ruleConflictDiff = document.getElementById('rule-conflict-diff');
+const popupIntro = document.getElementById('popup-intro');
 const t = (zh, english) => GoPainterI18n?.locale === 'en' ? english : zh;
 
 let currentTabId = null;
@@ -65,6 +66,12 @@ let pendingAgentRuleId = '';
 let ruleSummariesPromise = null;
 let activeAgentPort = null;
 let agentRunSerial = 0;
+
+function playPopupIntro(enabled) {
+  if (!enabled || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  popupIntro.hidden = false;
+  window.setTimeout(() => popupIntro.remove(), 1450);
+}
 
 async function loadRuleSetState() {
   const state = await chrome.runtime.sendMessage({ type: 'getRuleSetOverview' });
@@ -231,10 +238,11 @@ async function init() {
   // 首屏只等待页面结果和轻量配置；大规则集读取延后，避免 popup 打开时白屏。
   const popupKey = `popup:${currentTabId}`;
   const [config, compactStored] = await Promise.all([
-    chrome.storage.local.get({ showConfidence: false, confThreshold: 0 }),
+    chrome.storage.local.get({ showConfidence: false, confThreshold: 0, popupIntroEnabled: true }),
     chrome.storage.session.get(popupKey),
   ]);
   confCfg = config;
+  playPopupIntro(config.popupIntroEnabled);
   setTimeout(loadDeferredPopupState, 0);
   const data = compactStored[popupKey]
     || await chrome.runtime.sendMessage({ type: 'getPopupResult', tabId: currentTabId }).catch(() => null);
@@ -1266,41 +1274,63 @@ function appendMarkdownCode(target, lines) {
   target.append(pre);
 }
 
+function closeMarkdownList(state) {
+  state.list = null;
+  state.listType = '';
+}
+
+function consumeMarkdownCodeLine(target, state, line) {
+  if (line.startsWith('```')) {
+    if (state.codeLines === null) {
+      closeMarkdownList(state);
+      state.codeLines = [];
+    } else {
+      appendMarkdownCode(target, state.codeLines);
+      state.codeLines = null;
+    }
+    return true;
+  }
+  if (state.codeLines === null) return false;
+  state.codeLines.push(line);
+  return true;
+}
+
+function appendMarkdownListItem(target, state, match, type) {
+  if (!state.list || state.listType !== type) {
+    closeMarkdownList(state);
+    state.list = document.createElement(type);
+    state.listType = type;
+    target.append(state.list);
+  }
+  appendMarkdownTextElement(state.list, 'li', match[1]);
+}
+
 // 轻量、安全的 Markdown：所有模型文本均以 DOM 节点写入，绝不使用 innerHTML。
 function renderMarkdown(target, markdown) {
   target.replaceChildren();
   const lines = String(markdown || '').replace(/\r/g, '').split('\n');
   const state = { list: null, listType: '', codeLines: null };
-  const closeList = () => { state.list = null; state.listType = ''; };
   for (let index = 0; index < lines.length; index++) {
     const line = lines[index];
-    if (line.startsWith('```')) {
-      if (state.codeLines === null) { closeList(); state.codeLines = []; }
-      else { appendMarkdownCode(target, state.codeLines); state.codeLines = null; }
-      continue;
-    }
-    if (state.codeLines !== null) { state.codeLines.push(line); continue; }
+    if (consumeMarkdownCodeLine(target, state, line)) continue;
     if (line.includes('|') && isMarkdownTableSeparator(lines[index + 1] || '')) {
-      closeList();
+      closeMarkdownList(state);
       index = appendMarkdownTable(target, lines, index);
       continue;
     }
     const heading = line.match(/^#{1,3}\s+(.+)/);
     const bullet = line.match(/^[-*]\s+(.+)/);
     const ordered = line.match(/^\d+\.\s+(.+)/);
-    if (heading) { closeList(); appendMarkdownTextElement(target, 'h3', heading[1]); continue; }
-    if (bullet || ordered) {
-      const type = ordered ? 'ol' : 'ul';
-      if (!state.list || state.listType !== type) {
-        closeList();
-        state.list = document.createElement(type);
-        state.listType = type;
-        target.append(state.list);
-      }
-      appendMarkdownTextElement(state.list, 'li', (bullet || ordered)[1]);
+    if (heading) {
+      closeMarkdownList(state);
+      appendMarkdownTextElement(target, 'h3', heading[1]);
       continue;
     }
-    closeList();
+    if (bullet || ordered) {
+      appendMarkdownListItem(target, state, bullet || ordered, ordered ? 'ol' : 'ul');
+      continue;
+    }
+    closeMarkdownList(state);
     if (line.trim()) appendMarkdownTextElement(target, 'p', line);
   }
   if (state.codeLines !== null) appendMarkdownCode(target, state.codeLines);

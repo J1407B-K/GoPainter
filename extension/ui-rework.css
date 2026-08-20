@@ -82,6 +82,59 @@ html.gp-popup .banner .sub {
   font-weight: 650;
   letter-spacing: .03em !important;
 }
+html.gp-popup .popup-intro {
+  position: fixed;
+  z-index: 9999;
+  inset: 0;
+  display: grid;
+  overflow: hidden;
+  color: #fff;
+  background: linear-gradient(135deg, #1e467f, #315b9d 56%, #1f67d8, #284f8c);
+  background-size: 220% 220%;
+  place-items: center;
+  animation: gp-intro-shift 2.2s ease-in-out both, gp-intro-out .34s ease-in 1.06s forwards;
+}
+html.gp-popup .popup-intro:before {
+  content: "";
+  position: absolute;
+  width: 270px;
+  height: 270px;
+  top: -142px;
+  right: -78px;
+  border: 1px solid rgba(255, 255, 255, .17);
+  border-radius: 50%;
+  box-shadow: 0 0 0 46px rgba(255, 255, 255, .04), 0 0 0 95px rgba(255, 255, 255, .025);
+  animation: gp-intro-orbit 1.15s cubic-bezier(.2, .8, .2, 1) both;
+}
+html.gp-popup .popup-intro:after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  background-image: linear-gradient(rgba(255, 255, 255, .055) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 255, 255, .055) 1px, transparent 1px);
+  background-position: center;
+  background-size: 28px 28px;
+  mask-image: radial-gradient(circle at center, #000, transparent 72%);
+  animation: gp-intro-grid .65s ease-out .12s both;
+}
+html.gp-popup .popup-intro-lockup { position: relative; z-index: 1; text-align: center; }
+html.gp-popup .popup-intro-word { display: flex; justify-content: center; font: 760 38px/1 var(--gp-font); letter-spacing: -.05em !important; }
+html.gp-popup .popup-intro-word span {
+  display: inline-block;
+  opacity: 0;
+  transform: translateX(-10px);
+  animation: gp-intro-letter .26s cubic-bezier(.2, .8, .2, 1) forwards;
+  animation-delay: var(--gp-intro-delay);
+}
+html.gp-popup .popup-intro-tagline {
+  margin-top: 11px;
+  color: rgba(255, 255, 255, .74);
+  font: 700 11px var(--gp-font);
+  letter-spacing: .17em !important;
+  opacity: 0;
+  transform: translateY(5px);
+  animation: gp-intro-tagline .3s cubic-bezier(.2, .8, .2, 1) .48s forwards;
+}
 html.gp-popup .banner:after { content: none; }
 html.gp-popup .banner:before { content: ""; position: absolute; top: -87px; right: -20px; width: 138px; height: 138px; pointer-events: none; border: 1px solid rgba(255, 255, 255, .15); border-radius: 50%; box-shadow: 0 0 0 27px rgba(255, 255, 255, .035), 0 0 0 55px rgba(255, 255, 255, .025); }
 html.gp-popup .locale-toggle { position: relative; z-index: 1; }
@@ -211,7 +264,6 @@ html.gp-popup .hit .version { padding: 1px 5px; color: #1f67d8; background: #e8f
 html.gp-popup .hit .id {
   min-width: 0;
   overflow: hidden;
-  color: var(--gp-text-3);
   font: 9px var(--gp-mono);
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -842,6 +894,12 @@ html.gp-sidepanel .empty { padding: 28px 0; color: var(--gp-text-3); text-align:
 
 @keyframes gp-pulse { 50% { opacity: .4; } }
 
+@keyframes gp-intro-letter { to { opacity: 1; transform: none; } }
+@keyframes gp-intro-tagline { to { opacity: 1; transform: none; } }
+@keyframes gp-intro-out { to { opacity: 0; visibility: hidden; } }
+@keyframes gp-intro-shift { 50% { background-position: 100% 20%; } 100% { background-position: 55% 100%; } }
+@keyframes gp-intro-orbit { from { opacity: 0; transform: translate(26px, -20px) scale(.76) rotate(-12deg); } to { opacity: 1; transform: none; } }
+@keyframes gp-intro-grid { to { opacity: .48; } }
 @keyframes gp-page-enter { from { opacity: 0; transform: translateY(-5px) scale(.985); } to { opacity: 1; transform: none; } }
 @keyframes gp-hit-enter { from { opacity: 0; transform: translateY(10px) scale(.985); } to { opacity: 1; transform: none; } }
 @keyframes gp-evidence-enter { from { opacity: 0; transform: translateX(-5px); } to { opacity: 1; transform: none; } }
@@ -884,4 +942,5 @@ html.gp-sidepanel .empty { padding: 28px 0; color: var(--gp-text-3); text-align:
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
   *, *:before, *:after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+  html.gp-popup .popup-intro { display: none !important; }
 }

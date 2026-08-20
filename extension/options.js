@@ -1184,9 +1184,10 @@ document.querySelectorAll('[data-prompt-reset]').forEach((btn) => {
 // --- 置信度 ---
 
 async function loadConfConfig() {
-  const cfg = await chrome.storage.local.get(['showConfidence', 'confThreshold']);
+  const cfg = await chrome.storage.local.get({ showConfidence: false, confThreshold: 0, popupIntroEnabled: true });
   document.getElementById('conf-enabled').checked = !!cfg.showConfidence;
   document.getElementById('conf-threshold').value = cfg.confThreshold || '';
+  document.getElementById('popup-intro-enabled').checked = cfg.popupIntroEnabled !== false;
 }
 
 document.getElementById('conf-save').addEventListener('click', async () => {
@@ -1201,6 +1202,11 @@ document.getElementById('conf-save').addEventListener('click', async () => {
     confThreshold: threshold,
   });
   showMsg('置信度设置已保存');
+});
+
+document.getElementById('popup-intro-enabled').addEventListener('change', async (event) => {
+  await chrome.storage.local.set({ popupIntroEnabled: event.target.checked });
+  document.getElementById('appearance-status').textContent = event.target.checked ? '开屏动画已开启' : '开屏动画已关闭';
 });
 
 // --- 规则体检 ---

@@ -13,6 +13,8 @@
   const en = {
     '设置与数据管理': 'Settings & data management', '设置': 'Settings',
     '指纹规则': 'Fingerprint rules', '规则体检': 'Rule health', '置信度': 'Confidence',
+    '外观': 'Appearance', '打开 Popup 时播放品牌开屏动画': 'Play the brand intro when opening the popup',
+    '控制弹窗打开时的品牌开屏动画；关闭后不会影响匹配、扫描或其他页面动画。': 'Controls the popup brand intro; disabling it does not affect matching, scanning, or other page animations.',
     '第三方规则源': 'Third-party rule sources', 'favicon 哈希库': 'Favicon hash database',
     '书签分类': 'Bookmark organization', '扫描历史与报告': 'Scan history & reports',
     '批量扫描': 'Batch scan', '批量 URL 扫描': 'Batch URL scan', '站点爬取': 'Site crawl', 'AI 与 Agent': 'AI & Agent',
