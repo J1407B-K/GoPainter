@@ -164,17 +164,6 @@ func safeCompile(p string) (re *regexp.Regexp, err error) {
 	return regexp.Compile(p)
 }
 
-// Go 的 regexp 是 RE2，不支持反向引用，个别模式编译不了就丢
-func compilable(patterns []string) []string {
-	out := patterns[:0]
-	for _, p := range patterns {
-		if _, err := safeCompile(tamePattern(p)); err == nil {
-			out = append(out, tamePattern(p))
-		}
-	}
-	return out
-}
-
 // 丢坏模式时元数据同步丢弃，保持 version/confidence 与 pattern 对齐。
 func compilableMeta(patterns []string, metas []wappPatternMeta) ([]string, []wappPatternMeta) {
 	outP := patterns[:0]

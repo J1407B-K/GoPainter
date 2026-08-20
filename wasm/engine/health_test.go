@@ -3,7 +3,7 @@ package engine
 import "testing"
 
 // 体检分类的语料：取自真实规则风格，覆盖三类 + 解析失败。
-// 期望值按匹配时预筛的实际行为推导（canSkipEver 与 regexNodeExcluded 同构）。
+// 期望值按匹配时预筛的实际行为推导。
 func classifyHealth(patterns ...string) RegexHealth {
 	rules := make([]Rule, 0, len(patterns))
 	for _, p := range patterns {

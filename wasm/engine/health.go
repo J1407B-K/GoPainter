@@ -153,18 +153,6 @@ func setAnchorRankings(health *RegexHealth, anchors []PrefilterAnchor) {
 	health.LongAnchors = long
 }
 
-// canSkipEver 问结构上的可跳过性：是否存在某个文本，让匹配路径的预筛
-// 判定能证明这条正则必然不匹配。不依赖具体文本，递归镜像 regexNodeExcluded
-// 的判定结构，只是把 Literal 的「在不在文本」换成「是否 ASCII」（ASCII 才可能被缺席排除）。
-//   - Literal：仅 ASCII 字面量可被「缺席」排除（非 ASCII 受 SimpleFold 护栏，永不排除）
-//   - Concat：任一子节点可排除 → 整体可排除（序列要求全部匹配）
-//   - Alternate：全部分支可排除 → 才可排除
-//   - Star/Quest/CharClass/锚点/Repeat(min=0)：永不
-func canSkipEver(n *syntax.Regexp) bool {
-	_, ok := prefilterAnchor(n)
-	return ok
-}
-
 func anchorStrength(anchor string) int {
 	strength := 0
 	for i := 0; i < len(anchor); i++ {

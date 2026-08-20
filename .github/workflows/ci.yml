@@ -19,6 +19,15 @@ jobs:
         with:
           node-version: '22'
 
+      - name: Go lint
+        uses: golangci/golangci-lint-action@v7
+        env:
+          GOOS: js
+          GOARCH: wasm
+        with:
+          version: v2.1
+          args: --timeout=5m
+
       # 生产用标准 Go wasm（见 BENCHMARK.md：无 TinyGo GC 尾延迟尖峰）
       - name: Build wasm
         run: make build
