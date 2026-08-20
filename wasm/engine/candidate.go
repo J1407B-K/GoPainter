@@ -400,12 +400,8 @@ func validateMatcherStrict(m Matcher, index int, features Features, maxItems int
 	return errors
 }
 
-func validateRuleStrict(raw []byte, features Features, limits validationLimits) CandidateValidation {
-	rule, err := strictDecodeRule(raw)
-	if err != nil {
-		return CandidateValidation{Errors: []ValidationIssue{issue("$", "invalid_json", "候选规则结构无效：%v", err)}}
-	}
-	errors := validateRawCandidateShape(raw)
+func validateRuleHeader(rule Rule, limits validationLimits) []ValidationIssue {
+	var errors []ValidationIssue
 	if !validNonEmptyString(rule.ID, 4000) {
 		errors = append(errors, issue("id", "invalid_string", "id 必须是有界非空字符串"))
 	}
@@ -422,16 +418,18 @@ func validateRuleStrict(raw []byte, features Features, limits validationLimits) 
 			errors = append(errors, issue("matchers", "invalid_list", "matchers 必须至少包含 1 项"))
 		}
 	}
-	errors = append(errors, validateConfidence("confidence", rule.Confidence)...)
-	errors = append(errors, validateStringListOptional("implies", rule.Implies, limits.items)...)
-	errors = append(errors, validateStringListOptional("excludes", rule.Excludes, limits.items)...)
-	for i, matcher := range rule.Matchers {
-		errors = append(errors, validateMatcherStrict(matcher, i, features, limits.items)...)
-	}
-	if len(errors) > 0 {
-		return CandidateValidation{Errors: errors}
-	}
+	return errors
+}
 
+func validateRuleMatchers(rule Rule, features Features, maxItems int) []ValidationIssue {
+	var errors []ValidationIssue
+	for i, matcher := range rule.Matchers {
+		errors = append(errors, validateMatcherStrict(matcher, i, features, maxItems)...)
+	}
+	return errors
+}
+
+func runtimeCoverage(rule Rule, features Features) *RuntimeCoverage {
 	missing := make([]string, 0)
 	seenMissing := make(map[string]bool)
 	hasDOM := false
@@ -451,11 +449,28 @@ func validateRuleStrict(raw []byte, features Features, limits validationLimits) 
 	if complete {
 		note = "当前页面特征覆盖了候选规则的运行时输入。"
 	}
+	return &RuntimeCoverage{Complete: complete, MissingJsPaths: missing, HasUnverifiedDomSelectors: hasDOM, Note: note}
+}
+
+func validateRuleStrict(raw []byte, features Features, limits validationLimits) CandidateValidation {
+	rule, err := strictDecodeRule(raw)
+	if err != nil {
+		return CandidateValidation{Errors: []ValidationIssue{issue("$", "invalid_json", "候选规则结构无效：%v", err)}}
+	}
+	errors := validateRawCandidateShape(raw)
+	errors = append(errors, validateRuleHeader(rule, limits)...)
+	errors = append(errors, validateConfidence("confidence", rule.Confidence)...)
+	errors = append(errors, validateStringListOptional("implies", rule.Implies, limits.items)...)
+	errors = append(errors, validateStringListOptional("excludes", rule.Excludes, limits.items)...)
+	errors = append(errors, validateRuleMatchers(rule, features, limits.items)...)
+	if len(errors) > 0 {
+		return CandidateValidation{Errors: errors}
+	}
 	return CandidateValidation{
 		Valid:           true,
 		Rule:            &rule,
 		CurrentPageHits: Match([]Rule{rule}, features),
-		RuntimeCoverage: &RuntimeCoverage{Complete: complete, MissingJsPaths: missing, HasUnverifiedDomSelectors: hasDOM, Note: note},
+		RuntimeCoverage: runtimeCoverage(rule, features),
 		Errors:          []ValidationIssue{},
 	}
 }
